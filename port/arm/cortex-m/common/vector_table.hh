@@ -83,13 +83,15 @@ public:
 using VecTableF4 = VectorTable<82>;   // STM32F4
 using VecTableH7 = VectorTable<150>;  // STM32H7
 
-/// Minimal boot vector (2 entries: SP + Reset) - place in .isr_vector
-#define UMI_BOOT_VECTORS(sp, reset) \
-    extern "C" { \
-    __attribute__((section(".isr_vector"), used)) \
-    void* const __boot_vectors[2] = { \
-        reinterpret_cast<void*>(&(sp)), \
-        reinterpret_cast<void*>(reset), \
-    }; }
+/// Minimal boot vector template - place in startup.cc with section attribute
+/// Usage:
+///   extern std::uint32_t _estack;
+///   extern "C" void Reset_Handler();
+///   
+///   __attribute__((section(".isr_vector"), used))
+///   void* const boot_vectors[2] = {
+///       reinterpret_cast<void*>(&_estack),
+///       reinterpret_cast<void*>(Reset_Handler),
+///   };
 
 } // namespace umi::port::arm

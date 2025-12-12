@@ -34,6 +34,15 @@
         "xmake l /Users/tekitou/.vscode/extensions/tboox.xmake-vscode-2.4.1/assets/config.lua",
         "xmake check",
         "xmake l /Users/tekitou/.vscode/extensions/tboox.xmake-vscode-2.4.1/assets/explorer.lua",
-        "xmake l /Users/tekitou/.vscode/extensions/tboox.xmake-vscode-2.4.1/assets/explorer.lua"
+        "xmake l /Users/tekitou/.vscode/extensions/tboox.xmake-vscode-2.4.1/assets/explorer.lua",
+        "xmake -r",
+        "xmake build renode_test",
+        "xmake build renode_test",
+        "xmake test",
+        "xmake build test_kernel",
+        "xmake build test_audio",
+        "xmake build test_midi",
+        "xmake renode-test",
+        "xmake build renode_test"
     }
 }

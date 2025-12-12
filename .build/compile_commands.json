@@ -1,8 +1,8 @@
 [
 {
   "directory": "/Users/tekitou/work/umi_os",
-  "arguments": ["/Library/Developer/CommandLineTools/usr/bin/clang", "-c", "-Qunused-arguments", "-isysroot", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk", "-fvisibility=hidden", "-fvisibility-inlines-hidden", "-Wall", "-Wextra", "-Werror", "-O3", "-std=c++23", "-I.", "-Icore", "-Iport", "-fno-exceptions", "-fno-rtti", "-DNDEBUG", "-o", ".build/.objs/test_audio/macosx/arm64/release/test/test_audio.cc.o", "test/test_audio.cc"],
-  "file": "test/test_audio.cc"
+  "arguments": ["/Library/Developer/CommandLineTools/usr/bin/clang", "-c", "-Qunused-arguments", "-isysroot", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk", "-fvisibility=hidden", "-fvisibility-inlines-hidden", "-Wall", "-Wextra", "-Werror", "-O3", "-std=c++23", "-I.", "-Icore", "-Iport", "-fno-exceptions", "-fno-rtti", "-DNDEBUG", "-o", ".build/.objs/test_midi/macosx/arm64/release/test/test_midi.cc.o", "test/test_midi.cc"],
+  "file": "test/test_midi.cc"
 },
 {
   "directory": "/Users/tekitou/work/umi_os",
@@ -11,8 +11,8 @@
 },
 {
   "directory": "/Users/tekitou/work/umi_os",
-  "arguments": ["/Library/Developer/CommandLineTools/usr/bin/clang", "-c", "-Qunused-arguments", "-isysroot", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk", "-fvisibility=hidden", "-fvisibility-inlines-hidden", "-Wall", "-Wextra", "-Werror", "-O3", "-std=c++23", "-I.", "-Icore", "-Iport", "-fno-exceptions", "-fno-rtti", "-DNDEBUG", "-o", ".build/.objs/test_midi/macosx/arm64/release/test/test_midi.cc.o", "test/test_midi.cc"],
-  "file": "test/test_midi.cc"
+  "arguments": ["/Library/Developer/CommandLineTools/usr/bin/clang", "-c", "-Qunused-arguments", "-isysroot", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk", "-fvisibility=hidden", "-fvisibility-inlines-hidden", "-Wall", "-Wextra", "-Werror", "-O3", "-std=c++23", "-I.", "-Icore", "-Iport", "-fno-exceptions", "-fno-rtti", "-DNDEBUG", "-o", ".build/.objs/test_audio/macosx/arm64/release/test/test_audio.cc.o", "test/test_audio.cc"],
+  "file": "test/test_audio.cc"
 },
 {
   "directory": "/Users/tekitou/work/umi_os",

@@ -122,27 +122,6 @@ constexpr auto Err(E error) {
 }
 
 // =====================================================================
-// Helper Macros
-// =====================================================================
-
-/// Early return if result is error (like Rust's ? operator)
-/// Usage: TRY(kernel.try_create_task(cfg));
-#define UMI_TRY(expr) \
-    ({ \
-        auto&& _result = (expr); \
-        if (!_result) return std::unexpected(_result.error()); \
-        std::move(*_result); \
-    })
-
-/// Early return with custom error type
-#define UMI_TRY_OR(expr, err) \
-    ({ \
-        auto&& _result = (expr); \
-        if (!_result) return std::unexpected(err); \
-        std::move(*_result); \
-    })
-
-// =====================================================================
 // Utility Functions
 // =====================================================================
 

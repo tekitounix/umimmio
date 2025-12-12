@@ -106,13 +106,23 @@ void test_fail(const char* name, const char* reason) {
     uart_puts("\r\n");
 }
 
-#define TEST_ASSERT(cond, name) \
-    do { if (cond) test_pass(name); else test_fail(name, #cond); } while(0)
+// Test assertion functions (no macros)
+inline void test_assert(bool cond, const char* name, const char* expr) {
+    if (cond) test_pass(name); 
+    else test_fail(name, expr);
+}
 
-#define TEST_ASSERT_EQ(a, b, name) \
-    do { if ((a) == (b)) test_pass(name); else { \
-        test_fail(name, "expected "); uart_putnum(b); uart_puts(" got "); uart_putnum(a); uart_puts("\r\n"); \
-    }} while(0)
+template<typename T, typename U>
+inline void test_assert_eq(T a, U b, const char* name) {
+    if (static_cast<long long>(a) == static_cast<long long>(b)) {
+        test_pass(name);
+    } else {
+        test_fail(name, "value mismatch");
+        uart_puts("  expected: "); uart_putnum(static_cast<int>(b)); 
+        uart_puts(" got: "); uart_putnum(static_cast<int>(a)); 
+        uart_puts("\r\n");
+    }
+}
 
 }  // namespace
 
@@ -222,22 +232,22 @@ void test_task_creation() {
     };
     
     auto tid = kernel.create_task(cfg);
-    TEST_ASSERT(tid.valid(), "create_task returns valid id");
+    test_assert(tid.valid(), "create_task returns valid id", "");
     
     auto name = kernel.get_task_name(tid);
-    TEST_ASSERT(name != nullptr, "get_task_name not null");
+    test_assert(name != nullptr, "get_task_name not null", "");
     
     // Check priority
     auto prio = kernel.get_task_priority(tid);
-    TEST_ASSERT(prio == umi::Priority::User, "task priority correct");
+    test_assert(prio == umi::Priority::User, "task priority correct", "");
     
     // Delete task
     bool deleted = kernel.delete_task(tid);
-    TEST_ASSERT(deleted, "delete_task succeeds");
+    test_assert(deleted, "delete_task succeeds", "");
     
     // Can't delete again
     deleted = kernel.delete_task(tid);
-    TEST_ASSERT(!deleted, "delete invalid task fails");
+    test_assert(!deleted, "delete invalid task fails", "");
 }
 
 void test_notification() {
@@ -256,11 +266,11 @@ void test_notification() {
     
     // Wait should return the bit
     auto bits = kernel.wait(tid, umi::Event::AudioReady);
-    TEST_ASSERT(bits == umi::Event::AudioReady, "notification delivered");
+    test_assert(bits == umi::Event::AudioReady, "notification delivered", "");
     
     // Wait again - should be cleared
     bits = kernel.wait(tid, umi::Event::AudioReady);
-    TEST_ASSERT(bits == 0, "notification cleared after wait");
+    test_assert(bits == 0, "notification cleared after wait", "");
     
     kernel.delete_task(tid);
 }
@@ -277,15 +287,15 @@ void test_timer() {
     umi::TimerCallback tcb { .fn = callback, .ctx = nullptr };
     
     bool ok = kernel.call_later(1000, tcb);
-    TEST_ASSERT(ok, "timer scheduled");
+    test_assert(ok, "timer scheduled", "");
     
     // Tick partway - internal time advances
     kernel.tick(500);
-    TEST_ASSERT_EQ(timer_count, 0, "timer not fired early");
+    test_assert_eq(timer_count, 0, "timer not fired early");
     
     // Tick rest - timer should fire
     kernel.tick(600);
-    TEST_ASSERT_EQ(timer_count, 1, "timer fired at deadline");
+    test_assert_eq(timer_count, 1, "timer fired at deadline");
 }
 
 void test_spsc_queue() {
@@ -294,24 +304,24 @@ void test_spsc_queue() {
     umi::SpscQueue<int, 4> queue;
     
     // SpscQueue capacity is 3 (Capacity-1 usable slots)
-    TEST_ASSERT(!queue.try_pop().has_value(), "queue starts empty");
-    TEST_ASSERT(queue.has_space(), "queue has space initially");
+    test_assert(!queue.try_pop().has_value(), "queue starts empty", "");
+    test_assert(queue.has_space(), "queue has space initially", "");
     
     // Push items
-    TEST_ASSERT(queue.try_push(1), "push 1");
-    TEST_ASSERT(queue.try_push(2), "push 2");
-    TEST_ASSERT(queue.try_push(3), "push 3");
-    TEST_ASSERT(!queue.try_push(4), "push fails when full");
+    test_assert(queue.try_push(1), "push 1", "");
+    test_assert(queue.try_push(2), "push 2", "");
+    test_assert(queue.try_push(3), "push 3", "");
+    test_assert(!queue.try_push(4), "push fails when full", "");
     
     // Pop items
     auto v = queue.try_pop();
-    TEST_ASSERT(v.has_value() && *v == 1, "pop 1");
+    test_assert(v.has_value() && *v == 1, "pop 1", "");
     v = queue.try_pop();
-    TEST_ASSERT(v.has_value() && *v == 2, "pop 2");
+    test_assert(v.has_value() && *v == 2, "pop 2", "");
     v = queue.try_pop();
-    TEST_ASSERT(v.has_value() && *v == 3, "pop 3");
+    test_assert(v.has_value() && *v == 3, "pop 3", "");
     v = queue.try_pop();
-    TEST_ASSERT(!v.has_value(), "pop empty fails");
+    test_assert(!v.has_value(), "pop empty fails", "");
 }
 
 void test_expected() {
@@ -319,13 +329,13 @@ void test_expected() {
     
     // Test Ok - creates a Result with value
     umi::Result<int> success = umi::Ok(42);
-    TEST_ASSERT(success.has_value(), "Ok has value");
-    TEST_ASSERT_EQ(*success, 42, "Ok value correct");
+    test_assert(success.has_value(), "Ok has value", "");
+    test_assert_eq(*success, 42, "Ok value correct");
     
     // Test Err - creates a Result with error
     umi::Result<int> failure = umi::Err(umi::Error::OutOfTasks);
-    TEST_ASSERT(!failure.has_value(), "Err has no value");
-    TEST_ASSERT(failure.error() == umi::Error::OutOfTasks, "Err code correct");
+    test_assert(!failure.has_value(), "Err has no value", "");
+    test_assert(failure.error() == umi::Error::OutOfTasks, "Err code correct", "");
 }
 
 void test_priority_scheduling() {
@@ -342,8 +352,8 @@ void test_priority_scheduling() {
     
     // get_next_task should select the highest priority task (realtime)
     auto next = kernel.get_next_task();
-    TEST_ASSERT(next.has_value() && next.value() == t_rt.value, 
-                "realtime task selected first");
+    test_assert(next.has_value() && next.value() == t_rt.value, 
+                "realtime task selected first", "");
     
     // Clean up
     kernel.delete_task(t_idle);
@@ -361,7 +371,7 @@ void test_stack_monitor() {
     
     // Initially should be 0% used (all magic)
     auto pct = umi::StackMonitor<HW>::usage_percent(stack, sizeof(stack));
-    TEST_ASSERT_EQ(pct, 0, "stack initially 0% used");
+    test_assert_eq(pct, 0, "stack initially 0% used");
     
     // Corrupt some of the stack (simulate usage)
     stack[60] = 0x12345678;
@@ -370,7 +380,7 @@ void test_stack_monitor() {
     stack[63] = 0x12345678;
     
     pct = umi::StackMonitor<HW>::usage_percent(stack, sizeof(stack));
-    TEST_ASSERT(pct > 0, "stack usage detected");
+    test_assert(pct > 0, "stack usage detected", "");
 }
 
 void test_for_each_task() {
@@ -390,7 +400,7 @@ void test_for_each_task() {
         count++;
     });
     
-    TEST_ASSERT(count >= 2, "for_each_task iterates tasks");
+    test_assert(count >= 2, "for_each_task iterates tasks", "");
     
     kernel.delete_task(t1);
     kernel.delete_task(t2);
@@ -415,20 +425,20 @@ void test_vector_table() {
     
     // Check alignment (compile-time computed)
     auto base = vt.base();
-    TEST_ASSERT(base != 0, "table base non-zero");
-    TEST_ASSERT((base & (VT::ALIGNMENT - 1)) == 0, "table properly aligned");
+    test_assert(base != 0, "table base non-zero", "");
+    test_assert((base & (VT::ALIGNMENT - 1)) == 0, "table properly aligned", "");
     
     // Get handler (initially default)
     auto h = vt.get(VT::Exc::SysTick);
-    TEST_ASSERT(h != nullptr, "handler not null");
+    test_assert(h != nullptr, "handler not null", "");
     
     // Set custom handler and verify
     (void)vt.set(VT::Exc::PendSV, test_custom_handler);
-    TEST_ASSERT(vt.get(VT::Exc::PendSV) == test_custom_handler, "handler set correctly");
+    test_assert(vt.get(VT::Exc::PendSV) == test_custom_handler, "handler set correctly", "");
     
     // Test IRQ handler
     vt.set_irq(38, test_custom_handler);  // USART2
-    TEST_ASSERT(vt.get_irq(38) == test_custom_handler, "IRQ handler set");
+    test_assert(vt.get_irq(38) == test_custom_handler, "IRQ handler set", "");
     
     // Restore original VTOR for rest of tests
     umi::port::arm::SCB::set_vtor(0x08000000);

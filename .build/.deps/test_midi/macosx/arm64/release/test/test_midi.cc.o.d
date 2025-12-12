@@ -1,10 +1,10 @@
 {
-    depfiles = ".build/.objs/test_midi/macosx/arm64/release/test/__cpp_test_midi.cc.cc:   test/test_midi.cc test/../core/umi_midi.hh test/../core/umi_kernel.hh\
-",
     depfiles_format = "gcc",
     files = {
         "test/test_midi.cc"
     },
+    depfiles = ".build/.objs/test_midi/macosx/arm64/release/test/__cpp_test_midi.cc.cc:   test/test_midi.cc test/../core/umi_midi.hh test/../core/umi_kernel.hh\
+",
     values = {
         "/Library/Developer/CommandLineTools/usr/bin/clang",
         {

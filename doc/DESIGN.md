@@ -216,7 +216,7 @@ kernel.register_watchdog(audio_task_id, 10000_usec);  // 10msタイムアウト
 kernel.kick_watchdog(audio_task_id);
 
 // パニック（復帰不可能なエラー）
-kernel.panic("Buffer underrun", current_file, current_line);
+kernel.panic("Buffer underrun");
 ```
 
 ---
@@ -618,7 +618,7 @@ xmake robot
 | **Mutex/Semaphore** | CriticalSection + SpscQueue で十分 |
 | **CondVar/Barrier** | Notification で代替可能 |
 | **MPSCキュー** | 電子楽器はSPSCで完結 |
-| **動的メモリ確保** | 設計原則に反する |
+| **実行時の動的メモリ確保** | オーディオ処理中のmalloc/newは禁止（初期化時は許容） |
 | **ファイルシステム** | フラッシュ直接アクセスで十分 |
 | **ネットワークスタック** | 電子楽器には過剰 |
 
