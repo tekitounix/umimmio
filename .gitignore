@@ -1,0 +1,15 @@
+# Build outputs
+.build/
+
+# xmake cache
+.xmake/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Editor backups
+*~
+*.swp
