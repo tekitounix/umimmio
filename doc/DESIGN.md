@@ -111,23 +111,126 @@ target("firmware_devboard")
 
 ---
 
+## アプリケーションモデル
+
+### 設計思想: 組み込みファースト
+
+組み込み（MCU）で動くコードが、そのままVST/AU/WASMでも動く。
+
+```
+┌─────────────────────────────────────────────────────────┐
+│              Application Code (ポータブル)               │
+│  ┌───────────────────────┐  ┌───────────────────────┐  │
+│  │  AudioProcessor       │  │  UIApp (optional)     │  │
+│  │  - process()          │  │  - render()           │  │
+│  │  - on_midi()          │  │  - on_input()         │  │
+│  │  - params[]           │  │                       │  │
+│  └───────────┬───────────┘  └───────────┬───────────┘  │
+├──────────────┼──────────────────────────┼──────────────┤
+│              ▼ Host Adapter             ▼              │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐      │
+│  │ UMI-OS  │ │  VST3   │ │   AU    │ │  WASM   │      │
+│  │  (MCU)  │ │  (DAW)  │ │ (macOS) │ │  (Web)  │      │
+│  └─────────┘ └─────────┘ └─────────┘ └─────────┘      │
+└─────────────────────────────────────────────────────────┘
+```
+
+### AudioProcessor インターフェース
+
+ユーザーはDSP処理のみを記述。タスク管理はカーネルが隠蔽。
+
+```cpp
+namespace umi {
+
+struct ParamInfo {
+    const char* id;         // "cutoff"
+    const char* name;       // "Filter Cutoff"  
+    float min, max, def;    // 20.0, 20000.0, 1000.0
+};
+
+template<typename Derived>
+struct AudioProcessor {
+    // === 必須: オーディオ処理 ===
+    void process(float** out, const float** in,
+                 std::size_t frames, std::size_t channels);
+    
+    // === オプション ===
+    void prepare(float sample_rate, std::size_t max_frames);
+    void reset();
+    
+    // === パラメータ（コンパイル時定義） ===
+    static constexpr auto params = std::array{
+        ParamInfo{"cutoff", "Cutoff", 20, 20000, 1000},
+    };
+    void set_param(std::size_t index, float value);
+    float get_param(std::size_t index) const;
+    
+    // === MIDI ===
+    void on_midi(const midi::Event& ev);
+    
+    // === 状態保存/復元 ===
+    std::size_t save_state(std::byte* buf, std::size_t max) const;
+    void load_state(const std::byte* buf, std::size_t len);
+};
+
+} // namespace umi
+```
+
+### 使用例
+
+```cpp
+// my_synth.hh - 全プラットフォーム共通
+struct MySynth : umi::AudioProcessor<MySynth> {
+    static constexpr auto params = std::array{
+        umi::ParamInfo{"cutoff", "Cutoff", 20, 20000, 1000},
+        umi::ParamInfo{"reso", "Resonance", 0, 1, 0.5},
+    };
+    
+    void process(float** out, const float** in,
+                 std::size_t frames, std::size_t channels) {
+        for (std::size_t i = 0; i < frames; ++i) {
+            out[0][i] = filter.process(osc.next());
+        }
+    }
+    
+    void on_midi(const midi::Event& ev) {
+        if (ev.type == midi::Type::NoteOn) {
+            osc.trigger(ev.data1, ev.data2);
+        }
+    }
+};
+
+// main.cc (MCU) - ホストアダプター
+#include "my_synth.hh"
+int main() {
+    MySynth synth;
+    umi::run(synth);  // カーネルがタスク管理
+}
+
+// vst3.cc (DAW) - 同じコード
+#include "my_synth.hh"
+umi::vst3::create<MySynth>();
+```
+
+---
+
 ## アーキテクチャ
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                  Application                         │
-│  (Synthesizer, Effects, MIDI Controllers, etc.)     │
+│                  AudioProcessor                      │
+│            (ユーザーが書くDSPコード)                  │
 ├─────────────────────────────────────────────────────┤
-│                 System Servers                       │
+│                 System Services                      │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐            │
-│  │  Audio   │ │   MIDI   │ │  Shell   │            │
-│  │  Engine  │ │  Router  │ │ (Debug)  │            │
+│  │  Audio   │ │   MIDI   │ │  Shell   │  ← カーネル│
+│  │  Task    │ │  Server  │ │ (Debug)  │    が管理  │
 │  └──────────┘ └──────────┘ └──────────┘            │
 ├─────────────────────────────────────────────────────┤
 │                   Core Kernel                        │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐            │
 │  │ Scheduler│ │  Timer   │ │  IPC     │            │
-│  │ 4-Level  │ │  Queue   │ │ SpscQueue│            │
+│  │ 5-Level  │ │  Queue   │ │ SpscQueue│            │
 │  │ Priority │ │(Tickless)│ │ Notify   │            │
 │  └──────────┘ └──────────┘ └──────────┘            │
 ├─────────────────────────────────────────────────────┤
@@ -145,32 +248,76 @@ target("firmware_devboard")
 
 ### 1.1 優先度スケジューラ
 
-4段階の固定優先度 + 同一優先度内でのラウンドロビン。
+5段階の固定優先度。Normal以下はラウンドロビン。
 
-| 優先度 | 用途 | 特徴 |
-|--------|------|------|
-| **Realtime** | オーディオISR, DMA完了 | 最高優先度、即座にプリエンプション |
-| **Server** | MIDI処理, USB, I2C | イベント駆動 |
-| **User** | UI更新, LED, エンコーダ | ラウンドロビンで公平化 |
-| **Idle** | スリープ, 低優先度処理 | 他にタスクがないとき実行 |
+| 優先度 | 用途 | 特徴 | ユーザー使用 |
+|--------|------|------|-------------|
+| **Realtime** | オーディオタスク | デッドライン厳守 | 不可（カーネル予約） |
+| **High** | MIDI Server等 | 低レイテンシ必要 | 不可（カーネル予約） |
+| **Normal** | Server + User | ラウンドロビン | 可 |
+| **Low** | モニター、ログ | バックグラウンド | 可 |
+| **Idle** | スリープ | 他にタスクなし時 | 不可 |
 
 ```cpp
-enum class Priority : std::uint8_t { Realtime = 0, Server = 1, User = 2, Idle = 3 };
+enum class Priority : std::uint8_t { 
+    Realtime = 0,  // カーネル予約: オーディオタスク
+    High = 1,      // カーネル予約: クリティカルServer
+    Normal = 2,    // ユーザー使用可: 通常タスク
+    Low = 3,       // ユーザー使用可: バックグラウンド
+    Idle = 4,      // カーネル予約: アイドル
+};
 ```
 
-### 1.2 タスク管理
+### 1.2 タスクの隠蔽
+
+ユーザーは `AudioProcessor` を実装するだけ。タスク管理はカーネルが自動で行う。
+
+```cpp
+// カーネル内部で自動生成されるタスク
+// - Audio Task (Realtime): DMA notify待ち → process() 呼び出し → 負荷計測
+// - MIDI Server (High): MIDI受信 → on_midi() 呼び出し
+// - Monitor (Low): 負荷表示、ドロップ検知
+```
+
+### 1.3 負荷計測とドロップ検知
+
+オーディオタスク自身が計測し、共有メモリに記録。低優先度タスクで集計・表示。
+
+```cpp
+// Audio Task (Realtime) 内部
+void audio_task_loop(AudioProcessor& app) {
+    while (true) {
+        kernel.wait(Event::AudioReady);  // ISRからのnotify
+        
+        auto start = DWT::cycles();
+        app.process(out, in, frames, channels);
+        auto elapsed = DWT::cycles() - start;
+        
+        load_monitor.record(elapsed);
+        if (elapsed > deadline_cycles) {
+            drop_counter++;
+        }
+    }
+}
+
+// Monitor Task (Low) で読み取り
+auto load = load_monitor.get_percent();
+auto drops = drop_counter.load();
+```
+
+### 1.4 タスク管理（モノリシック構成のみ）
+
+開発ボードでは直接タスクを作成可能。
 
 ```cpp
 struct TaskConfig {
     void (*entry)(void*) {nullptr};
     void* arg {nullptr};
-    Priority prio {Priority::Idle};
-    std::uint8_t core_affinity {static_cast<std::uint8_t>(Core::Any)};
-    bool uses_fpu {false};
+    Priority prio {Priority::Normal};  // Normal/Low のみ推奨
     const char* name {"<unnamed>"};
 };
 
-// 作成と通知
+// 作成と通知// 作成と通知
 TaskId id = kernel.create_task(config);
 kernel.notify(id, Event::AudioReady);
 
