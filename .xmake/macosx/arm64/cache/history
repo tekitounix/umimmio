@@ -43,6 +43,9 @@
         "xmake build test_audio",
         "xmake build test_midi",
         "xmake renode-test",
-        "xmake build renode_test"
+        "xmake build renode_test",
+        "xmake l /Users/tekitou/.vscode/extensions/tboox.xmake-vscode-2.4.1/assets/explorer.lua",
+        "xmake l /Users/tekitou/.vscode/extensions/tboox.xmake-vscode-2.4.1/assets/explorer.lua",
+        "xmake l /Users/tekitou/.vscode/extensions/tboox.xmake-vscode-2.4.1/assets/explorer.lua"
     }
 }
