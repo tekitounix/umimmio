@@ -69,29 +69,25 @@ archive/
 umi_os/
 ├── xmake.lua                       # 更新済
 ├── include/umi/                    # 公開ヘッダー
-│   ├── types.hpp                  # ✅ 型定義
-│   ├── time.hpp                   # ✅ 時間ユーティリティ
-│   ├── event.hpp                  # ✅ Event/EventQueue
-│   ├── audio_context.hpp          # ✅ AudioContext/ControlContext
-│   ├── processor.hpp              # ✅ コンセプトベースAPI
-│   ├── coro.hpp                   # ← core/umi_coro.hh を移動予定
-│   ├── assert.hpp                 # 層別アサート（予定）
-│   ├── log.hpp                    # 層別ログ（予定）
-│   └── error.hpp                  # Result<T>/Errorコード（予定）
-├── core/                          # カーネル・内部実装
+│   ├── types.hh                   # ✅ 型定義
+│   ├── time.hh                    # ✅ 時間ユーティリティ
+│   ├── event.hh                   # ✅ Event/EventQueue
+│   ├── audio_context.hh           # ✅ AudioContext/ControlContext
+│   ├── processor.hh               # ✅ コンセプトベースAPI
+│   ├── coro.hh                    # ✅ core/umi_coro.hhから移動
+│   ├── assert.hh                  # ✅ 層別アサート
+│   ├── log.hh                     # ✅ 層別ログ
+│   ├── triple_buffer.hh           # ✅ ロックフリー・トリプルバッファ
+│   └── error.hh                   # ✅ Result<T>/Errorコード
+├── core/                          # カーネル・内部実装（レガシー）
 │   ├── umi_coro.hh               # コルーチン（成熟）
 │   ├── umi_kernel.hh             # カーネル
 │   ├── umi_audio.hh              # オーディオ
 │   ├── umi_midi.hh               # MIDI
-│   ├── kernel/                    # 分割予定
-│   └── audio/
-│       └── triple_buffer.hpp      # 予定
+│   └── ...
 ├── dsp/                           # DSP部品（依存なし、予定）
 ├── adapter/                       # アダプタ層（予定）
-│   ├── embedded/
-│   ├── vst3/
-│   ├── clap/
-│   └── wasm/
+│   └── embedded/
 ├── port/                          # PAL（既存構造維持）
 ├── doc/
 │   ├── DESIGN_COMPARISON_REPORT.md # 比較レポート
@@ -101,6 +97,7 @@ umi_os/
 │   └── example_app.cc            # ✅ 新API対応済
 ├── test/
 │   ├── test_processor.cc         # ✅ 新API、16テスト
+│   ├── renode_test.cc            # ✅ レガシーAPI、33テスト
 │   ├── test_kernel.cc            # 既存
 │   ├── test_audio.cc             # 既存
 │   └── test_midi.cc              # 既存
@@ -146,19 +143,25 @@ umi_os/
 - `Controllable`: `control(ControlContext&)`も持つ
 - `AnyProcessor`: 動的ディスパッチ用型消去ラッパー
 
-### Phase 2: コア分割・整理
+### Phase 2: コア分割・整理 ✅ 完了
 
 **依存**: Phase 1  
 **完了条件**: トリプルバッファリング動作、既存テスト全パス、Renodeシミュレーション動作
 
-| タスク | 詳細 |
-|--------|------|
-| coro.hpp移動 | umi_coro.hh → include/umi/coro.hpp（API変更なし） |
-| assert.hpp/log.hpp | 層別ポリシー実装 |
-| triple_buffer.hpp | ダブル→トリプルバッファリング |
-| error.hpp | 体系化されたErrorコード |
-| テスト更新 | test_kernel.cc、test_audio.cc |
-| Renodeテスト | renode_test.cc を新API対応 |
+| タスク | 状態 | 詳細 |
+|--------|------|------|
+| coro.hh移動 | ✅ | umi_coro.hh → include/umi/coro.hh（API変更なし） |
+| assert.hh | ✅ | 層別アサート（UMI_ASSERT, UMI_REQUIRE等） |
+| log.hh | ✅ | 層別ログ（LogLevel, UMI_LOG_*マクロ） |
+| triple_buffer.hh | ✅ | ロックフリー・トリプルバッファリング |
+| error.hh | ✅ | core/umi_expected.hhからコピー、Error列挙型 |
+| 拡張子変更 | ✅ | 全ヘッダーを.hpp→.hhに変更 |
+| Renodeテスト | ✅ | 33/33テストパス（レガシーAPI使用） |
+
+**注意**: `umi::Event`名前空間の衝突により、renode_test.ccでは新APIを使用できず。
+- umi_kernel.hh: `umi::Event`はnamespace（ビットフラグ）
+- event.hh: `umi::Event`はstruct（オーディオイベント）
+- **解決策**: Phase 3で名前空間を再構成予定
 
 ### Phase 3: アダプタ層実装
 
@@ -311,11 +314,19 @@ target_end()
 
 ## 8. 次のアクション
 
-1. **Phase 0を開始**: archive/v0.1-legacy/ を作成し、現在のファイルをコピー
-2. Gitタグ `v0.1-legacy` を作成
-3. `include/umi/` ディレクトリを作成
-4. `doc/MIGRATION.md` の骨格を作成
+**Phase 3準備**:
+1. `umi::Event`名前空間の衝突を解決
+   - 案1: umi_kernel.hhの`umi::Event`を`umi::KernelEvent`に変更
+   - 案2: event.hhの`Event`を`AudioEvent`に変更
+   - 案3: 新API側で`umi::audio::Event`として別名前空間を使用
+2. adapter/embedded/ を実装開始
+3. dsp/ の分離検討
 
 ---
 
 *本計画は段階的に更新されます。*
+
+**更新履歴**:
+- 2025-01-12: 初版作成（Phase 0〜4計画）
+- 2025-01-12: Phase 0完了、Phase 1完了（コンセプトベース設計）
+- 2025-01-12: Phase 2完了（コア整理、.hh拡張子統一、Renode 33テストパス）
