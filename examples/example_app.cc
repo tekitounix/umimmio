@@ -14,10 +14,10 @@
 #include <chrono>
 #include <array>
 
-#include <umi/processor.hpp>
-#include <umi/audio_context.hpp>
-#include <umi/event.hpp>
-#include "../core/umi_coro.hh"
+#include <umi/processor.hh>
+#include <umi/audio_context.hh>
+#include <umi/event.hh>
+#include <umi/coro.hh>
 
 // =====================================================================
 // Syscall Interface (provided by kernel)

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // UMI-OS Processor API test
 
-#include <umi/processor.hpp>
-#include <umi/audio_context.hpp>
-#include <umi/event.hpp>
-#include <umi/time.hpp>
-#include <umi/types.hpp>
+#include <umi/processor.hh>
+#include <umi/audio_context.hh>
+#include <umi/event.hh>
+#include <umi/time.hh>
+#include <umi/types.hh>
 
 #include <cstdio>
 #include <array>

@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include "types.hpp"
-#include "event.hpp"
+#include "types.hh"
+#include "event.hh"
 #include <span>
 #include <cstdint>
 #include <algorithm>

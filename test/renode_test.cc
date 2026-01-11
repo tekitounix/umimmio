@@ -27,6 +27,11 @@
 #include "../core/umi_expected.hh"
 #include "../core/umi_monitor.hh"
 #include "../port/arm/cortex-m/common/vector_table.hh"
+
+// NOTE: New API (include/umi/*.hh) has naming conflict with umi::Event namespace
+// in umi_kernel.hh. New API is tested in test_processor.cc (native tests).
+// TODO: Resolve namespace conflict in Phase 3.
+
 #include <cstdint>
 
 // =============================================================================
@@ -443,6 +448,9 @@ void test_vector_table() {
     // Restore original VTOR for rest of tests
     umi::port::arm::SCB::set_vtor(0x08000000);
 }
+
+// NOTE: New API tests (time, event, processor, triple_buffer) are in test_processor.cc
+// They cannot be included here due to umi::Event namespace conflict with umi_kernel.hh
 
 }  // namespace
 

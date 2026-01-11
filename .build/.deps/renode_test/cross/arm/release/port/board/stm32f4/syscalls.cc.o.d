@@ -1,10 +1,4 @@
 {
-    depfiles = "syscalls.o: port/board/stm32f4/syscalls.cc\
-",
-    depfiles_format = "gcc",
-    files = {
-        "port/board/stm32f4/syscalls.cc"
-    },
     values = {
         "/Applications/ArmGNUToolchain/14.2.rel1/arm-none-eabi/bin/arm-none-eabi-g++",
         {
@@ -18,6 +12,7 @@
             "-I.",
             "-Icore",
             "-Iport",
+            "-Iinclude",
             "-DSTM32F4",
             "-DBOARD_STM32F4",
             "-Os",
@@ -32,5 +27,11 @@
             "-fdata-sections",
             "-DNDEBUG"
         }
+    },
+    depfiles = "syscalls.o: port/board/stm32f4/syscalls.cc\
+",
+    depfiles_format = "gcc",
+    files = {
+        "port/board/stm32f4/syscalls.cc"
     }
 }

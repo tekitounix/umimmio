@@ -4,8 +4,8 @@
 
 #pragma once
 
-#include "types.hpp"
-#include "audio_context.hpp"
+#include "types.hh"
+#include "audio_context.hh"
 #include <span>
 #include <string_view>
 #include <cstdint>

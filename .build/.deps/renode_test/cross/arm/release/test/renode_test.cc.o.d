@@ -1,10 +1,4 @@
 {
-    files = {
-        "test/renode_test.cc"
-    },
-    depfiles = "renode_test.o: test/renode_test.cc test/../core/umi_kernel.hh  test/../core/umi_expected.hh test/../core/umi_monitor.hh  test/../port/arm/cortex-m/common/vector_table.hh  test/../port/arm/cortex-m/common/scb.hh\
-",
-    depfiles_format = "gcc",
     values = {
         "/Applications/ArmGNUToolchain/14.2.rel1/arm-none-eabi/bin/arm-none-eabi-g++",
         {
@@ -18,6 +12,7 @@
             "-I.",
             "-Icore",
             "-Iport",
+            "-Iinclude",
             "-DSTM32F4",
             "-DBOARD_STM32F4",
             "-Os",
@@ -32,5 +27,11 @@
             "-fdata-sections",
             "-DNDEBUG"
         }
+    },
+    depfiles = "renode_test.o: test/renode_test.cc test/../core/umi_kernel.hh  test/../core/umi_expected.hh test/../core/umi_monitor.hh  test/../port/arm/cortex-m/common/vector_table.hh  test/../port/arm/cortex-m/common/scb.hh\
+",
+    depfiles_format = "gcc",
+    files = {
+        "test/renode_test.cc"
     }
 }

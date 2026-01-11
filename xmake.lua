@@ -261,7 +261,7 @@ target("renode_test")
     
     add_rules("cortex-m4f")
     add_deps("umi_core")
-    add_includedirs(".", "core", "port")
+    add_includedirs(".", "core", "port", "include")
     add_defines("STM32F4", "BOARD_STM32F4")
     
     -- Optimize for size with debug info
