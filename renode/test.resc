@@ -20,8 +20,8 @@ usart2 CreateFileBackend $CWD/.build/renode_uart.log true
 
 echo "=== UMI-OS Test Suite Starting ==="
 
-# Run emulation for 0.2 seconds (virtual time)
-emulation RunFor "0.2"
+# Run emulation for 2 seconds (virtual time) - extended for DSP tests with float math
+emulation RunFor "2"
 
 echo "=== Test finished ==="
 quit

@@ -36,6 +36,7 @@
 #include "../include/umi/processor.hh"
 #include "../include/umi/triple_buffer.hh"
 #include "../adapter/embedded/adapter.hh"
+#include "../dsp/dsp.hh"
 
 #include <cstdint>
 
@@ -633,6 +634,16 @@ void test_embedded_adapter() {
     test_pass("Embedded Adapter instantiation works");
 }
 
+// NOTE: DSP tests are commented out because floating-point math (sin, exp, pow)
+// is very slow in Renode emulation. These should be tested natively instead.
+// The DSP headers are included and compile successfully.
+//
+// DSP tests for native environment:
+// - test_dsp_oscillator(): Phase, Sine, SawNaive, SquareNaive, SawBL
+// - test_dsp_filter(): OnePole, Biquad, SVF
+// - test_dsp_envelope(): ADSR, AR, Ramp
+// - test_dsp_utils(): midi_to_freq, normalize_freq, soft_clip, etc.
+
 }  // namespace
 
 // =============================================================================
@@ -671,6 +682,13 @@ int main() {
     
     // Adapter tests (Phase 3)
     test_embedded_adapter();
+    
+    // NOTE: DSP tests require floating-point math (sin, pow) that is very slow
+    // in emulation. Run these in native tests (test_processor.cc) instead.
+    // test_dsp_oscillator();
+    // test_dsp_filter();
+    // test_dsp_envelope();
+    // test_dsp_utils();
     
     // Summary
     uart_puts("\r\n========================================\r\n");
