@@ -285,6 +285,103 @@ target_end()
 end  -- if has_arm_toolchain
 
 -- =====================================================================
+-- WASM Targets (Emscripten)
+-- =====================================================================
+
+-- Check for Emscripten by checking common paths
+local has_emscripten = os.getenv("EMSDK") ~= nil 
+    or os.isfile("/opt/homebrew/bin/emcc")
+    or os.isfile("/usr/local/bin/emcc")
+    or os.isfile("/usr/bin/emcc")
+
+if has_emscripten then
+
+rule("wasm-worklet")
+    on_load(function (target)
+        target:set("plat", "wasm")
+        target:set("arch", "wasm32")
+        
+        -- Embedded C++ flags
+        target:add("cxflags", "-fno-exceptions", "-fno-rtti", {force = true})
+        target:add("cxflags", "-O3", {force = true})
+        
+        -- WASM specific flags
+        target:add("ldflags", "-sWASM=1", {force = true})
+        target:add("ldflags", "-sALLOW_MEMORY_GROWTH=1", {force = true})
+        target:add("ldflags", "-sSTACK_SIZE=65536", {force = true})
+        target:add("ldflags", "-sINITIAL_MEMORY=1048576", {force = true})
+        
+        -- AudioWorklet support
+        target:add("ldflags", "-sAUDIO_WORKLET=1", {force = true})
+        target:add("ldflags", "-sWASM_WORKERS=1", {force = true})
+        
+        -- Export functions for JavaScript
+        target:add("ldflags", "-sEXPORTED_FUNCTIONS=['_malloc','_free','_umi_create','_umi_destroy','_umi_process','_umi_process_midi','_umi_set_param']", {force = true})
+        target:add("ldflags", "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']", {force = true})
+        
+        -- Modular output
+        target:add("ldflags", "-sMODULARIZE=1", {force = true})
+        target:add("ldflags", "-sEXPORT_ES6=1", {force = true})
+        target:add("ldflags", "-sENVIRONMENT=web,worker", {force = true})
+    end)
+rule_end()
+
+-- Minimal WASM test (no AudioWorklet, for basic verification)
+target("wasm_test")
+    set_kind("binary")
+    set_group("wasm")
+    set_default(false)
+    set_plat("wasm")
+    set_arch("wasm32")
+    set_toolchains("emcc")
+    set_targetdir(".build/wasm")
+    set_filename("umi_test.js")
+    
+    add_deps("umi_core")
+    add_includedirs(".", "core", "port", "include", "dsp", "adapter")
+    add_files("adapter/wasm/test_wasm.cc")
+    
+    add_cxflags("-fno-exceptions", "-fno-rtti", "-O3", {force = true})
+    add_ldflags("-sWASM=1", {force = true})
+    add_ldflags("-sALLOW_MEMORY_GROWTH=1", {force = true})
+    add_ldflags("-sEXPORTED_FUNCTIONS=['_malloc','_free','_umi_test_types','_umi_test_dsp']", {force = true})
+    add_ldflags("-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']", {force = true})
+    add_ldflags("-sMODULARIZE=1", {force = true})
+    add_ldflags("-sEXPORT_ES6=1", {force = true})
+    add_ldflags("-sENVIRONMENT=web,node", {force = true})
+target_end()
+
+-- Full WASM Synth with AudioWorklet
+target("wasm_synth")
+    set_kind("binary")
+    set_group("wasm")
+    set_default(false)
+    set_plat("wasm")
+    set_arch("wasm32")
+    set_toolchains("emcc")
+    set_targetdir(".build/wasm")
+    set_filename("umi_synth.js")
+    
+    add_deps("umi_core")
+    add_includedirs(".", "core", "port", "include", "dsp", "adapter")
+    add_files("adapter/wasm/synth_wasm.cc")
+    
+    add_cxflags("-fno-exceptions", "-fno-rtti", "-O3", {force = true})
+    add_ldflags("-sWASM=1", {force = true})
+    add_ldflags("-sALLOW_MEMORY_GROWTH=1", {force = true})
+    add_ldflags("-sSTACK_SIZE=65536", {force = true})
+    add_ldflags("-sAUDIO_WORKLET=1", {force = true})
+    add_ldflags("-sWASM_WORKERS=1", {force = true})
+    add_ldflags("-sEXPORTED_FUNCTIONS=['_malloc','_free','_umi_create','_umi_destroy','_umi_process','_umi_note_on','_umi_note_off','_umi_set_param','_umi_get_buffer_ptr']", {force = true})
+    add_ldflags("-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']", {force = true})
+    add_ldflags("-sMODULARIZE=1", {force = true})
+    add_ldflags("-sEXPORT_ES6=1", {force = true})
+    add_ldflags("-sENVIRONMENT=web,worker", {force = true})
+target_end()
+
+end  -- if has_emscripten
+
+-- =====================================================================
 -- Tasks
 -- =====================================================================
 
@@ -383,10 +480,10 @@ task("robot")
         
         -- Find renode-test runner
         local runner = "/Applications/Renode.app/Contents/MacOS/renode-test"
-        if not os.isexec(runner) then
-            runner = "renode-test"
+        if not os.isfile(runner) then
+            runner = os.which("renode-test") or "renode-test"
         end
-        if not os.isexec(runner) then
+        if not os.isfile(runner) and not os.which("renode-test") then
             print("ERROR: renode-test not found")
             print("Install: pip install -r /Applications/Renode.app/Contents/MacOS/tests/requirements.txt")
             os.exit(1)
@@ -457,7 +554,7 @@ task("info")
         
         -- Check toolchain (use known path)
         local arm_gcc = "/Applications/ArmGNUToolchain/14.2.rel1/arm-none-eabi/bin/arm-none-eabi-gcc"
-        if os.isfile(arm_gcc) or os.isexec("arm-none-eabi-gcc") then
+        if os.isfile(arm_gcc) or os.which("arm-none-eabi-gcc") then
             print("ARM GCC: ✓ Available")
         else
             print("ARM GCC: ✗ Not found")
@@ -470,9 +567,70 @@ task("info")
         else
             print("Renode:  ✗ Not found")
         end
+        
+        -- Check Emscripten
+        if os.which("emcc") then
+            print("Emcc:    ✓ Available")
+        else
+            print("Emcc:    ✗ Not found (install: brew install emscripten)")
+        end
     end)
     set_menu {
         usage = "xmake info",
         description = "Show build configuration"
+    }
+task_end()
+
+-- WASM build and serve
+task("wasm")
+    set_category("action")
+    on_run(function ()
+        print("Building WASM targets...")
+        os.exec("xmake build wasm_test")
+        
+        print("\n" .. string.rep("=", 60))
+        print("WASM build complete!")
+        print("Output: .build/wasm/")
+        print(string.rep("=", 60))
+        
+        -- List generated files
+        os.exec("ls -la .build/wasm/")
+    end)
+    set_menu {
+        usage = "xmake wasm",
+        description = "Build WASM targets"
+    }
+task_end()
+
+-- WASM test (headless Node.js)
+task("wasm-test")
+    set_category("action")
+    on_run(function ()
+        print("Building WASM test module...")
+        os.exec("xmake build wasm_test")
+        
+        print("\nRunning WASM tests in Node.js...")
+        os.exec("node web/test-headless.mjs")
+    end)
+    set_menu {
+        usage = "xmake wasm-test",
+        description = "Run WASM tests in Node.js"
+    }
+task_end()
+
+-- WASM serve for testing
+task("wasm-serve")
+    set_category("action")
+    on_run(function ()
+        print("Building WASM synth...")
+        os.exec("xmake build wasm_synth")
+        
+        print("\nStarting local server...")
+        print("Open: http://localhost:8080/web/")
+        os.exec("cd web && python3 -m http.server 8080")
+    end)
+    set_menu {
+        usage = "xmake wasm-serve",
+        description = "Build and serve WASM synth"
     }
 task_end()

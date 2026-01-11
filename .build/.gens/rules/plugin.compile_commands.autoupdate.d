@@ -1,9 +1,7 @@
 {
-    files = {
-        "/Users/tekitou/work/umi_os/xmake.lua",
-        "/Users/tekitou/work/umi_os/.xmake/macosx/arm64/xmake.conf"
-    },
     values = {
+        "adapter/wasm/synth_wasm.cc",
+        "adapter/wasm/test_wasm.cc",
         "core/umi_app_types.hh",
         "core/umi_audio.hh",
         "core/umi_coro.hh",
@@ -21,5 +19,9 @@
         "test/test_kernel.cc",
         "test/test_midi.cc",
         "test/test_processor.cc"
+    },
+    files = {
+        "/Users/tekitou/work/umi_os/xmake.lua",
+        "/Users/tekitou/work/umi_os/.xmake/macosx/arm64/xmake.conf"
     }
 }

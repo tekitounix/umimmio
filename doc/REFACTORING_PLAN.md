@@ -312,6 +312,13 @@ target_end()
 - [ ] VST3プラグインとしてビルド可能（後回し）
 - [ ] Input/Display Serverが機能する（未実装）
 
+### Phase WASM完了時
+- [x] xmake.luaにEmscriptenビルド設定
+- [x] adapter/wasm/（test_wasm.cc, synth_wasm.cc）
+- [x] web/（umi.js, index.html, test.html, test-headless.mjs）
+- [x] Node.jsヘッドレステスト（4/4パス）
+- [x] WASMモジュール生成成功（umi_test.wasm, umi_synth.wasm）
+
 ### Phase 4完了時
 - [ ] CLAPプラグインとしてビルド可能
 - [ ] ISPで診断情報が取得できる
@@ -321,11 +328,12 @@ target_end()
 
 ## 8. 次のアクション
 
-**Phase 4または追加タスク**:
-1. DSPテストをネイティブ環境（test_processor.cc）に追加
-2. UI Server（Input Server / Display Server）の設計・実装
-3. ISP（In-System Programming）診断機能
-4. プラグインアダプタ（VST3/CLAP）の実装（優先度低）
+**次のフェーズ候補**:
+1. ブラウザでの実際の音声出力テスト（xmake wasm-serve）
+2. Playwright/Puppeteerでの自動化テスト
+3. UI Server（Input Server / Display Server）の設計
+4. ISP（In-System Programming）診断機能
+5. プラグインアダプタ（VST3/CLAP）の実装（優先度低）
 
 ---
 
@@ -336,3 +344,4 @@ target_end()
 - 2025-01-12: Phase 0完了、Phase 1完了（コンセプトベース設計）
 - 2025-01-12: Phase 2完了（コア整理、.hh拡張子統一、Renode 33テストパス）
 - 2025-01-12: Phase 3完了（アダプタ層、DSP分離、64テストパス）
+- 2026-01-12: Phase WASM完了（Emscripten統合、Node.jsテスト4/4パス）
