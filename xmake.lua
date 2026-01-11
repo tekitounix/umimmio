@@ -109,9 +109,11 @@ target("umi_core")
     set_group("libraries")
     
     add_headerfiles("core/*.hh")
+    add_headerfiles("include/umi/*.hpp")
     add_includedirs(".", {public = true})
     add_includedirs("core", {public = true})
     add_includedirs("port", {public = true})
+    add_includedirs("include", {public = true})
     
     -- Preprocessor definitions based on config
     if is_config("kernel", "micro") then
@@ -123,6 +125,21 @@ target_end()
 -- Host Tests (Native compilation)
 -- =====================================================================
 -- These run on the development machine for rapid iteration
+
+target("test_processor")
+    set_kind("binary")
+    set_group("tests/host")
+    set_default(true)
+    set_targetdir(".build")
+    
+    add_files("test/test_processor.cc")
+    add_deps("umi_core")
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+    
+    on_run(function (target)
+        os.execv(target:targetfile())
+    end)
+target_end()
 
 target("test_kernel")
     set_kind("binary")

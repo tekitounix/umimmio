@@ -1,10 +1,10 @@
 {
     depfiles_format = "gcc",
+    depfiles = ".build/.objs/test_audio/macosx/arm64/release/test/__cpp_test_audio.cc.cc:   test/test_audio.cc test/../core/umi_audio.hh   test/../core/umi_kernel.hh test/../core/umi_midi.hh\
+",
     files = {
         "test/test_audio.cc"
     },
-    depfiles = ".build/.objs/test_audio/macosx/arm64/release/test/__cpp_test_audio.cc.cc:   test/test_audio.cc test/../core/umi_audio.hh   test/../core/umi_kernel.hh test/../core/umi_midi.hh\
-",
     values = {
         "/Library/Developer/CommandLineTools/usr/bin/clang",
         {
@@ -21,6 +21,7 @@
             "-I.",
             "-Icore",
             "-Iport",
+            "-Iinclude",
             "-fno-exceptions",
             "-fno-rtti",
             "-DNDEBUG"
