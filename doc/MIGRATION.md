@@ -80,11 +80,38 @@ umi::AnyProcessor any(synth);
 any.process(ctx);  // 型消去経由
 ```
 
+**コンセプト定義（リファレンス）:**
+
+```cpp
+// include/umi/processor.hpp
+
+template<typename T>
+concept ProcessorLike = requires(T& p, AudioContext& ctx) {
+    { p.process(ctx) } -> std::same_as<void>;
+};
+
+template<typename T>
+concept Controllable = ProcessorLike<T> && requires(T& p, ControlContext& ctx) {
+    { p.control(ctx) } -> std::same_as<void>;
+};
+
+template<typename T>
+concept HasParams = requires(const T& p) {
+    { p.params() } -> std::convertible_to<std::span<const ParamDescriptor>>;
+};
+
+template<typename T>
+concept Stateful = requires(T& p, std::span<uint8_t> buf, std::span<const uint8_t> data) {
+    { p.save_state(buf) } -> std::convertible_to<size_t>;
+    { p.load_state(data) } -> std::convertible_to<bool>;
+};
+```
+
 **設計原則:**
 - 継承不要: 必要なメソッドがあればOK（ダックタイピング）
 - 組み込み: 直接使用でvtable不要、完全インライン化
 - テスト/プラグイン: `AnyProcessor`で動的ディスパッチ
-- `-fno-rtti`対応: コンセプトはRTTI不要
+- `-fno-rtti`対応
 
 ### AudioContext
 
