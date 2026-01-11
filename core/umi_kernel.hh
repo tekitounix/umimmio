@@ -100,7 +100,8 @@ struct SharedRegionDesc {
 };
 
 /// Event bits for wait() syscall
-namespace Event {
+/// Renamed from Event to KernelEvent to avoid conflict with umi::Event struct in event.hh
+namespace KernelEvent {
     constexpr std::uint32_t AudioReady = 1 << 0;
     constexpr std::uint32_t MidiReady  = 1 << 1;
     constexpr std::uint32_t VSync      = 1 << 2;

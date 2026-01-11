@@ -28,9 +28,13 @@
 #include "../core/umi_monitor.hh"
 #include "../port/arm/cortex-m/common/vector_table.hh"
 
-// NOTE: New API (include/umi/*.hh) has naming conflict with umi::Event namespace
-// in umi_kernel.hh. New API is tested in test_processor.cc (native tests).
-// TODO: Resolve namespace conflict in Phase 3.
+// New API headers (Phase 1/2)
+#include "../include/umi/types.hh"
+#include "../include/umi/time.hh"
+#include "../include/umi/event.hh"
+#include "../include/umi/audio_context.hh"
+#include "../include/umi/processor.hh"
+#include "../include/umi/triple_buffer.hh"
 
 #include <cstdint>
 
@@ -267,14 +271,14 @@ void test_notification() {
     auto tid = kernel.create_task(cfg);
     
     // Notify
-    kernel.notify(tid, umi::Event::AudioReady);
+    kernel.notify(tid, umi::KernelEvent::AudioReady);
     
     // Wait should return the bit
-    auto bits = kernel.wait(tid, umi::Event::AudioReady);
-    test_assert(bits == umi::Event::AudioReady, "notification delivered", "");
+    auto bits = kernel.wait(tid, umi::KernelEvent::AudioReady);
+    test_assert(bits == umi::KernelEvent::AudioReady, "notification delivered", "");
     
     // Wait again - should be cleared
-    bits = kernel.wait(tid, umi::Event::AudioReady);
+    bits = kernel.wait(tid, umi::KernelEvent::AudioReady);
     test_assert(bits == 0, "notification cleared after wait", "");
     
     kernel.delete_task(tid);
@@ -449,8 +453,142 @@ void test_vector_table() {
     umi::port::arm::SCB::set_vtor(0x08000000);
 }
 
-// NOTE: New API tests (time, event, processor, triple_buffer) are in test_processor.cc
-// They cannot be included here due to umi::Event namespace conflict with umi_kernel.hh
+// =============================================================================
+// New API Tests (Phase 1/2)
+// =============================================================================
+
+void test_new_types() {
+    uart_puts("\n--- New API: Types Tests ---\r\n");
+    
+    // sample_t type check
+    umi::sample_t s = 0.5f;
+    test_assert(s > 0.0f, "sample_t works", "");
+    
+    // Constants
+    test_assert(umi::kDefaultSampleRate == 48000u, "default sample rate", "");
+    test_assert(umi::kDefaultBlockSize == 64u, "default block size", "");
+    
+    // port_id_t, param_id_t
+    umi::port_id_t port = 0;
+    umi::param_id_t param = 42;
+    test_assert(port == 0 && param == 42, "id types work", "");
+}
+
+void test_new_time() {
+    uart_puts("\n--- New API: Time Tests ---\r\n");
+    
+    // ms_to_samples at 48kHz
+    auto samples = umi::time::ms_to_samples(1.0f, 48000u);
+    test_assert(samples == 48, "ms_to_samples(1.0, 48000)", "");
+    
+    // samples_to_ms
+    auto ms = umi::time::samples_to_ms(48000u, 48000u);
+    test_assert(ms > 999.0f && ms < 1001.0f, "samples_to_ms(48000, 48000)", "");
+    
+    // bpm calculation
+    auto spb = umi::time::bpm_to_samples_per_beat(120.0f, 48000u);
+    test_assert(spb == 24000u, "bpm_to_samples_per_beat(120, 48000)", "");
+}
+
+void test_new_event() {
+    uart_puts("\n--- New API: Event Tests ---\r\n");
+    
+    // Create note on event
+    auto e = umi::Event::note_on(0, 0, 0, 60, 100);
+    test_assert(e.type == umi::EventType::Midi, "event type is Midi", "");
+    test_assert(e.midi.note() == 60, "note is 60", "");
+    test_assert(e.midi.velocity() == 100, "velocity is 100", "");
+    test_assert(e.midi.is_note_on(), "is_note_on() works", "");
+    
+    // EventQueue basic ops
+    umi::EventQueue<8> queue;
+    test_assert(queue.empty(), "queue starts empty", "");
+    
+    bool pushed = queue.push(e);
+    test_assert(pushed, "push succeeds", "");
+    test_assert(!queue.empty(), "queue not empty after push", "");
+    
+    umi::Event popped;
+    bool pop_ok = queue.pop(popped);
+    test_assert(pop_ok, "pop returns true", "");
+    test_assert(popped.midi.note() == 60, "popped note correct", "");
+    test_assert(queue.empty(), "queue empty after pop", "");
+}
+
+void test_new_audio_context() {
+    uart_puts("\n--- New API: AudioContext Tests ---\r\n");
+    
+    // StreamConfig
+    umi::StreamConfig cfg{48000, 64};
+    test_assert(cfg.sample_rate == 48000, "sample_rate", "");
+    test_assert(cfg.buffer_size == 64, "buffer_size", "");
+    
+    // Create minimal audio context test
+    umi::sample_t in_buf[128] = {0};
+    umi::sample_t out_buf[128] = {0};
+    const umi::sample_t* in_ptrs[2] = {in_buf, in_buf + 64};
+    umi::sample_t* out_ptrs[2] = {out_buf, out_buf + 64};
+    umi::EventQueue<> events;  // Use default capacity
+    
+    umi::AudioContext ctx{
+        std::span<const umi::sample_t* const>(in_ptrs, 2),
+        std::span<umi::sample_t* const>(out_ptrs, 2),
+        events,
+        cfg.sample_rate,
+        cfg.buffer_size,
+        0  // sample_position
+    };
+    test_assert(ctx.buffer_size == 64, "context has buffer_size", "");
+    test_assert(ctx.num_inputs() == 2, "context has 2 inputs", "");
+}
+
+void test_new_processor() {
+    uart_puts("\n--- New API: Processor Concept Tests ---\r\n");
+    
+    // A minimal processor using duck typing
+    struct MinimalProc {
+        void process(umi::AudioContext& ctx) {
+            (void)ctx;
+        }
+    };
+    
+    // Check concept satisfaction (compile-time, but we test instantiation)
+    static_assert(umi::ProcessorLike<MinimalProc>, "MinimalProc is ProcessorLike");
+    
+    MinimalProc proc;
+    umi::sample_t in_buf[64] = {0};
+    umi::sample_t out_buf[64] = {0};
+    const umi::sample_t* in_ptrs[1] = {in_buf};
+    umi::sample_t* out_ptrs[1] = {out_buf};
+    umi::EventQueue<> events;  // Use default capacity
+    umi::AudioContext ctx{
+        std::span<const umi::sample_t* const>(in_ptrs, 1),
+        std::span<umi::sample_t* const>(out_ptrs, 1),
+        events, 48000, 64, 0
+    };
+    
+    proc.process(ctx);
+    test_pass("ProcessorLike duck typing works");
+}
+
+void test_triple_buffer() {
+    uart_puts("\n--- New API: TripleBuffer Tests ---\r\n");
+    
+    struct TestData { int value; };
+    umi::TripleBuffer<TestData> buf{};
+    
+    // Writer side
+    auto& w = buf.write_buffer();
+    w.value = 42;
+    buf.publish();
+    test_pass("write_buffer and publish work");
+    
+    // Reader side
+    test_assert(buf.has_new_data(), "has_new_data returns true", "");
+    buf.update();
+    test_assert(buf.read_buffer().value == 42, "reader sees written value", "");
+    test_assert(!buf.has_new_data(), "has_new_data returns false after update", "");
+}
 
 }  // namespace
 
@@ -479,6 +617,14 @@ int main() {
     test_stack_monitor();
     test_for_each_task();
     test_vector_table();
+    
+    // New API tests (Phase 1/2)
+    test_new_types();
+    test_new_time();
+    test_new_event();
+    test_new_audio_context();
+    test_new_processor();
+    test_triple_buffer();
     
     // Summary
     uart_puts("\r\n========================================\r\n");

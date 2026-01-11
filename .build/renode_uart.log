@@ -54,11 +54,49 @@
 [PASS] handler set correctly
 [PASS] IRQ handler set
 
+--- New API: Types Tests ---
+[PASS] sample_t works
+[PASS] default sample rate
+[PASS] default block size
+[PASS] id types work
+
+--- New API: Time Tests ---
+[PASS] ms_to_samples(1.0, 48000)
+[PASS] samples_to_ms(48000, 48000)
+[PASS] bpm_to_samples_per_beat(120, 48000)
+
+--- New API: Event Tests ---
+[PASS] event type is Midi
+[PASS] note is 60
+[PASS] velocity is 100
+[PASS] is_note_on() works
+[PASS] queue starts empty
+[PASS] push succeeds
+[PASS] queue not empty after push
+[PASS] pop returns true
+[PASS] popped note correct
+[PASS] queue empty after pop
+
+--- New API: AudioContext Tests ---
+[PASS] sample_rate
+[PASS] buffer_size
+[PASS] context has buffer_size
+[PASS] context has 2 inputs
+
+--- New API: Processor Concept Tests ---
+[PASS] ProcessorLike duck typing works
+
+--- New API: TripleBuffer Tests ---
+[PASS] write_buffer and publish work
+[PASS] has_new_data returns true
+[PASS] reader sees written value
+[PASS] has_new_data returns false after update
+
 ========================================
   Test Summary
 ========================================
-Total:  33
-Passed: 33
+Total:  59
+Passed: 59
 Failed: 0
 
 *** ALL TESTS PASSED ***

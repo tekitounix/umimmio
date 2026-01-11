@@ -38,6 +38,14 @@
         "xmake l /Users/tekitou/.vscode/extensions/tboox.xmake-vscode-2.4.1/assets/explorer.lua",
         "xmake check",
         "xmake build renode_test",
+        "xmake build renode_test",
+        "xmake build renode_test",
+        "xmake build renode_test",
+        "xmake build renode_test",
+        "xmake build renode_test",
+        "xmake build renode_test",
+        "xmake build renode_test",
+        "xmake build renode_test",
         "xmake build renode_test"
     }
 }

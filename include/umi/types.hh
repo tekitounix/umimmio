@@ -30,4 +30,10 @@ inline constexpr size_t MAX_EVENTS_PER_BUFFER = 256;
 /// Maximum parameters per processor
 inline constexpr size_t MAX_PARAMS = 128;
 
+/// Default sample rate (Hz)
+inline constexpr uint32_t kDefaultSampleRate = 48000;
+
+/// Default block size (samples)
+inline constexpr uint32_t kDefaultBlockSize = 64;
+
 } // namespace umi
