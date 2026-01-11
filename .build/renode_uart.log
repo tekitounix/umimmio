@@ -92,11 +92,18 @@
 [PASS] reader sees written value
 [PASS] has_new_data returns false after update
 
+--- New API: Embedded Adapter Tests ---
+[PASS] AdapterConfig sample_rate
+[PASS] AdapterConfig buffer_size
+[PASS] adapter events queue empty
+[PASS] pushed event to adapter
+[PASS] Embedded Adapter instantiation works
+
 ========================================
   Test Summary
 ========================================
-Total:  59
-Passed: 59
+Total:  64
+Passed: 64
 Failed: 0
 
 *** ALL TESTS PASSED ***

@@ -28,13 +28,14 @@
 #include "../core/umi_monitor.hh"
 #include "../port/arm/cortex-m/common/vector_table.hh"
 
-// New API headers (Phase 1/2)
+// New API headers (Phase 1/2/3)
 #include "../include/umi/types.hh"
 #include "../include/umi/time.hh"
 #include "../include/umi/event.hh"
 #include "../include/umi/audio_context.hh"
 #include "../include/umi/processor.hh"
 #include "../include/umi/triple_buffer.hh"
+#include "../adapter/embedded/adapter.hh"
 
 #include <cstdint>
 
@@ -590,6 +591,48 @@ void test_triple_buffer() {
     test_assert(!buf.has_new_data(), "has_new_data returns false after update", "");
 }
 
+void test_embedded_adapter() {
+    uart_puts("\n--- New API: Embedded Adapter Tests ---\r\n");
+    
+    // Test that Adapter can be instantiated with a processor
+    struct TestProc {
+        int call_count = 0;
+        void process(umi::AudioContext& ctx) {
+            (void)ctx;
+            call_count++;
+        }
+    };
+    
+    // Verify TestProc satisfies ProcessorLike
+    static_assert(umi::ProcessorLike<TestProc>, "TestProc is ProcessorLike");
+    
+    // AdapterConfig can be created
+    constexpr umi::embedded::AdapterConfig cfg{
+        .sample_rate = 48000,
+        .buffer_size = 64,
+        .num_inputs = 2,
+        .num_outputs = 2,
+        .num_midi_ports = 1
+    };
+    test_assert(cfg.sample_rate == 48000, "AdapterConfig sample_rate", "");
+    test_assert(cfg.buffer_size == 64, "AdapterConfig buffer_size", "");
+    
+    // Adapter can be constructed (but not run in this test)
+    TestProc proc;
+    umi::embedded::Adapter<TestProc, RenodeHw, cfg> adapter{proc};
+    
+    // Events queue is accessible
+    auto& events = adapter.events();
+    test_assert(events.empty(), "adapter events queue empty", "");
+    
+    // Push event to adapter
+    auto ev = umi::Event::note_on(0, 0, 0, 60, 100);
+    bool pushed = events.push(ev);
+    test_assert(pushed, "pushed event to adapter", "");
+    
+    test_pass("Embedded Adapter instantiation works");
+}
+
 }  // namespace
 
 // =============================================================================
@@ -625,6 +668,9 @@ int main() {
     test_new_audio_context();
     test_new_processor();
     test_triple_buffer();
+    
+    // Adapter tests (Phase 3)
+    test_embedded_adapter();
     
     // Summary
     uart_puts("\r\n========================================\r\n");
