@@ -32,47 +32,46 @@ class AudioProcessor {
 };
 ```
 
-#### 新API（Processor - RAII設計）
+#### 新API（Concept-based設計）
 
 ```cpp
 // 新: include/umi/processor.hpp
-class Processor {
-public:
-    // 構築時にリソース確保（RAII）
-    explicit Processor(const StreamConfig& config);
-    virtual ~Processor() = default;  // リソース解放
-    
-    // 処理（必須）
-    virtual void process(AudioContext& ctx) = 0;  // リアルタイム安全
-    
-    // 処理（オプション）
-    virtual void control(ControlContext& ctx);  // 低優先度
-    
-    // 設定
-    const StreamConfig& config() const;
-    virtual void reconfigure(const StreamConfig& new_config);  // 必要な場合のみ
-    
-    // 宣言
-    virtual span<const ParamDescriptor> params() const;
-    virtual span<const PortDescriptor> ports() const;
-    
-    // 状態
-    virtual size_t save_state(span<uint8_t>) const;
-    virtual bool load_state(span<const uint8_t>);
-    
-    // 要件
-    static Requirements requirements();
+
+// コンセプト定義（継承不要）
+template<typename T>
+concept ProcessorLike = requires(T& p, AudioContext& ctx) {
+    { p.process(ctx) } -> std::same_as<void>;
 };
+
+template<typename T>
+concept Controllable = ProcessorLike<T> && requires(T& p, ControlContext& ctx) {
+    { p.control(ctx) } -> std::same_as<void>;
+};
+
+// 型消去ラッパー（動的ディスパッチが必要な時）
+class AnyProcessor {
+public:
+    template<ProcessorLike P> explicit AnyProcessor(P& proc);
+    template<ProcessorLike P> explicit AnyProcessor(std::unique_ptr<P> proc);
+    
+    void process(AudioContext& ctx);
+    void control(ControlContext& ctx);
+    bool has_control() const;
+};
+
+// ヘルパー関数（インライン化される）
+template<ProcessorLike P>
+void process_once(P& proc, AudioContext& ctx);
+
+template<ProcessorLike P>
+void process_with_control(P& proc, AudioContext& audio_ctx, ControlContext& ctrl_ctx);
 ```
 
 **設計原則:**
-- コンストラクタで全リソース確保、デストラクタで解放（RAII）
-- サンプルレート変更時は新インスタンス構築→スワップが推奨
-- `-fno-exceptions`環境ではファクトリパターンを使用:
-  ```cpp
-  static auto create(const StreamConfig& config) 
-      -> expected<std::unique_ptr<MyProcessor>, Error>;
-  ```
+- 継承不要: `process(AudioContext&)`メソッドがあればOK
+- 組み込み: コンセプト直接使用でvtable不要、完全インライン化
+- テスト/プラグイン: `AnyProcessor`で動的ディスパッチ
+- `-fno-rtti`対応: コンセプトはRTTI不要
 
 ### AudioContext
 

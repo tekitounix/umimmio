@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // UMI-OS - Universal Musical Instruments Operating System
-// Processor base class and descriptors
+// Processor concepts and type-erased wrapper
 
 #pragma once
 
@@ -9,6 +9,8 @@
 #include <span>
 #include <string_view>
 #include <cstdint>
+#include <memory>
+#include <utility>
 
 namespace umi {
 
@@ -99,99 +101,119 @@ struct ParamDescriptor {
 };
 
 // ============================================================================
-// Processor Requirements
+// Processor Concepts
 // ============================================================================
 
-/// Resource requirements for a processor
-struct Requirements {
-    uint32_t stack_size = 1024;     ///< Stack size in bytes
-    uint32_t heap_size = 0;         ///< Heap requirement in bytes
-    bool needs_control_thread = false;
+/// Core concept: anything with process(AudioContext&)
+template<typename T>
+concept ProcessorLike = requires(T& p, AudioContext& ctx) {
+    { p.process(ctx) } -> std::same_as<void>;
+};
+
+/// Optional: has control(ControlContext&)
+template<typename T>
+concept Controllable = ProcessorLike<T> && requires(T& p, ControlContext& ctx) {
+    { p.control(ctx) } -> std::same_as<void>;
+};
+
+/// Optional: has params()
+template<typename T>
+concept HasParams = requires(const T& p) {
+    { p.params() } -> std::convertible_to<std::span<const ParamDescriptor>>;
+};
+
+/// Optional: has ports()
+template<typename T>
+concept HasPorts = requires(const T& p) {
+    { p.ports() } -> std::convertible_to<std::span<const PortDescriptor>>;
+};
+
+/// Optional: has state save/load
+template<typename T>
+concept Stateful = requires(T& p, std::span<uint8_t> buf, std::span<const uint8_t> data) {
+    { p.save_state(buf) } -> std::convertible_to<size_t>;
+    { p.load_state(data) } -> std::convertible_to<bool>;
 };
 
 // ============================================================================
-// Processor Base Class
+// Type-Erased Processor (for dynamic dispatch when needed)
 // ============================================================================
 
-/// Base class for audio processors (RAII design)
-/// 
-/// Lifecycle:
-/// 1. Construct with StreamConfig - allocate all resources
-/// 2. process() - called for each audio buffer (real-time safe!)
-/// 3. control() - called from control thread (optional)
-/// 4. Destructor - release all resources
-///
-/// For sample rate changes: construct new instance, swap, destroy old.
-/// Use reconfigure() only if in-place reconfiguration is truly needed.
-class Processor {
+/// Type-erased processor wrapper
+/// Use this when you need runtime polymorphism (plugins, testing, etc.)
+/// For embedded with single processor, use concepts directly for zero overhead.
+class AnyProcessor {
 public:
-    /// Construct processor with stream configuration
-    /// All resource allocation should happen here.
-    /// For error handling without exceptions, use factory pattern in derived class:
-    ///   static auto create(config) -> expected<unique_ptr<Derived>, Error>
-    explicit Processor(const StreamConfig& config) 
-        : config_(config) {}
+    /// Construct from any ProcessorLike type
+    template<ProcessorLike P>
+    explicit AnyProcessor(P& proc)
+        : impl_(&proc)
+        , process_fn_([](void* p, AudioContext& ctx) {
+            static_cast<P*>(p)->process(ctx);
+        })
+        , control_fn_(make_control_fn<P>())
+    {}
     
-    virtual ~Processor() = default;
+    /// Construct from unique_ptr (takes ownership)
+    template<ProcessorLike P>
+    explicit AnyProcessor(std::unique_ptr<P> proc)
+        : owned_(proc.release(), [](void* p) { delete static_cast<P*>(p); })
+        , impl_(owned_.get())
+        , process_fn_([](void* p, AudioContext& ctx) {
+            static_cast<P*>(p)->process(ctx);
+        })
+        , control_fn_(make_control_fn<P>())
+    {}
     
-    // Non-copyable, movable
-    Processor(const Processor&) = delete;
-    Processor& operator=(const Processor&) = delete;
-    Processor(Processor&&) = default;
-    Processor& operator=(Processor&&) = default;
-    
-    // === Processing ===
-    
-    /// Audio processing callback (REQUIRED)
-    /// Called from audio thread at buffer rate
-    /// NO heap allocation, NO blocking, NO system calls!
-    virtual void process(AudioContext& ctx) = 0;
-    
-    /// Control processing callback (optional)
-    /// Called from control thread, lower priority
-    virtual void control(ControlContext& ctx) { (void)ctx; }
-    
-    // === Configuration ===
-    
-    /// Current stream configuration
-    [[nodiscard]] const StreamConfig& config() const noexcept { return config_; }
-    
-    /// Reconfigure processor in-place (optional)
-    /// Default implementation does nothing - override if in-place reconfigure is needed.
-    /// For most cases, prefer constructing a new instance instead.
-    virtual void reconfigure(const StreamConfig& new_config) { 
-        config_ = new_config; 
+    void process(AudioContext& ctx) {
+        process_fn_(impl_, ctx);
     }
     
-    // === Descriptors ===
-    
-    /// Return parameter descriptors
-    virtual std::span<const ParamDescriptor> params() const { return {}; }
-    
-    /// Return port descriptors
-    virtual std::span<const PortDescriptor> ports() const { return {}; }
-    
-    // === State management ===
-    
-    /// Save processor state to binary blob
-    virtual size_t save_state(std::span<uint8_t> buffer) const { 
-        (void)buffer; 
-        return 0; 
+    void control(ControlContext& ctx) {
+        if (control_fn_) {
+            control_fn_(impl_, ctx);
+        }
     }
     
-    /// Load processor state from binary blob
-    virtual bool load_state(std::span<const uint8_t> data) { 
-        (void)data; 
-        return true; 
+    [[nodiscard]] bool has_control() const noexcept {
+        return control_fn_ != nullptr;
     }
     
-    // === Requirements ===
+private:
+    template<typename P>
+    static auto make_control_fn() -> void(*)(void*, ControlContext&) {
+        if constexpr (Controllable<P>) {
+            return [](void* p, ControlContext& ctx) {
+                static_cast<P*>(p)->control(ctx);
+            };
+        } else {
+            return nullptr;
+        }
+    }
     
-    /// Return resource requirements (can be static)
-    static Requirements requirements() { return {}; }
-    
-protected:
-    StreamConfig config_;
+    std::unique_ptr<void, void(*)(void*)> owned_{nullptr, [](void*){}};
+    void* impl_ = nullptr;
+    void (*process_fn_)(void*, AudioContext&) = nullptr;
+    void (*control_fn_)(void*, ControlContext&) = nullptr;
 };
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Process a single buffer (inlined for embedded)
+template<ProcessorLike P>
+inline void process_once(P& proc, AudioContext& ctx) {
+    proc.process(ctx);
+}
+
+/// Process with optional control
+template<ProcessorLike P>
+inline void process_with_control(P& proc, AudioContext& audio_ctx, ControlContext& ctrl_ctx) {
+    proc.process(audio_ctx);
+    if constexpr (Controllable<P>) {
+        proc.control(ctrl_ctx);
+    }
+}
 
 } // namespace umi

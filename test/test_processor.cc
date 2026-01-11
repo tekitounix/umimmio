@@ -51,19 +51,18 @@ static int tests_passed = 0;
     } while(0)
 
 // ============================================================================
-// Simple sine oscillator for testing (RAII design)
+// Simple sine oscillator for testing (concept-based, no inheritance)
 // ============================================================================
 
-class SineOscillator : public umi::Processor {
+class SineOscillator {
 public:
-    explicit SineOscillator(const umi::StreamConfig& config)
-        : Processor(config)
+    explicit SineOscillator(uint32_t sample_rate)
+        : sample_rate_(static_cast<float>(sample_rate))
     {
-        sample_rate_ = static_cast<float>(config.sample_rate);
         phase_inc_ = frequency_ / sample_rate_;
     }
     
-    void process(umi::AudioContext& ctx) override {
+    void process(umi::AudioContext& ctx) {
         if (ctx.num_outputs() < 1) return;
         
         auto* out = ctx.output(0);
@@ -75,12 +74,6 @@ public:
         process_count_++;
     }
     
-    void reconfigure(const umi::StreamConfig& new_config) override {
-        Processor::reconfigure(new_config);
-        sample_rate_ = static_cast<float>(new_config.sample_rate);
-        phase_inc_ = frequency_ / sample_rate_;
-    }
-    
     // Test accessors
     int process_count() const { return process_count_; }
     float sample_rate() const { return sample_rate_; }
@@ -89,9 +82,39 @@ private:
     float phase_ = 0.0f;
     float phase_inc_ = 0.0f;
     float frequency_ = 440.0f;
-    float sample_rate_ = 48000.0f;
+    float sample_rate_;
     int process_count_ = 0;
 };
+
+// Static assert: SineOscillator satisfies ProcessorLike
+static_assert(umi::ProcessorLike<SineOscillator>, "SineOscillator must satisfy ProcessorLike");
+
+// ============================================================================
+// Processor with control (for testing Controllable concept)
+// ============================================================================
+
+class ControllableSynth {
+public:
+    void process(umi::AudioContext& ctx) {
+        (void)ctx;
+        process_called_ = true;
+    }
+    
+    void control(umi::ControlContext& ctx) {
+        (void)ctx;
+        control_called_ = true;
+    }
+    
+    bool process_called() const { return process_called_; }
+    bool control_called() const { return control_called_; }
+    
+private:
+    bool process_called_ = false;
+    bool control_called_ = false;
+};
+
+static_assert(umi::ProcessorLike<ControllableSynth>, "ControllableSynth must satisfy ProcessorLike");
+static_assert(umi::Controllable<ControllableSynth>, "ControllableSynth must satisfy Controllable");
 
 // ============================================================================
 // Tests
@@ -173,13 +196,9 @@ void test_event_queue() {
 }
 
 void test_processor_lifecycle() {
-    TEST(processor_raii_construction);
+    TEST(processor_concept);
     
-    umi::StreamConfig config{48000, 256};
-    SineOscillator osc(config);
-    
-    ASSERT_EQ(osc.config().sample_rate, 48000u);
-    ASSERT_EQ(osc.config().buffer_size, 256u);
+    SineOscillator osc(48000);
     ASSERT_NEAR(osc.sample_rate(), 48000.0f, 0.1f);
     PASS();
     
@@ -199,7 +218,8 @@ void test_processor_lifecycle() {
         .sample_position = 0
     };
     
-    osc.process(ctx);
+    // Use helper function (inlined)
+    umi::process_once(osc, ctx);
     ASSERT_EQ(osc.process_count(), 1);
     
     // Verify output is not silent
@@ -210,13 +230,39 @@ void test_processor_lifecycle() {
     ASSERT(has_nonzero);
     PASS();
     
-    TEST(processor_reconfigure);
+    TEST(any_processor_wrapper);
     
-    umi::StreamConfig new_config{96000, 512};
-    osc.reconfigure(new_config);
+    SineOscillator osc2(44100);
+    umi::AnyProcessor any(osc2);
     
-    ASSERT_EQ(osc.config().sample_rate, 96000u);
-    ASSERT_NEAR(osc.sample_rate(), 96000.0f, 0.1f);
+    std::array<umi::sample_t, 64> buf{};
+    umi::sample_t* ptr = buf.data();
+    umi::EventQueue<> ev;
+    umi::AudioContext ctx2{
+        .inputs = {},
+        .outputs = std::span<umi::sample_t* const>(&ptr, 1),
+        .events = ev,
+        .sample_rate = 44100,
+        .buffer_size = 64,
+        .sample_position = 0
+    };
+    
+    any.process(ctx2);
+    ASSERT_EQ(osc2.process_count(), 1);
+    ASSERT(!any.has_control());
+    PASS();
+    
+    TEST(controllable_processor);
+    
+    ControllableSynth synth;
+    umi::AnyProcessor any_synth(synth);
+    
+    ASSERT(any_synth.has_control());
+    
+    umi::EventQueue<> ctrl_events;
+    umi::ControlContext ctrl_ctx{.events = ctrl_events};
+    any_synth.control(ctrl_ctx);
+    ASSERT(synth.control_called());
     PASS();
 }
 
