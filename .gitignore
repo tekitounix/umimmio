@@ -13,3 +13,10 @@
 # Editor backups
 *~
 *.swp
+examples/testbench/wasm
+
+# Archive (legacy code)
+archive/
+
+# Tools (xmake packages, toolchains)
+.tools/
