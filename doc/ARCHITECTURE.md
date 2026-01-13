@@ -243,6 +243,89 @@ inline constexpr MidiMap<2> kSynthMidiMap = {{
 - ミューテックスロック
 - 例外送出 (`throw`)
 
+## スレッド安全性モデル
+
+### スレッド構成
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Audio Thread (リアルタイム)               │
+│  process() のみ実行、割り込み禁止、優先度最高               │
+└─────────────────────────────────────────────────────────────┘
+                              ▲
+                     TripleBuffer (lock-free)
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                    Control Thread (非リアルタイム)           │
+│  control(), set_param(), UI更新                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 通信パターン
+
+| 通信方向 | 方式 | データ型 |
+|----------|------|----------|
+| Control → Audio | TripleBuffer | パラメータ、状態 |
+| Audio → Control | EventQueue (SPSC) | メーター、トリガー |
+| MIDI → Audio | EventQueue (SPSC) | MIDIイベント |
+
+### TripleBuffer
+
+パラメータ変更をロックフリーでオーディオスレッドに伝達:
+
+```cpp
+// Control Thread
+triple_buffer.write([](ParamState& state) {
+    state.cutoff = new_value;
+});
+
+// Audio Thread
+auto& params = triple_buffer.read();
+filter.set_cutoff(params.cutoff);
+```
+
+### 安全性ルール
+
+1. **process()** - ロック禁止、アロケート禁止、ブロック禁止
+2. **control()** - TripleBuffer経由でのみAudioと通信
+3. **EventQueue** - SPSC (Single Producer, Single Consumer) のみ保証
+
+## メモリ・性能制約
+
+### ターゲット別制約
+
+| ターゲット | RAM | Flash | CPU | 備考 |
+|------------|-----|-------|-----|------|
+| STM32F4 | 192KB | 1MB | 168MHz Cortex-M4F | 最小ターゲット |
+| ESP32 | 520KB | 4MB | 240MHz Xtensa LX6 | WiFi込み |
+| RP2040 | 264KB | 2MB | 133MHz Cortex-M0+ | デュアルコア |
+| WASM | 無制限 | 無制限 | ホスト依存 | ブラウザ/Node |
+
+### 処理時間バジェット
+
+```
+Sample Rate: 48kHz, Buffer Size: 64 samples
+Buffer Period: 1.33ms
+
+STM32F4 @ 168MHz:
+  - 利用可能サイクル: 224,000 cycles/buffer
+  - 目標CPU使用率: < 70%
+  - 実効バジェット: 156,800 cycles/buffer
+
+WASM (典型的なブラウザ):
+  - 目標: < 50% of buffer period
+  - レイテンシ: 128-512 samples (2.6-10.6ms)
+```
+
+### メモリ使用ガイドライン
+
+| カテゴリ | 推奨最大 | 用途 |
+|----------|----------|------|
+| オーディオバッファ | 16KB | 入出力バッファ、遅延線 |
+| パラメータ状態 | 1KB | TripleBuffer用 |
+| イベントキュー | 2KB | MIDI、パラメータ変更 |
+| DSP係数 | 4KB | フィルタ係数、ウェーブテーブル |
+
 ## 時間管理
 
 ### 2種類の時間

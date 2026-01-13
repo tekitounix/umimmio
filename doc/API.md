@@ -94,6 +94,56 @@ any.control(ctrl_ctx);      // 制御コールバック
 
 ---
 
+### ControlContext
+
+非リアルタイムの制御コールバックに渡されるコンテキスト。
+`control()` メソッドで使用されます。
+
+```cpp
+#include <core/processor.hh>
+
+struct ControlContext {
+    float delta_time;              // 前回呼び出しからの経過時間 (秒)
+    sample_position_t sample_pos;  // 現在のサンプル位置 (参考値)
+};
+```
+
+#### 用途
+
+| 用途 | 説明 |
+|------|------|
+| パラメータスムージング | 時間ベースの補間 |
+| LFO/エンベロープ更新 | 低精度で十分な変調 |
+| UI状態の同期 | メーター値の更新 |
+| 非同期タスク完了処理 | ファイル読み込み完了など |
+
+#### 使用例
+
+```cpp
+struct MySynth {
+    void process(umi::AudioContext& ctx);       // リアルタイム
+    void control(umi::ControlContext& ctx);     // 非リアルタイム
+};
+
+void MySynth::control(umi::ControlContext& ctx) {
+    // パラメータの補間 (control()で実行、process()はロックフリー読み取り)
+    smoothed_cutoff_ += (target_cutoff_ - smoothed_cutoff_)
+                        * (1.0f - std::exp(-ctx.delta_time * 10.0f));
+}
+```
+
+#### AudioContext vs ControlContext
+
+| 項目 | AudioContext | ControlContext |
+|------|--------------|----------------|
+| スレッド | Audio Thread | Control Thread |
+| 呼び出し頻度 | バッファごと | 可変 (10-60Hz) |
+| メモリ確保 | 禁止 | 許可 |
+| ブロッキング | 禁止 | 許可 |
+| 精度 | サンプル精度 | バッファ精度以下 |
+
+---
+
 ### Event / EventQueue
 
 サンプル精度のイベント処理。
