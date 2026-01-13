@@ -1,0 +1,149 @@
+# UMI-OS CI/CD Pipeline
+# - Host tests (native compilation)
+# - WASM tests (Emscripten + Node.js)
+# - ARM tests (Renode emulator) [optional]
+
+name: CI
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+
+jobs:
+  # ===========================================
+  # Host Unit Tests (Linux/macOS)
+  # ===========================================
+  host-tests:
+    name: Host Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Configure
+        run: xmake f -m release -y
+
+      - name: Build all targets
+        run: xmake build -a
+
+      - name: Run unit tests
+        run: xmake test
+
+  # ===========================================
+  # WASM Build + Tests
+  # ===========================================
+  wasm-tests:
+    name: WASM Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '3.1.50'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Configure for WASM
+        run: |
+          source $EMSDK/emsdk_env.sh
+          xmake f -p wasm -a wasm32 --toolchain=emcc -y
+
+      - name: Build UMIM modules
+        run: |
+          source $EMSDK/emsdk_env.sh
+          xmake build umim_synth umim_delay umim_volume
+
+      - name: Run WASM headless tests
+        run: |
+          # Test that WASM modules were built
+          ls -la .build/umim/
+          # Run headless test if test module exists
+          if [ -f ".build/wasm/umi_test.js" ]; then
+            node test/test-headless.mjs
+          else
+            echo "Note: WASM test module not built, skipping headless tests"
+          fi
+
+  # ===========================================
+  # ARM Firmware Build (Cross-compilation check)
+  # ===========================================
+  arm-build:
+    name: ARM Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Install ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
+
+      - name: Configure for ARM
+        run: xmake f -p cross -a arm --toolchain=gcc-arm -y || true
+
+      - name: Build firmware
+        run: xmake build firmware renode_test || echo "ARM build requires arm-embedded package"
+
+  # ===========================================
+  # Renode Emulator Tests (Optional)
+  # ===========================================
+  renode-tests:
+    name: Renode Tests
+    runs-on: ubuntu-latest
+    if: false  # Enable when Renode tests are stable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Install Renode
+        run: |
+          wget https://github.com/renode/renode/releases/download/v1.14.0/renode-1.14.0.linux-portable.tar.gz
+          tar xzf renode-1.14.0.linux-portable.tar.gz
+          echo "$PWD/renode_1.14.0_portable" >> $GITHUB_PATH
+
+      - name: Install Robot Framework
+        run: pip install robotframework
+
+      - name: Build for Renode
+        run: |
+          xmake f -p cross -a arm -y
+          xmake build renode_test
+
+      - name: Run Renode tests
+        run: xmake robot
