@@ -364,27 +364,27 @@ public:
     >; \
     \
     extern "C" { \
-        UMIM_EXPORT_ATTR void upf_create(float sr) { _UmiAdapter::create(sr); } \
-        UMIM_EXPORT_ATTR void upf_process(const float* in, float* out, uint32_t frames) { \
+        UMIM_EXPORT_ATTR void umi_create(float sr) { _UmiAdapter::create(sr); } \
+        UMIM_EXPORT_ATTR void umi_process(const float* in, float* out, uint32_t frames) { \
             _UmiAdapter::process(in, out, frames); \
         } \
-        UMIM_EXPORT_ATTR void upf_note_on(uint8_t n, uint8_t v) { _UmiAdapter::note_on(n, v); } \
-        UMIM_EXPORT_ATTR void upf_note_off(uint8_t n) { _UmiAdapter::note_off(n); } \
-        UMIM_EXPORT_ATTR void upf_set_param(uint32_t i, float v) { _UmiAdapter::set_param(i, v); } \
-        UMIM_EXPORT_ATTR float upf_get_param(uint32_t i) { return _UmiAdapter::get_param(i); } \
-        UMIM_EXPORT_ATTR uint32_t upf_get_param_count() { return _UmiAdapter::get_param_count(); } \
-        UMIM_EXPORT_ATTR const char* upf_get_param_name(uint32_t i) { return _UmiAdapter::get_param_name(i); } \
-        UMIM_EXPORT_ATTR float upf_get_param_min(uint32_t i) { return _UmiAdapter::get_param_min(i); } \
-        UMIM_EXPORT_ATTR float upf_get_param_max(uint32_t i) { return _UmiAdapter::get_param_max(i); } \
-        UMIM_EXPORT_ATTR float upf_get_param_default(uint32_t i) { return _UmiAdapter::get_param_default(i); } \
-        UMIM_EXPORT_ATTR uint8_t upf_get_param_curve(uint32_t i) { return _UmiAdapter::get_param_curve(i); } \
-        UMIM_EXPORT_ATTR const char* upf_get_param_unit(uint32_t i) { return _UmiAdapter::get_param_unit(i); } \
-        UMIM_EXPORT_ATTR void upf_process_cc(uint8_t, uint8_t, uint8_t) {} \
+        UMIM_EXPORT_ATTR void umi_note_on(uint8_t n, uint8_t v) { _UmiAdapter::note_on(n, v); } \
+        UMIM_EXPORT_ATTR void umi_note_off(uint8_t n) { _UmiAdapter::note_off(n); } \
+        UMIM_EXPORT_ATTR void umi_set_param(uint32_t i, float v) { _UmiAdapter::set_param(i, v); } \
+        UMIM_EXPORT_ATTR float umi_get_param(uint32_t i) { return _UmiAdapter::get_param(i); } \
+        UMIM_EXPORT_ATTR uint32_t umi_get_param_count() { return _UmiAdapter::get_param_count(); } \
+        UMIM_EXPORT_ATTR const char* umi_get_param_name(uint32_t i) { return _UmiAdapter::get_param_name(i); } \
+        UMIM_EXPORT_ATTR float umi_get_param_min(uint32_t i) { return _UmiAdapter::get_param_min(i); } \
+        UMIM_EXPORT_ATTR float umi_get_param_max(uint32_t i) { return _UmiAdapter::get_param_max(i); } \
+        UMIM_EXPORT_ATTR float umi_get_param_default(uint32_t i) { return _UmiAdapter::get_param_default(i); } \
+        UMIM_EXPORT_ATTR uint8_t umi_get_param_curve(uint32_t i) { return _UmiAdapter::get_param_curve(i); } \
+        UMIM_EXPORT_ATTR const char* umi_get_param_unit(uint32_t i) { return _UmiAdapter::get_param_unit(i); } \
+        UMIM_EXPORT_ATTR void umi_process_cc(uint8_t, uint8_t, uint8_t) {} \
     }
 
 // UMIM_EXPORT with processor name (for AudioWorklet registration)
 #define UMIM_EXPORT_NAMED(ProcessorType, params_array, processor_name) \
     UMIM_EXPORT(ProcessorType, params_array) \
     extern "C" { \
-        UMIM_EXPORT_ATTR const char* upf_get_processor_name() { return processor_name; } \
+        UMIM_EXPORT_ATTR const char* umi_get_processor_name() { return processor_name; } \
     }
