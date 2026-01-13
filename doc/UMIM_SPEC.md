@@ -248,12 +248,40 @@ uint32_t upf_get_latency(void);  // サンプル単位
 
 ## パラメータカーブ
 
-| 値 | カーブ | 計算式 |
-|----|--------|--------|
-| 0 | リニア | `min + normalized * (max - min)` |
-| 1 | 対数 | `min * pow(max/min, normalized)` |
-| 2 | 指数 | `pow(normalized, 2) * (max - min) + min` |
-| 3 | 平方根 | `sqrt(normalized) * (max - min) + min` |
+`upf_get_param_curve()` が返す値に対応するカーブタイプ:
+
+| 値 | カーブ | 計算式 | 用途 |
+|----|--------|--------|------|
+| 0 | Linear | `min + normalized * (max - min)` | 一般的なパラメータ |
+| 1 | Log | `min * pow(max/min, normalized)` | 周波数 (20Hz-20kHz) |
+| 2 | Exp | `pow(normalized, 2) * (max - min) + min` | フェーダー |
+| 3 | Sqrt | `sqrt(normalized) * (max - min) + min` | 知覚スケーリング |
+
+### 正規化 / 非正規化の実装例
+
+```cpp
+// normalized (0.0-1.0) → display value
+float to_display(float normalized, uint8_t curve, float min, float max) {
+    switch (curve) {
+        case 0: return min + normalized * (max - min);
+        case 1: return min * std::pow(max / min, normalized);
+        case 2: return std::pow(normalized, 2.0f) * (max - min) + min;
+        case 3: return std::sqrt(normalized) * (max - min) + min;
+        default: return min + normalized * (max - min);
+    }
+}
+
+// display value → normalized (0.0-1.0)
+float to_normalized(float display, uint8_t curve, float min, float max) {
+    switch (curve) {
+        case 0: return (display - min) / (max - min);
+        case 1: return std::log(display / min) / std::log(max / min);
+        case 2: return std::sqrt((display - min) / (max - min));
+        case 3: return std::pow((display - min) / (max - min), 2.0f);
+        default: return (display - min) / (max - min);
+    }
+}
+```
 
 ## プラグイン種別
 
