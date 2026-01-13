@@ -27,6 +27,19 @@ set_version("0.1.0")
 set_xmakever("2.8.0")
 
 -- =====================================================================
+-- Custom Package Repository (ARM Embedded Toolchain)
+-- =====================================================================
+
+-- For local development: add_repositories("arm-embedded .tools/arm-embedded-xmake-repo")
+add_repositories("arm-embedded https://github.com/tekitounix/arm-embedded-xmake-repo.git")
+
+-- Request ARM toolchains and embedded support
+add_requires("arm-embedded", {optional = true})
+
+-- Request coding-rules for clangd/clang-format/clang-tidy configuration
+add_requires("coding-rules", {optional = true})
+
+-- =====================================================================
 -- Global Configuration
 -- =====================================================================
 
@@ -38,6 +51,9 @@ add_rules("mode.debug", "mode.release")
 
 -- Generate compile_commands.json for clangd/VS Code IntelliSense
 add_rules("plugin.compile_commands.autoupdate", {outputdir = ".build"})
+
+-- Generate .vscode/settings.json with clangd configuration
+add_rules("embedded.vscode")
 
 -- Strict warnings for all targets
 set_warnings("all", "extra", "error")
