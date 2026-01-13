@@ -368,4 +368,3 @@ examples/
 
 - [API.md](API.md) - APIリファレンス
 - [UMIM_SPEC.md](UMIM_SPEC.md) - WASMプラグイン仕様
-- [archive/v0.1-legacy/doc/NEW_DESIGN.md](../archive/v0.1-legacy/doc/NEW_DESIGN.md) - 詳細設計仕様書
