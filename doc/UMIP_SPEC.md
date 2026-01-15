@@ -60,16 +60,13 @@ struct Processor {
 
 ```cpp
 struct Processor {
-    // 初期化（サンプルレート依存の準備が必要な場合）
-    void init(float sample_rate);
-
     // 状態保存（パラメータ以外の内部状態がある場合）
     size_t save_state(std::span<uint8_t> buffer);
     bool load_state(std::span<const uint8_t> data);
 };
 ```
 
-`init()` は `umi_create()` 時にアダプタから呼ばれる。バッファ事前確保等に使用。
+サンプルレート依存の初期化は `process()` 内で行う（`ctx.sample_rate` を使用）。
 
 ### パラメータ
 

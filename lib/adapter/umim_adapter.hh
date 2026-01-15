@@ -132,33 +132,34 @@ public:
         return proc;
     }
     
-    static float& sample_rate() {
-        static float sr = 48000.0f;
-        return sr;
+    static uint64_t& sample_position() {
+        static uint64_t pos = 0;
+        return pos;
     }
-    
-    static void create(float sr) {
-        sample_rate() = sr;
+
+    static void create() {
+        sample_position() = 0;
     }
-    
-    static void process(const float* input, float* output, uint32_t frames) {
+
+    static void process(const float* input, float* output, uint32_t frames, uint32_t sample_rate) {
         const umi::sample_t* inputs_arr[] = {input};
         umi::sample_t* outputs_arr[] = {output};
         umi::EventQueue<> events;
-        
+
         umi::AudioContext ctx{
             .inputs = inputs_arr,
             .outputs = outputs_arr,
             .num_inputs = 1,
             .num_outputs = 1,
             .events = events,
-            .sample_rate = static_cast<uint32_t>(sample_rate()),
+            .sample_rate = sample_rate,
             .buffer_size = frames,
-            .dt = 1.0f / sample_rate(),
-            .sample_position = 0,
+            .dt = 1.0f / sample_rate,
+            .sample_position = sample_position(),
         };
-        
+
         instance().process(ctx);
+        sample_position() += frames;
     }
     
     static void note_on(uint8_t note, uint8_t velocity) {
@@ -222,9 +223,9 @@ public:
     >; \
     \
     extern "C" { \
-        UMIM_EXPORT_ATTR void umi_create(float sr) { _UmiAdapter::create(sr); } \
-        UMIM_EXPORT_ATTR void umi_process(const float* in, float* out, uint32_t frames) { \
-            _UmiAdapter::process(in, out, frames); \
+        UMIM_EXPORT_ATTR void umi_create(void) { _UmiAdapter::create(); } \
+        UMIM_EXPORT_ATTR void umi_process(const float* in, float* out, uint32_t frames, uint32_t sr) { \
+            _UmiAdapter::process(in, out, frames, sr); \
         } \
         UMIM_EXPORT_ATTR void umi_note_on(uint8_t n, uint8_t v) { _UmiAdapter::note_on(n, v); } \
         UMIM_EXPORT_ATTR void umi_note_off(uint8_t n) { _UmiAdapter::note_off(n); } \

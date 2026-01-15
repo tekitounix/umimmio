@@ -78,16 +78,18 @@ struct Delay {
     float feedback = 0.5f;
     float mix = 0.5f;
 
-    void init(float sample_rate) {
-        sample_rate_ = sample_rate;
-        buffer_.resize(static_cast<size_t>(sample_rate * 2.0f));
-        update_delay();
-    }
-
     void process(AudioContext& ctx) {
         const float* in = ctx.input(0);
         float* out = ctx.output(0);
         if (!in || !out) return;
+
+        // サンプルレート変更時にバッファ再初期化
+        if (sr_ != ctx.sample_rate) {
+            sr_ = ctx.sample_rate;
+            buffer_.resize(sr_ * 2);
+            write_pos_ = 0;
+            update_read_pos();
+        }
 
         for (uint32_t i = 0; i < ctx.buffer_size; ++i) {
             float delayed = buffer_[read_pos_];
@@ -100,12 +102,12 @@ struct Delay {
     }
 
 private:
-    void update_delay() {
-        size_t samples = static_cast<size_t>(time * sample_rate_);
+    void update_read_pos() {
+        size_t samples = static_cast<size_t>(time * sr_);
         read_pos_ = (write_pos_ + buffer_.size() - samples) % buffer_.size();
     }
 
-    float sample_rate_ = 48000.0f;
+    uint32_t sr_ = 0;
     std::vector<float> buffer_;
     size_t write_pos_ = 0;
     size_t read_pos_ = 0;

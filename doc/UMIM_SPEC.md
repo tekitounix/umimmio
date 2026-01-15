@@ -37,16 +37,16 @@ UMI-Module (`.umim`) は、WebAssemblyベースのオーディオプラグイン
 ### ライフサイクル
 
 ```c
-void umi_create(float sample_rate);
+void umi_create(void);
 void umi_destroy(void);  // オプション
 ```
 
-`umi_create()` は Processor の `init()` メソッドを呼ぶ（存在する場合）。
+`umi_create()` はProcessorインスタンスを初期化する。サンプルレートは `umi_process()` 時に `AudioContext` 経由で渡される。
 
 ### オーディオ処理
 
 ```c
-void umi_process(const float* input, float* output, uint32_t frames);
+void umi_process(const float* input, float* output, uint32_t frames, uint32_t sample_rate);
 ```
 
 ### パラメータ
@@ -149,31 +149,31 @@ UMIC付きの場合。Controllerのイベント処理が追加される。
 
 ```cpp
 static Volume g_proc;
-static float g_sample_rate = 48000.0f;
+static uint64_t g_sample_pos = 0;
 
 extern "C" {
 
-void umi_create(float sr) {
-    g_sample_rate = sr;
-    // Processor::init() があれば呼ぶ
+void umi_create(void) {
+    // デフォルト初期化済み
 }
 
-void umi_process(const float* in, float* out, uint32_t frames) {
+void umi_process(const float* in, float* out, uint32_t frames, uint32_t sample_rate) {
     const float* inputs[] = {in};
     float* outputs[] = {out};
-    EventQueue<> events;  // 空のイベントキュー
+    EventQueue<> events;
 
     AudioContext ctx{
         .inputs = {inputs, 1},
         .outputs = {outputs, 1},
         .input_events = {},
         .output_events = events,
-        .sample_rate = static_cast<uint32_t>(g_sample_rate),
+        .sample_rate = sample_rate,
         .buffer_size = frames,
-        .dt = 1.0f / g_sample_rate,
-        .sample_position = 0,
+        .dt = 1.0f / sample_rate,
+        .sample_position = g_sample_pos,
     };
     g_proc.process(ctx);
+    g_sample_pos += frames;
 }
 
 void umi_set_param(uint32_t id, float v) {
