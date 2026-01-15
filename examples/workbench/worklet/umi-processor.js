@@ -178,15 +178,46 @@ function registerUmiProcessor() {
   }
 }
 
-// Wait for WASM initialization
-if (typeof Module !== 'undefined' && Module.calledRun) {
-  registerUmiProcessor();
-} else if (typeof Module !== 'undefined') {
+// Wait for WASM initialization with polling fallback
+function waitAndRegister() {
+  console.log('[UMI] Checking Module state...');
+
+  if (typeof Module === 'undefined') {
+    console.error('[UMI] Module not defined in AudioWorkletGlobalScope');
+    return;
+  }
+
+  // Check if already initialized
+  if (Module.calledRun) {
+    console.log('[UMI] Module already initialized');
+    registerUmiProcessor();
+    return;
+  }
+
+  // Set callback
   const existingCallback = Module.onRuntimeInitialized;
   Module.onRuntimeInitialized = function() {
+    console.log('[UMI] onRuntimeInitialized called');
     if (existingCallback) existingCallback();
     registerUmiProcessor();
   };
-} else {
-  console.error('Module not defined in AudioWorkletGlobalScope');
+
+  // Polling fallback (some versions of Emscripten may not call onRuntimeInitialized)
+  let attempts = 0;
+  const pollInterval = setInterval(() => {
+    attempts++;
+    if (Module.calledRun || (Module._umi_create && Module._umi_process)) {
+      console.log(`[UMI] Module ready after ${attempts} polls`);
+      clearInterval(pollInterval);
+      if (!Module._registered) {
+        Module._registered = true;
+        registerUmiProcessor();
+      }
+    } else if (attempts > 100) {
+      console.error('[UMI] Timeout waiting for Module initialization');
+      clearInterval(pollInterval);
+    }
+  }, 10);
 }
+
+waitAndRegister();

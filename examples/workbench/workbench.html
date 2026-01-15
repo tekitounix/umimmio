@@ -790,9 +790,9 @@
         
         // Load AudioWorklet modules (WASM is embedded via --post-js)
         log('Loading AudioWorklet modules...', 'audio');
-        await audioContext.audioWorklet.addModule('./wasm/umi_synth_worklet.js');
+        await audioContext.audioWorklet.addModule('./umim_modules/synth.js');
         log('Synth worklet loaded', 'audio');
-        await audioContext.audioWorklet.addModule('./wasm/umi_delay_worklet.js');
+        await audioContext.audioWorklet.addModule('./umim_modules/delay.js');
         log('Delay worklet loaded', 'audio');
         
         // Create output chain
