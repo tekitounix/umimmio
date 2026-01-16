@@ -151,14 +151,14 @@ end
 -- Core Library (Header-only)
 -- =====================================================================
 
-target("umi_core")
+target("umios")
     set_kind("headeronly")
     set_group("libraries")
-    
-    add_headerfiles("core/*.hh")
+
+    add_headerfiles("lib/umios/*.hh")
     add_headerfiles("include/umi/*.hpp")
     add_includedirs(".", {public = true})
-    add_includedirs("core", {public = true})
+    add_includedirs("lib/umios", {public = true})
     add_includedirs("port", {public = true})
     add_includedirs("include", {public = true})
     
@@ -179,8 +179,8 @@ target("test_dsp")
     set_default(true)
     set_targetdir(".build")
 
-    add_files("test/test_dsp.cc")
-    add_includedirs("lib", "test")
+    add_files("lib/umidsp/test/test_dsp.cc")
+    add_includedirs("lib/umidsp/include", "lib/umiboot/include", "lib/umidi/include", "lib", "test")
     add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
 
     on_run(function (target)
@@ -195,7 +195,7 @@ target("test_kernel")
     set_targetdir(".build")
 
     add_files("test/test_kernel.cc")
-    add_includedirs("lib", "test")
+    add_includedirs("lib/umidsp/include", "lib/umiboot/include", "lib/umidi/include", "lib", "test")
     add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
 
     on_run(function (target)
@@ -210,7 +210,7 @@ target("test_audio")
     set_targetdir(".build")
 
     add_files("test/test_audio.cc")
-    add_includedirs("lib", "test")
+    add_includedirs("lib/umidsp/include", "lib/umiboot/include", "lib/umidi/include", "lib", "test")
     add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
 
     on_run(function (target)
@@ -225,7 +225,152 @@ target("test_midi")
     set_targetdir(".build")
 
     add_files("test/test_midi.cc")
-    add_includedirs("lib", "test")
+    add_includedirs("lib/umidsp/include", "lib/umiboot/include", "lib/umidi/include", "lib", "test")
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+
+    on_run(function (target)
+        os.execv(target:targetfile())
+    end)
+target_end()
+
+target("test_midi_lib")
+    set_kind("binary")
+    set_group("tests/host")
+    set_default(true)
+    set_targetdir(".build")
+
+    add_files("test/test_midi_lib.cc")
+    add_includedirs("lib/umidsp/include", "lib/umiboot/include", "lib/umidi/include", "lib", "test")
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+
+    on_run(function (target)
+        os.execv(target:targetfile())
+    end)
+target_end()
+
+target("test_umidi_comprehensive")
+    set_kind("binary")
+    set_group("tests/host")
+    set_default(true)
+    set_targetdir(".build")
+
+    add_files("test/test_umidi_comprehensive.cc")
+    add_includedirs("lib/umidsp/include", "lib/umiboot/include", "lib/umidi/include", "lib", "test")
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+
+    on_run(function (target)
+        os.execv(target:targetfile())
+    end)
+target_end()
+
+-- =====================================================================
+-- umidi Standalone Tests (lib/umidi/test/)
+-- =====================================================================
+-- These tests are self-contained within the umidi library directory
+
+target("umidi_test_core")
+    set_kind("binary")
+    set_group("tests/umidi")
+    set_default(false)
+    set_targetdir(".build")
+
+    add_files("lib/umidi/test/test_core.cc")
+    add_includedirs("lib/umidi/include", "lib/umiboot/include")
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+
+    on_run(function (target)
+        os.execv(target:targetfile())
+    end)
+target_end()
+
+target("umidi_test_messages")
+    set_kind("binary")
+    set_group("tests/umidi")
+    set_default(false)
+    set_targetdir(".build")
+
+    add_files("lib/umidi/test/test_messages.cc")
+    add_includedirs("lib/umidi/include", "lib/umiboot/include")
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+
+    on_run(function (target)
+        os.execv(target:targetfile())
+    end)
+target_end()
+
+target("umidi_test_protocol")
+    set_kind("binary")
+    set_group("tests/umidi")
+    set_default(false)
+    set_targetdir(".build")
+
+    add_files("lib/umidi/test/test_protocol.cc")
+    add_includedirs("lib/umidi/include", "lib/umiboot/include")
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+
+    on_run(function (target)
+        os.execv(target:targetfile())
+    end)
+target_end()
+
+target("umidi_test_extended")
+    set_kind("binary")
+    set_group("tests/umidi")
+    set_default(false)
+    set_targetdir(".build")
+
+    add_files("lib/umidi/test/test_extended_protocol.cc")
+    add_includedirs("lib/umidi/include", "lib/umiboot/include")
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+
+    on_run(function (target)
+        os.execv(target:targetfile())
+    end)
+target_end()
+
+-- =====================================================================
+-- umi_boot Standalone Tests (lib/umiboot/test/)
+-- =====================================================================
+-- These tests are self-contained within the umi_boot library directory
+
+target("umiboot_test_auth")
+    set_kind("binary")
+    set_group("tests/umiboot")
+    set_default(false)
+    set_targetdir(".build")
+
+    add_files("lib/umiboot/test/test_auth.cc")
+    add_includedirs("lib/umiboot/include")
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+
+    on_run(function (target)
+        os.execv(target:targetfile())
+    end)
+target_end()
+
+target("umiboot_test_firmware")
+    set_kind("binary")
+    set_group("tests/umiboot")
+    set_default(false)
+    set_targetdir(".build")
+
+    add_files("lib/umiboot/test/test_firmware.cc")
+    add_includedirs("lib/umiboot/include")
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+
+    on_run(function (target)
+        os.execv(target:targetfile())
+    end)
+target_end()
+
+target("umiboot_test_session")
+    set_kind("binary")
+    set_group("tests/umiboot")
+    set_default(false)
+    set_targetdir(".build")
+
+    add_files("lib/umiboot/test/test_session.cc")
+    add_includedirs("lib/umiboot/include")
     add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
 
     on_run(function (target)
@@ -285,8 +430,8 @@ target("firmware")
     set_filename("umi_firmware.elf")
     
     add_rules("cortex-m4f")
-    add_deps("umi_core")
-    add_includedirs(".", "core", "port", "lib")
+    add_deps("umios")
+    add_includedirs(".", "lib/umios", "port", "lib")
     add_defines("STM32F4", "BOARD_STM32F4")
     
     -- Linker script
@@ -305,8 +450,8 @@ target("renode_test")
     set_filename("renode_test.elf")
 
     add_rules("cortex-m4f")
-    add_deps("umi_core")
-    add_includedirs(".", "core", "port", "include")
+    add_deps("umios")
+    add_includedirs(".", "lib/umios", "port", "include", "lib/umidi/include", "lib/umiboot/include")
     add_defines("STM32F4", "BOARD_STM32F4")
 
     -- Optimize for size with debug info
@@ -327,6 +472,64 @@ target("renode_test")
     end)
 target_end()
 
+target("bench_midi_format")
+    set_kind("binary")
+    set_group("firmware")
+    set_default(false)
+    set_targetdir(".build")
+    set_filename("bench_midi_format.elf")
+
+    add_rules("cortex-m4f")
+    add_includedirs(".", "port")
+    add_defines("STM32F4", "BOARD_STM32F4")
+
+    -- Optimize for size with debug info
+    add_cxflags("-Os", "-g", {force = true})
+
+    -- Linker script
+    add_ldflags("-Tport/board/stm32f4/linker.ld", {force = true})
+
+    -- Sources
+    add_files("test/bench_midi_format.cc")
+    add_files("port/board/stm32f4/syscalls.cc")
+
+    -- Run with Renode
+    on_run(function (target)
+        local renode = "/Applications/Renode.app/Contents/MacOS/Renode"
+        if not os.isfile(renode) then renode = "renode" end
+        os.execv(renode, {"--console", "--disable-xwt", "-e", "include @renode/bench_midi.resc"})
+    end)
+target_end()
+
+target("umidi_test_renode")
+    set_kind("binary")
+    set_group("tests/umidi")
+    set_default(false)
+    set_targetdir(".build")
+    set_filename("umidi_test_renode.elf")
+
+    add_rules("cortex-m4f")
+    add_includedirs(".", "port", "lib", "lib/umidi/include", "lib/umiboot/include")
+    add_defines("STM32F4", "BOARD_STM32F4")
+
+    -- Optimize for size with debug info
+    add_cxflags("-Os", "-g", {force = true})
+
+    -- Linker script
+    add_ldflags("-Tport/board/stm32f4/linker.ld", {force = true})
+
+    -- Sources
+    add_files("lib/umidi/test/test_renode.cc")
+    add_files("port/board/stm32f4/syscalls.cc")
+
+    -- Run with Renode
+    on_run(function (target)
+        local renode = "/Applications/Renode.app/Contents/MacOS/Renode"
+        if not os.isfile(renode) then renode = "renode" end
+        os.execv(renode, {"--console", "--disable-xwt", "-e", "include @renode/umidi_test.resc"})
+    end)
+target_end()
+
 target("synth_example")
     set_kind("binary")
     set_group("examples")
@@ -335,8 +538,8 @@ target("synth_example")
     set_filename("synth_example.elf")
 
     add_rules("cortex-m4f")
-    add_deps("umi_core")
-    add_includedirs(".", "core", "port", "lib")
+    add_deps("umios")
+    add_includedirs(".", "lib/umios", "port", "lib", "lib/umidsp/include")
     add_defines("STM32F4", "BOARD_STM32F4")
 
     -- Optimize for size with debug info
@@ -401,28 +604,22 @@ rule("wasm-worklet")
     end)
 rule_end()
 
--- UMIM exported functions (port-based API + legacy compatibility)
+-- UMIM exported functions (generated by UMIM_EXPORT macro)
 local umim_exported_funcs = "[" .. table.concat({
     "'_malloc'", "'_free'",
     -- Lifecycle
-    "'_umi_create'", "'_umi_destroy'",
-    -- Port API (new)
-    "'_umi_get_port_count'", "'_umi_get_port_name'",
-    "'_umi_get_port_direction'", "'_umi_get_port_kind'",
-    "'_umi_set_port_buffer'", "'_umi_get_port_buffer'",
-    -- Event API (new)
-    "'_umi_send_event'", "'_umi_recv_event'", "'_umi_clear_events'",
+    "'_umi_create'",
     -- Audio processing
-    "'_umi_process'", "'_umi_process_simple'",
+    "'_umi_process'",
     -- Parameter API
     "'_umi_set_param'", "'_umi_get_param'", "'_umi_get_param_count'",
     "'_umi_get_param_name'", "'_umi_get_param_min'", "'_umi_get_param_max'",
-    "'_umi_get_param_default'", "'_umi_get_param_curve'", "'_umi_get_param_unit'",
-    -- Legacy API (backward compatibility)
+    "'_umi_get_param_default'", "'_umi_get_param_curve'", "'_umi_get_param_id'",
+    "'_umi_get_param_unit'",
+    -- Note API (optional, SFINAE)
     "'_umi_note_on'", "'_umi_note_off'", "'_umi_process_cc'",
     -- Plugin info
-    "'_umi_get_processor_name'", "'_umi_get_name'", "'_umi_get_vendor'",
-    "'_umi_get_version'", "'_umi_get_type'"
+    "'_umi_get_processor_name'"
 }, ",") .. "]"
 local umim_runtime_methods = "['ccall','cwrap','UTF8ToString','HEAPF32','HEAP8']"
 
@@ -437,7 +634,7 @@ local function umim_target(name, source_file)
         set_targetdir(".build/umim")
         set_filename(name .. ".js")
 
-        add_includedirs("core", "lib", "lib/adapter", "examples/synth")
+        add_includedirs("lib/umios", "lib", "lib/umim", "lib/umidsp/include", "examples/synth")
         add_files(source_file)
 
         add_cxflags("-fno-exceptions", "-fno-rtti", "-O3", {force = true})
