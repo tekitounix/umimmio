@@ -1,4 +1,4 @@
-#include <core/umi_kernel.hh>
+#include <umios/umi_kernel.hh>
 #include "test_common.hh"
 #include <cstdio>
 #include <cstdlib>
