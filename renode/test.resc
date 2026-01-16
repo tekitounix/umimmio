@@ -14,14 +14,18 @@ sysbus LoadELF $CWD/.build/renode_test.elf
 # Set VTOR to point to flash (0x08000000) where vector table is located
 sysbus WriteDoubleWord 0xE000ED08 0x08000000
 
+# Set PC to entry point and SP to top of RAM
+cpu PC 0x80004c9
+cpu SP 0x20020000
+
 # Log UART to file for verification
 logFile $CWD/.build/renode_uart.log
 usart2 CreateFileBackend $CWD/.build/renode_uart.log true
 
 echo "=== UMI-OS Test Suite Starting ==="
 
-# Run emulation for 2 seconds (virtual time) - extended for DSP tests with float math
-emulation RunFor "2"
+# Run emulation for 5 seconds (virtual time) - extended for benchmark
+emulation RunFor "5"
 
 echo "=== Test finished ==="
 quit

@@ -11,3 +11,7 @@ flash:
 // Add boot alias at 0x00000000 (STM32 boots from here)
 boot: Memory.MappedMemory @ sysbus 0x00000000
     size: 0x80000
+
+// DWT (Data Watchpoint and Trace) - Cycle counter support
+dwt: Miscellaneous.DWT @ sysbus 0xE0001000
+    frequency: 168000000
