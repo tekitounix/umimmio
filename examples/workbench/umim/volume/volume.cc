@@ -3,6 +3,7 @@
 // =====================================================================
 
 #include <umim_adapter.hh>
+#include <array>
 
 using namespace umi;
 using namespace umi::umim;
@@ -40,7 +41,7 @@ private:
 // ============================================================================
 
 inline constexpr std::array<Param, 1> kParams = {{
-    {"Volume", 0.0f, 1.0f, 1.0f, 0, ""},
+    {0, "Volume", 0.0f, 1.0f, 1.0f, ParamCurve::Linear, ""},
 }};
 
 UMIM_EXPORT_NAMED(Volume, kParams, "umi-volume-processor");

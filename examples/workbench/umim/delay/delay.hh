@@ -123,10 +123,10 @@ private:
 // ============================================================================
 
 inline constexpr std::array<Param, 4> kDelayParams = {{
-    {"Time",     10.0f,  1000.0f, 300.0f, 0, "ms"},
-    {"Feedback", 0.0f,   0.95f,   0.4f,   0, ""},
-    {"Mix",      0.0f,   1.0f,    0.5f,   0, ""},
-    {"Filter",   100.0f, 20000.0f, 8000.0f, 1, "Hz"},
+    {0, "Time",     10.0f,  1000.0f, 300.0f, ParamCurve::Linear, "ms"},
+    {1, "Feedback", 0.0f,   0.95f,   0.4f,   ParamCurve::Linear, ""},
+    {2, "Mix",      0.0f,   1.0f,    0.5f,   ParamCurve::Linear, ""},
+    {3, "Filter",   100.0f, 20000.0f, 8000.0f, ParamCurve::Log,  "Hz"},
 }};
 
 } // namespace umi::umim

@@ -13,11 +13,12 @@
 #include <cmath>
 #include <chrono>
 #include <array>
+#include <span>
 
-#include <core/processor.hh>
-#include <core/audio_context.hh>
-#include <core/event.hh>
-#include <core/coro.hh>
+#include <umios/processor.hh>
+#include <umios/audio_context.hh>
+#include <umios/event.hh>
+#include <umios/coro.hh>
 
 // =====================================================================
 // Syscall Interface (provided by kernel)
@@ -105,17 +106,20 @@ public:
     // === ProcessorLike: required ===
     void process(umi::AudioContext& ctx) {
         if (ctx.num_outputs() < 1) return;
-        
+
         auto* out = ctx.output(0);
-        
+        if (!out) return;
+
         // Process sample-accurate events
+        size_t event_idx = 0;
         for (std::size_t i = 0; i < ctx.buffer_size; ++i) {
             // Check for events at this sample
-            umi::Event ev;
-            while (ctx.events.pop_until(static_cast<umi::sample_position_t>(i), ev)) {
-                handle_event(ev);
+            while (event_idx < ctx.input_events.size() &&
+                   ctx.input_events[event_idx].sample_pos <= static_cast<uint32_t>(i)) {
+                handle_event(ctx.input_events[event_idx]);
+                ++event_idx;
             }
-            
+
             // Generate audio
             out[i] = amplitude_ * std::sin(phase_);
             phase_ += phase_inc_;
@@ -126,8 +130,9 @@ public:
     // === Controllable: optional ===
     void control(umi::ControlContext& ctx) {
         // Process any remaining events (parameter changes from UI, etc.)
+        if (!ctx.events) return;
         umi::Event ev;
-        while (ctx.events.pop(ev)) {
+        while (ctx.events->pop(ev)) {
             handle_event(ev);
         }
     }
@@ -205,33 +210,41 @@ SimpleSynth* g_synth = nullptr;
 // Audio Callback (called from DMA ISR or audio thread)
 // =====================================================================
 
-extern "C" void umi_audio_process(float* input, float* output, 
+extern "C" void umi_audio_process(float* input, float* output,
                                    std::size_t frames, std::uint8_t channels,
                                    std::uint32_t sample_rate) {
     (void)input;
-    
+
     if (!g_synth) return;
-    
+
     // Create AudioContext
     // Note: In real implementation, events would come from kernel's event queue
-    static umi::EventQueue<> events;  // Default capacity (256)
-    
+    static umi::EventQueue<> output_events;  // Default capacity (256)
+
     std::array<float, 1024> out_buf;
     float* out_ptr = out_buf.data();
-    
+
+    // Setup pointer arrays (std::span wrapping)
+    const umi::sample_t* inputs_arr[] = {nullptr};
+    umi::sample_t* outputs_arr[] = {out_ptr};
+
+    // Empty input events (no events in this example)
+    std::span<const umi::Event> input_events;
+
     umi::AudioContext ctx{
-        .inputs = {},
-        .outputs = std::span<umi::sample_t* const>(&out_ptr, 1),
-        .events = events,
+        .inputs = std::span<const umi::sample_t* const>(inputs_arr, 0),  // 0 inputs
+        .outputs = std::span<umi::sample_t* const>(outputs_arr, 1),      // 1 output
+        .input_events = input_events,
+        .output_events = output_events,
         .sample_rate = sample_rate,
         .buffer_size = static_cast<std::uint32_t>(frames),
         .dt = 1.0f / static_cast<float>(sample_rate),
         .sample_position = 0
     };
-    
+
     // Process using concept-based API (inlined, no vtable)
     umi::process_once(*g_synth, ctx);
-    
+
     // Copy to interleaved output
     for (std::size_t i = 0; i < frames; ++i) {
         for (std::uint8_t ch = 0; ch < channels; ++ch) {
