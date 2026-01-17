@@ -9,7 +9,7 @@
 // - 40% memory reduction (8 bytes/event vs 20 bytes)
 //
 // Usage:
-//   #include <umidi/umidi.hh>
+//   #include <umidi.hh>
 //
 //   umidi::Parser parser;
 //   umidi::UMP32 ump;
