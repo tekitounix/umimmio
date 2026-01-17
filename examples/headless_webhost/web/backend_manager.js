@@ -86,7 +86,7 @@ export class UmimBackend extends BackendInterface {
         // Path is relative to HTML file location (workbench/)
         this.workletUrl = options.workletUrl || './umim_worklet.js';
         this.wasmUrl = options.wasmUrl || './umim_synth.wasm';
-        this.processorName = options.processorName || 'umim-processor';
+        this.processorName = options.processorName || 'umi-synth-processor';
         this.sampleRate = options.sampleRate || 48000;
 
         this.audioContext = null;
@@ -97,21 +97,14 @@ export class UmimBackend extends BackendInterface {
     }
 
     async start() {
-        console.log('[UmimBackend] Starting (using synth.wasm - DSP only, no kernel)...');
-
-        // Fetch WASM binary first
-        const wasmResponse = await fetch(this.wasmUrl);
-        if (!wasmResponse.ok) {
-            throw new Error(`Failed to fetch WASM: ${wasmResponse.status}`);
-        }
-        const wasmBytes = await wasmResponse.arrayBuffer();
-        console.log('[UmimBackend] WASM loaded:', wasmBytes.byteLength, 'bytes');
+        console.log('[UmimBackend] Starting (using embedded WASM - DSP only, no kernel)...');
 
         // Create audio context
         this.audioContext = new AudioContext({ sampleRate: this.sampleRate });
         console.log('[UmimBackend] AudioContext created:', this.audioContext.sampleRate, 'Hz');
 
         // Register AudioWorklet (add cache buster)
+        // The worklet has WASM embedded, no need to fetch separately
         const cacheBuster = '?v=' + Date.now();
         await this.audioContext.audioWorklet.addModule(this.workletUrl + cacheBuster);
         console.log('[UmimBackend] Worklet module loaded:', this.workletUrl);
@@ -131,6 +124,7 @@ export class UmimBackend extends BackendInterface {
         this.analyzerNode.connect(this.audioContext.destination);
 
         // Wait for WASM initialization to complete
+        // The worklet initializes Emscripten automatically during process()
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 reject(new Error('WASM initialization timeout'));
@@ -154,13 +148,8 @@ export class UmimBackend extends BackendInterface {
                 if (this.onMessage) this.onMessage(e.data);
             };
 
-            // Send WASM to worklet for initialization
-            this.workletNode.port.postMessage({ type: 'init', wasmBytes });
+            // No need to send init message - worklet self-initializes with embedded WASM
         });
-
-        // Set RTC to current time
-        const rtcEpoch = Math.floor(Date.now() / 1000);
-        this.workletNode.port.postMessage({ type: 'set-rtc', epoch: rtcEpoch });
 
         console.log('[UmimBackend] Started successfully');
         return true;
@@ -261,10 +250,9 @@ export const WasmBackend = UmimBackend;
 export class UmiosBackend extends BackendInterface {
     constructor(options = {}) {
         super();
-        // Paths relative to HTML file location (workbench/)
-        // Use synth/ versions which are the canonical sources
-        this.workletUrl = options.workletUrl || '../synth/synth_worklet.js';
-        this.wasmUrl = options.wasmUrl || '../synth/synth_sim.wasm';
+        // Paths relative to HTML file location
+        this.workletUrl = options.workletUrl || './synth_sim_worklet.js';
+        this.wasmUrl = options.wasmUrl || './webhost_sim.wasm';
         this.processorName = options.processorName || 'synth-worklet-processor';
         this.sampleRate = options.sampleRate || 48000;
 
@@ -276,13 +264,14 @@ export class UmiosBackend extends BackendInterface {
     }
 
     async start() {
-        // Fetch WASM binary first
-        const wasmResponse = await fetch(this.wasmUrl);
+        // Fetch WASM binary first (with cache buster)
+        const wasmCacheBuster = '?v=' + Date.now();
+        const wasmResponse = await fetch(this.wasmUrl + wasmCacheBuster);
         if (!wasmResponse.ok) {
             throw new Error(`Failed to fetch WASM: ${wasmResponse.status}`);
         }
         const wasmBytes = await wasmResponse.arrayBuffer();
-        console.log('[UmiosBackend] WASM loaded:', wasmBytes.byteLength, 'bytes');
+        console.log('[UmiosBackend] WASM loaded:', wasmBytes.byteLength, 'bytes from', this.wasmUrl + wasmCacheBuster);
 
         // Create audio context
         this.audioContext = new AudioContext({ sampleRate: this.sampleRate });
