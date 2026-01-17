@@ -40,15 +40,15 @@
         .col-synth, .col-status, .col-config { display: flex; flex-direction: column; gap: 12px; }
         .col-status .panel, .col-config .panel { margin-bottom: 0; }
 
-        /* Category colors */
-        .category-kernel h2 { border-left: 3px solid #9b59b6; padding-left: 8px; }
-        .category-mcu h2 { border-left: 3px solid #3498db; padding-left: 8px; }
-        .category-audio h2 { border-left: 3px solid #27ae60; padding-left: 8px; }
-        .category-midi h2 { border-left: 3px solid #e67e22; padding-left: 8px; }
-        .category-peripheral h2 { border-left: 3px solid #f1c40f; padding-left: 8px; }
-        .category-config h2 { border-left: 3px solid #e74c3c; padding-left: 8px; }
-        .category-debug h2 { border-left: 3px solid #1abc9c; padding-left: 8px; }
-        .category-info h2 { border-left: 3px solid #95a5a6; padding-left: 8px; }
+        /* Category accent colors - semantic, not themed */
+        .category-kernel h2 { border-left: 3px solid #9b59b6; padding-left: 8px; }   /* purple */
+        .category-mcu h2 { border-left: 3px solid #3498db; padding-left: 8px; }      /* blue */
+        .category-audio h2 { border-left: 3px solid #27ae60; padding-left: 8px; }    /* green */
+        .category-midi h2 { border-left: 3px solid #e67e22; padding-left: 8px; }     /* orange */
+        .category-peripheral h2 { border-left: 3px solid #f1c40f; padding-left: 8px; } /* yellow */
+        .category-config h2 { border-left: 3px solid #e74c3c; padding-left: 8px; }   /* red */
+        .category-debug h2 { border-left: 3px solid #1abc9c; padding-left: 8px; }    /* teal */
+        .category-info h2 { border-left: 3px solid #95a5a6; padding-left: 8px; }     /* gray */
 
         /* Control buttons */
         .control-buttons { display: flex; gap: 8px; margin-bottom: 8px; }
@@ -186,10 +186,10 @@
         button:hover { background: var(--umi-accent-hover, #3db892); }
         button:disabled { background: var(--umi-text-disabled, #444); color: var(--umi-text-muted, #888); cursor: not-allowed; }
         button.stop { background: var(--umi-error, #e74c3c); }
-        button.stop:hover { background: #c0392b; }
+        button.stop:hover { opacity: 0.85; }
         button.small { padding: 4px 10px; font-size: 11px; margin: 0; }
         button.secondary { background: var(--umi-info, #3498db); }
-        button.secondary:hover { background: #2980b9; }
+        button.secondary:hover { opacity: 0.85; }
 
         .status {
             display: inline-block;
@@ -198,37 +198,12 @@
             font-size: 12px;
             margin-left: 10px;
         }
-        .status.loading { background: var(--umi-warning, #f39c12); color: #000; }
+        .status.loading { background: var(--umi-warning, #f39c12); color: var(--umi-bg-primary, #000); }
         .status.ready { background: var(--umi-success, #27ae60); }
-        .status.playing { background: var(--umi-accent, #4ecca3); color: #000; }
+        .status.playing { background: var(--umi-accent, #4ecca3); color: var(--umi-bg-primary, #000); }
         .status.error { background: var(--umi-error, #e74c3c); }
 
-        /* Keyboard */
-        .keyboard { display: flex; gap: 2px; margin-top: 10px; }
-        .key { position: relative; cursor: pointer; user-select: none; }
-        .key.white {
-            width: 36px; height: 120px;
-            background: linear-gradient(180deg, #f0f0f0 0%, #ddd 100%);
-            border: 1px solid #999;
-            border-radius: 0 0 4px 4px;
-            z-index: 1;
-        }
-        .key.black {
-            width: 22px; height: 75px;
-            background: linear-gradient(180deg, #333 0%, #111 100%);
-            border: 1px solid #000;
-            border-radius: 0 0 3px 3px;
-            margin-left: -11px; margin-right: -11px;
-            z-index: 2;
-        }
-        .key.white:active, .key.white.active { background: linear-gradient(180deg, #ddd 0%, #bbb 100%); }
-        .key.black:active, .key.black.active { background: linear-gradient(180deg, #222 0%, #000 100%); }
-        .key-label {
-            position: absolute;
-            bottom: 6px; left: 50%;
-            transform: translateX(-50%);
-            font-size: 9px; color: #666;
-        }
+        /* Keyboard - styles provided by umi_web/theme */
 
         /* Waveform */
         .waveform { width: 100%; height: 80px; background: var(--umi-bg-primary, #0a0a15); border-radius: 4px; overflow: hidden; }
@@ -426,20 +401,22 @@
         }
         .mem-region-label {
             font-size: 8px;
-            color: rgba(255,255,255,0.8);
+            color: #fff;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             padding: 0 2px;
+            text-shadow: 0 0 2px rgba(0,0,0,0.5);
         }
+        /* Memory region colors - semantic, not themed */
         #memDataBss { background: #9b59b6; }
         #memHeap { background: #3498db; }
         #memFree { background: var(--umi-bg-secondary, #1a1a2e); }
-        #memFree .mem-region-label { color: var(--umi-text-disabled, #555); }
+        #memFree .mem-region-label { color: var(--umi-text-disabled, #555); text-shadow: none; }
         #memTaskStacks { background: #e67e22; }
-        #memMainStack { background: var(--umi-error, #e74c3c); }
+        #memMainStack { background: #e74c3c; }
         #memDma { background: #27ae60; }
-        #memShared { background: #f1c40f; color: #333; }
+        #memShared { background: #f1c40f; color: #333; text-shadow: none; }
         .mem-map-legend {
             display: flex;
             justify-content: space-between;
@@ -450,7 +427,7 @@
         }
         .mem-warning {
             background: var(--umi-warning, #f39c12);
-            color: #000;
+            color: var(--umi-bg-primary, #000);
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 11px;
@@ -636,7 +613,7 @@
         .midi-msg.note-on { color: var(--umi-accent, #4ecca3); }
         .midi-msg.note-off { color: var(--umi-text-muted, #888); }
         .midi-msg.cc { color: var(--umi-info, #3498db); }
-        .midi-msg.other { color: #9b59b6; }
+        .midi-msg.other { color: #9b59b6; }  /* sysex/other - fixed purple */
         .midi-msg .time { color: var(--umi-text-disabled, #666); margin-right: 4px; }
         .midi-msg .channel { color: var(--umi-warning, #f39c12); }
         .midi-activity {
@@ -653,12 +630,12 @@
 
         /* MIDI Learn */
         .midi-learn-btn {
-            background: #9b59b6;
+            background: #9b59b6;  /* MIDI learn purple */
             padding: 4px 10px;
             font-size: 10px;
             margin: 0;
         }
-        .midi-learn-btn:hover { background: #8e44ad; }
+        .midi-learn-btn:hover { opacity: 0.85; }
         .midi-learn-btn.active {
             background: var(--umi-error, #e74c3c);
             animation: pulse 1s infinite;
@@ -681,7 +658,7 @@
         }
         .param .midi-mapping {
             font-size: 9px;
-            color: #9b59b6;
+            color: #9b59b6;  /* MIDI mapping purple */
             margin-top: 2px;
         }
         .param .midi-mapping .clear-btn {
@@ -1075,7 +1052,7 @@
                     <h2><span class="indicator" id="powerIndicator"></span>Power Supply</h2>
                     <div class="status-grid">
                         <div class="status-row"><span class="status-label">Battery</span><span class="status-value" id="batteryLevel">--</span></div>
-                        <div class="load-bar"><div class="load-bar-fill" id="batteryBar" style="width:100%;background:#27ae60;"></div></div>
+                        <div class="load-bar"><div class="load-bar-fill" id="batteryBar" style="width:100%;"></div></div>
                         <div class="status-2col">
                             <div class="status-row"><span class="status-label">Voltage</span><span class="status-value" id="batteryVoltage">--</span></div>
                             <div class="status-row"><span class="status-label">USB</span><span class="status-value" id="usbStatus">--</span></div>
@@ -2399,8 +2376,13 @@
                     data.batteryPercent + '%' + (data.batteryCharging ? ' (Charging)' : '');
                 const batBar = document.getElementById('batteryBar');
                 batBar.style.width = data.batteryPercent + '%';
-                batBar.style.background = data.batteryPercent < 20 ? '#e74c3c' :
-                    data.batteryPercent < 50 ? '#f39c12' : '#27ae60';
+                // Battery color based on level
+                const styles = getComputedStyle(document.documentElement);
+                batBar.style.background = data.batteryPercent < 20 ?
+                    (styles.getPropertyValue('--umi-error').trim() || '#e74c3c') :
+                    data.batteryPercent < 50 ?
+                    (styles.getPropertyValue('--umi-warning').trim() || '#f39c12') :
+                    (styles.getPropertyValue('--umi-success').trim() || '#27ae60');
             }
             if (data.batteryVoltage !== undefined) {
                 document.getElementById('batteryVoltage').textContent =
@@ -2813,10 +2795,11 @@
                 const width = waveformCanvas.width;
                 const height = waveformCanvas.height;
 
-                waveformCtx.fillStyle = '#0a0a15';
+                const styles = getComputedStyle(document.documentElement);
+                waveformCtx.fillStyle = styles.getPropertyValue('--umi-bg-primary').trim() || '#0a0a15';
                 waveformCtx.fillRect(0, 0, width, height);
                 waveformCtx.lineWidth = 2;
-                waveformCtx.strokeStyle = '#4ecca3';
+                waveformCtx.strokeStyle = styles.getPropertyValue('--umi-accent').trim() || '#4ecca3';
                 waveformCtx.beginPath();
 
                 const sliceWidth = width / bufferLength;
