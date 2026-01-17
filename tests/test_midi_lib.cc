@@ -2,7 +2,7 @@
 // UMI-OS MIDI Library Tests
 // Tests for UMP-Opt format MIDI library
 
-#include <umidi/umidi.hh>
+#include <umidi.hh>
 #include <cstdio>
 
 // =============================================================================

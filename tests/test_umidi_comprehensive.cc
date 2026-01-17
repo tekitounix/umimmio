@@ -2,7 +2,7 @@
 // umidi Comprehensive Test Suite
 // Tests all MIDI message types for correctness
 
-#include <umidi/umidi.hh>
+#include <umidi.hh>
 #include <cstdio>
 #include <cstring>
 #include <vector>

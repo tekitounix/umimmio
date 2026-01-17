@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 // umidi Core Tests - UMP, Parser, Result
 #include "test_framework.hh"
-#include "umidi/core/ump.hh"
-#include "umidi/core/parser.hh"
-#include "umidi/core/result.hh"
-#include "umidi/core/sysex_buffer.hh"
+#include "core/ump.hh"
+#include "core/parser.hh"
+#include "core/result.hh"
+#include "core/sysex_buffer.hh"
 
 using namespace umidi;
 using namespace umidi::test;

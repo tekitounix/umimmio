@@ -15,9 +15,9 @@
 #include "synth.hh"
 
 // Include umios types
-#include <umios/audio_context.hh>
-#include <umios/event.hh>
-#include <umios/processor.hh>
+#include <umios/core/audio_context.hh>
+#include <umios/core/event.hh>
+#include <umios/core/processor.hh>
 
 namespace umi::synth {
 

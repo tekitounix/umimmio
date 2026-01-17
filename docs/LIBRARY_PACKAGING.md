@@ -14,8 +14,9 @@ UMI-OSライブラリの標準構造を定義する。
 lib/<name>/
 ├── README.md              # クイックスタート
 ├── xmake.lua              # ビルド設定
-├── include/<name>/        # 公開ヘッダ（コメント付き）
-│   └── *.hh
+├── include/               # 公開ヘッダ（コメント付き）
+│   └── *.hh               # シンプルな場合は直下
+│   └── <category>/        # 必要ならカテゴリ分け
 ├── test/                  # ユニットテスト
 │   └── test_*.cc
 ├── examples/              # 動作するサンプル
@@ -23,6 +24,12 @@ lib/<name>/
 └── docs/                  # オプション
     └── design.md          # 設計思想（複雑なライブラリのみ）
 ```
+
+### includeの構造
+
+- **シンプルなライブラリ**: `include/*.hh` 直下に配置
+- **カテゴリ分けが必要な場合**: `include/<category>/*.hh`
+- **ライブラリ名のフォルダは不要**: `include/<name>/` は冗長
 
 ## コメントルール
 
@@ -112,7 +119,7 @@ Result<SysExData> parse_sysex(uint8_t byte, uint32_t timeout_ms) noexcept;
 ## クイックスタート
 
 \`\`\`cpp
-#include <<name>/<name>.hh>
+#include <<name>.hh>
 
 // 最小限の動作例
 \`\`\`
@@ -131,7 +138,7 @@ xmake run <name>_test
 
 ```cpp
 // examples/basic.cc
-#include <umidi/umidi.hh>
+#include <umidi.hh>
 #include <cstdio>
 
 int main() {
@@ -152,7 +159,7 @@ int main() {
 ### 必須
 
 - [ ] `README.md` - クイックスタート
-- [ ] `include/<name>/` - コメント付きヘッダ
+- [ ] `include/` - コメント付きヘッダ
 - [ ] `test/` - ユニットテスト
 - [ ] `examples/` - 動作するサンプル
 - [ ] `xmake.lua` - ビルド設定

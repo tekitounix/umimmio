@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // umidi Message Tests - ChannelVoice, System, SysEx
 #include "test_framework.hh"
-#include "umidi/messages/channel_voice.hh"
-#include "umidi/messages/system.hh"
-#include "umidi/messages/sysex.hh"
-#include "umidi/messages/utility.hh"
-#include "umidi/core/ump.hh"
+#include "messages/channel_voice.hh"
+#include "messages/system.hh"
+#include "messages/sysex.hh"
+#include "messages/utility.hh"
+#include "core/ump.hh"
 #include <type_traits>
 
 using namespace umidi;

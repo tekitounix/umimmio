@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // umidi Protocol Tests - SysEx Protocol, Auth, Session, Bootloader
 #include "test_framework.hh"
-#include "umidi/protocol/umi_sysex.hh"
-#include "umidi/protocol/umi_auth.hh"
-#include "umidi/protocol/umi_firmware.hh"
-#include "umidi/protocol/umi_bootloader.hh"
-#include "umidi/protocol/umi_session.hh"
+#include "protocol/umi_sysex.hh"
+#include "protocol/umi_auth.hh"
+#include "protocol/umi_firmware.hh"
+#include "protocol/umi_bootloader.hh"
+#include "protocol/umi_session.hh"
 
 using namespace umidi;
 using namespace umidi::protocol;
