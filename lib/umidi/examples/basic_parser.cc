@@ -5,9 +5,9 @@
 /// This example shows how to parse a MIDI byte stream into UMP32 messages
 /// and dispatch them to appropriate handlers.
 
-#include "umidi/core/ump.hh"
-#include "umidi/core/parser.hh"
-#include "umidi/messages/channel_voice.hh"
+#include "core/ump.hh"
+#include "core/parser.hh"
+#include "messages/channel_voice.hh"
 
 #include <cstdio>
 

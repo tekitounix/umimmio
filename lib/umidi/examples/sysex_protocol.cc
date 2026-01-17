@@ -5,9 +5,9 @@
 /// This example demonstrates the UMI SysEx protocol for
 /// bidirectional communication over MIDI.
 
-#include "umidi/protocol/commands.hh"
-#include "umidi/protocol/message.hh"
-#include "umidi/protocol/encoding.hh"
+#include "protocol/commands.hh"
+#include "protocol/message.hh"
+#include "protocol/encoding.hh"
 
 #include <cstdio>
 #include <cstring>

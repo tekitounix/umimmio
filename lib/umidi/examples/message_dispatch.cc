@@ -5,8 +5,8 @@
 /// This example demonstrates how to use the message wrapper types and
 /// the dispatch helper for type-safe message handling.
 
-#include "umidi/core/ump.hh"
-#include "umidi/messages/channel_voice.hh"
+#include "core/ump.hh"
+#include "messages/channel_voice.hh"
 
 #include <cstdio>
 
