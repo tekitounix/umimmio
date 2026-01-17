@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 // umidi Extended Protocol Tests - Transport, State, Object Transfer
 #include "test_framework.hh"
-#include "umidi/protocol/umi_sysex.hh"
-#include "umidi/protocol/umi_transport.hh"
-#include "umidi/protocol/umi_state.hh"
-#include "umidi/protocol/umi_object.hh"
+#include "protocol/umi_sysex.hh"
+#include "protocol/umi_transport.hh"
+#include "protocol/umi_state.hh"
+#include "protocol/umi_object.hh"
 
 using namespace umidi;
 using namespace umidi::protocol;

@@ -13,7 +13,7 @@
 #include <type_traits>
 
 // Include shared DSP components (from umidsp library)
-#include <dsp/dsp.hh>  // lib/umidsp/include/dsp/
+#include <dsp.hh>  // lib/umidsp/include/
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>

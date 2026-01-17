@@ -39,10 +39,10 @@
 #include <cstring>
 
 // Include umios types directly
-#include <umios/types.hh>
-#include <umios/event.hh>
-#include <umios/audio_context.hh>
-#include <umios/umi_kernel.hh>
+#include <umios/core/types.hh>
+#include <umios/core/event.hh>
+#include <umios/core/audio_context.hh>
+#include <umios/kernel/umi_kernel.hh>
 
 // Emscripten support
 #ifdef __EMSCRIPTEN__

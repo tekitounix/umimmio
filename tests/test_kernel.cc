@@ -1,22 +1,23 @@
-#include <umios/umi_kernel.hh>
-#include "test_common.hh"
 #include <cstdio>
 #include <cstdlib>
+#include <umios/kernel/umi_kernel.hh>
 #include <vector>
 
+#include "test_common.hh"
+
 struct MockHw {
-    static inline umi::usec now_us {0};
-    static inline umi::usec timer_set {0};
-    static inline std::uint8_t last_ipi {0xFF};
-    static inline std::uint8_t core_id {0};
-    static inline int context_switch_requests {0};
-    static inline int save_fpu_calls {0};
-    static inline int restore_fpu_calls {0};
-    static inline int crit_enter {0};
-    static inline int crit_exit {0};
-    static inline int sleep_calls {0};
-    static inline std::uint32_t fake_cycles {0};
-    
+    static inline umi::usec now_us{0};
+    static inline umi::usec timer_set{0};
+    static inline std::uint8_t last_ipi{0xFF};
+    static inline std::uint8_t core_id{0};
+    static inline int context_switch_requests{0};
+    static inline int save_fpu_calls{0};
+    static inline int restore_fpu_calls{0};
+    static inline int crit_enter{0};
+    static inline int crit_exit{0};
+    static inline int sleep_calls{0};
+    static inline std::uint32_t fake_cycles{0};
+
     struct MpuCall {
         std::size_t idx;
         const void* base;
@@ -24,9 +25,9 @@ struct MockHw {
         bool writable;
         bool executable;
     };
-    static inline std::array<MpuCall, 16> mpu_calls {};
-    static inline std::size_t mpu_call_count {0};
-    static inline std::array<std::byte, 128> backup_ram {};
+    static inline std::array<MpuCall, 16> mpu_calls{};
+    static inline std::size_t mpu_call_count{0};
+    static inline std::array<std::byte, 128> backup_ram{};
 
     static void set_timer_absolute(umi::usec target) { timer_set = target; }
     static umi::usec monotonic_time_usecs() { return now_us; }
@@ -55,26 +56,36 @@ struct MockHw {
     static void system_reset() {}
     static void enter_sleep() { ++sleep_calls; }
     static std::uint32_t cycle_count() { return fake_cycles; }
-    static std::uint32_t cycles_per_usec() { return 168; }  // 168MHz typical Cortex-M
+    static std::uint32_t cycles_per_usec() { return 168; } // 168MHz typical Cortex-M
 };
 
 using Kernel = umi::Kernel<4, 4, umi::Hw<MockHw>>;
 static Kernel k;
 
 static int timer_fired = 0;
-void on_timer(void*) { ++timer_fired; }
+void on_timer(void*) {
+    ++timer_fired;
+}
 
 // Use umi::test::check from test_common.hh
 using umi::test::check;
 
 int main() {
     // Task creation and scheduling (priority)
-    umi::TaskConfig idle_fpu{.entry = nullptr, .arg = nullptr, .prio = umi::Priority::Idle, .core_affinity = static_cast<std::uint8_t>(umi::Core::Any), .uses_fpu = true};
-    umi::TaskConfig audio_fpu{.entry = nullptr, .arg = nullptr, .prio = umi::Priority::Realtime, .core_affinity = static_cast<std::uint8_t>(umi::Core::Any), .uses_fpu = true};
+    umi::TaskConfig idle_fpu{.entry = nullptr,
+                             .arg = nullptr,
+                             .prio = umi::Priority::Idle,
+                             .core_affinity = static_cast<std::uint8_t>(umi::Core::Any),
+                             .uses_fpu = true};
+    umi::TaskConfig audio_fpu{.entry = nullptr,
+                              .arg = nullptr,
+                              .prio = umi::Priority::Realtime,
+                              .core_affinity = static_cast<std::uint8_t>(umi::Core::Any),
+                              .uses_fpu = true};
 
     auto t_idle = k.create_task(idle_fpu);
-    k.resume_task(t_idle);  // schedule() called here, context_switch_requests = 1
-    k.tick(0);                 // schedule() called again, context_switch_requests = 2
+    k.resume_task(t_idle); // schedule() called here, context_switch_requests = 1
+    k.tick(0);             // schedule() called again, context_switch_requests = 2
     // Verify context switch was requested and correct task selected
     check(MockHw::context_switch_requests == 2, "context switch requested for idle task");
     auto next = k.get_next_task();
@@ -83,8 +94,8 @@ int main() {
     check(MockHw::restore_fpu_calls == 1, "restore_fpu on first switch");
 
     auto t_audio = k.create_task(audio_fpu);
-    k.resume_task(t_audio);  // schedule(), context_switch_requests = 3
-    k.tick(0);                  // schedule(), context_switch_requests = 4
+    k.resume_task(t_audio); // schedule(), context_switch_requests = 3
+    k.tick(0);              // schedule(), context_switch_requests = 4
     check(MockHw::context_switch_requests == 4, "context switch requested for preemption");
     next = k.get_next_task();
     check(next.has_value() && next.value() == t_audio.value, "preempt to audio task");
@@ -109,12 +120,16 @@ int main() {
     check(v2 == 0, "notification cleared");
 
     // Blocking wait test: create a User task that will be blocked
-    umi::TaskConfig user_cfg{.entry = nullptr, .arg = nullptr, .prio = umi::Priority::User, .core_affinity = static_cast<std::uint8_t>(umi::Core::Any), .uses_fpu = false};
+    umi::TaskConfig user_cfg{.entry = nullptr,
+                             .arg = nullptr,
+                             .prio = umi::Priority::User,
+                             .core_affinity = static_cast<std::uint8_t>(umi::Core::Any),
+                             .uses_fpu = false};
     auto t_user = k.create_task(user_cfg);
     k.resume_task(t_user);
     // Simulate: user task calls wait_block but no flags - should block (in real system)
     // Here we test notify wakes a blocked task
-    k.notify(t_user, 0x0);  // No bits - task stays blocked if it called wait_block
+    k.notify(t_user, 0x0); // No bits - task stays blocked if it called wait_block
     // Now notify with bits - should wake
     k.notify(t_user, 0x4);
     auto user_bits = k.wait(t_user, 0x4);
@@ -127,24 +142,28 @@ int main() {
         umi::MaskedCritical<umi::Hw<MockHw>> guard;
         (void)guard;
     }
-    check(MockHw::crit_enter == crit_before + 1 && MockHw::crit_exit == crit_before + 1, 
+    check(MockHw::crit_enter == crit_before + 1 && MockHw::crit_exit == crit_before + 1,
           "manual critical enter/exit balanced");
 
     // ========================================
     // Test delete_task
     // ========================================
-    umi::TaskConfig temp_cfg{.entry = nullptr, .arg = nullptr, .prio = umi::Priority::User, .core_affinity = static_cast<std::uint8_t>(umi::Core::Any), .uses_fpu = false};
+    umi::TaskConfig temp_cfg{.entry = nullptr,
+                             .arg = nullptr,
+                             .prio = umi::Priority::User,
+                             .core_affinity = static_cast<std::uint8_t>(umi::Core::Any),
+                             .uses_fpu = false};
     auto t_temp = k.create_task(temp_cfg);
     check(t_temp.valid(), "temp task created");
-    
+
     // Should be able to delete non-running task
     bool deleted = k.delete_task(t_temp);
     check(deleted, "delete_task succeeded");
-    
+
     // Should not be able to delete invalid task
-    deleted = k.delete_task(t_temp);  // Already deleted
+    deleted = k.delete_task(t_temp); // Already deleted
     check(!deleted, "delete invalid task fails");
-    
+
     // Re-create in same slot (slot reuse)
     auto t_reuse = k.create_task(temp_cfg);
     check(t_reuse.valid(), "task slot reused after delete");
@@ -156,7 +175,7 @@ int main() {
     auto span = k.shared_region(0);
     check(span.has_value(), "shared region present");
     check(span->size() == sizeof(shared_buf), "shared region size");
-    
+
     // get_shared syscall helper (also configures MPU)
     auto desc = k.get_shared(umi::SharedRegionId::Audio);
     check(desc.valid(), "get_shared returns valid descriptor");
@@ -169,7 +188,7 @@ int main() {
     check(MockHw::last_ipi == 2, "ipi recorded");
 
     // MPU config (explicit)
-    MockHw::mpu_call_count = 0;  // Reset counter
+    MockHw::mpu_call_count = 0; // Reset counter
     umi::Kernel<4, 4, umi::Hw<MockHw>>::Region regions[] = {
         {shared_buf, sizeof(shared_buf), true, false},
     };
@@ -180,19 +199,19 @@ int main() {
     // Test Statistics: Stopwatch & LoadMonitor
     // ========================================
     std::puts("Testing Statistics...");
-    
+
     // Stopwatch test
     umi::Stopwatch<umi::Hw<MockHw>> sw;
     MockHw::fake_cycles = 1000;
     sw.start();
-    MockHw::fake_cycles = 2680;  // 1680 cycles elapsed = 10us at 168MHz
+    MockHw::fake_cycles = 2680; // 1680 cycles elapsed = 10us at 168MHz
     sw.stop();
     check(sw.elapsed_cycles() == 1680, "stopwatch cycles");
     check(sw.elapsed_usecs() == 10, "stopwatch usecs");
-    
+
     // LoadMonitor test
     umi::LoadMonitor<umi::Hw<MockHw>, 4> load;
-    
+
     // Simulate 50% load (5000 cycles used out of 10000 budget)
     MockHw::fake_cycles = 0;
     load.begin();
@@ -200,7 +219,7 @@ int main() {
     load.end(10000);
     check(load.instant() == 5000, "load instant 50%");
     check(load.peak() == 5000, "load peak 50%");
-    
+
     // Simulate 80% load
     MockHw::fake_cycles = 0;
     load.begin();
@@ -208,7 +227,7 @@ int main() {
     load.end(10000);
     check(load.instant() == 8000, "load instant 80%");
     check(load.peak() == 8000, "load peak updated to 80%");
-    
+
     // Simulate 30% load - peak should stay at 80%
     MockHw::fake_cycles = 0;
     load.begin();
@@ -216,10 +235,10 @@ int main() {
     load.end(10000);
     check(load.instant() == 3000, "load instant 30%");
     check(load.peak() == 8000, "load peak still 80%");
-    
+
     // Check average is calculated
     check(load.average() > 0, "load average calculated");
-    
+
     // Reset peak
     load.reset_peak();
     check(load.peak() == 0, "load peak reset");
@@ -228,39 +247,39 @@ int main() {
     // SpscQueue Tests
     // =====================================
     std::puts("Testing SpscQueue...");
-    
+
     // Basic push/pop
     umi::SpscQueue<int, 16> int_queue;
     check(int_queue.empty_approx(), "int_queue initially empty");
     check(int_queue.has_space(), "int_queue has space");
     check(!int_queue.try_pop().has_value(), "pop from empty returns nullopt");
-    
+
     bool pushed = int_queue.try_push(42);
     check(pushed, "push int");
     check(int_queue.size_approx() == 1, "size is 1");
-    
+
     auto peeked = int_queue.peek();
     check(peeked.has_value() && *peeked == 42, "peek returns 42");
     check(int_queue.size_approx() == 1, "size still 1 after peek");
-    
+
     auto popped = int_queue.try_pop();
     check(popped.has_value() && *popped == 42, "pop returns 42");
     check(int_queue.empty_approx(), "empty after pop");
-    
+
     // Fill to capacity (Capacity - 1 items for ring buffer)
     for (int i = 0; i < 15; ++i) {
         check(int_queue.try_push(i), "push to fill queue");
     }
     check(!int_queue.has_space(), "queue full");
     check(!int_queue.try_push(999), "push to full fails");
-    
+
     // Drain and verify order
     for (int i = 0; i < 15; ++i) {
         auto val = int_queue.try_pop();
         check(val.has_value() && *val == i, "FIFO order preserved");
     }
     check(int_queue.empty_approx(), "empty after drain");
-    
+
     // Batch read
     for (int i = 0; i < 5; ++i) {
         int_queue.try_push(i * 10);
@@ -270,9 +289,12 @@ int main() {
     check(read_count == 5, "read_all returns 5");
     check(batch[0] == 0 && batch[4] == 40, "batch values correct");
     check(int_queue.empty_approx(), "empty after read_all");
-    
+
     // Struct type
-    struct TestData { int x; float y; };
+    struct TestData {
+        int x;
+        float y;
+    };
     umi::SpscQueue<TestData, 8> struct_queue;
     struct_queue.try_push({1, 2.5f});
     auto data = struct_queue.try_pop();
@@ -304,16 +326,14 @@ int main() {
 
         // Task should be Ready
         check(std::string_view(k2.get_task_state_str(tid)) == "Running" ||
-              std::string_view(k2.get_task_state_str(tid)) == "Ready",
+                  std::string_view(k2.get_task_state_str(tid)) == "Ready",
               "task is ready/running after resume");
 
         k2.suspend_task(tid);
-        check(std::string_view(k2.get_task_state_str(tid)) == "Blocked",
-              "task is blocked after suspend");
+        check(std::string_view(k2.get_task_state_str(tid)) == "Blocked", "task is blocked after suspend");
 
         k2.resume_task(tid);
-        check(std::string_view(k2.get_task_state_str(tid)) != "Blocked",
-              "task is not blocked after re-resume");
+        check(std::string_view(k2.get_task_state_str(tid)) != "Blocked", "task is not blocked after re-resume");
     }
 
     // Test priority scheduling (Server priority)
@@ -389,7 +409,7 @@ int main() {
         next = k5.get_next_task();
         check(next.has_value() && *next == t_core1.value, "core 1 selects its affinity task");
 
-        MockHw::core_id = 0;  // Reset
+        MockHw::core_id = 0; // Reset
     }
 
     // Test on_timer_irq with explicit time argument (legacy tickless)
@@ -400,17 +420,17 @@ int main() {
         irq_timer_fired = 0;
 
         // Use legacy on_timer_irq(usec) which updates kernel time directly
-        k6.on_timer_irq(1000);  // Set kernel time to 1000
+        k6.on_timer_irq(1000); // Set kernel time to 1000
 
         bool scheduled = k6.call_later(500, {.fn = [](void*) { ++irq_timer_fired; }, .ctx = nullptr});
         check(scheduled, "timer scheduled");
         check(MockHw::timer_set == 1500, "timer programmed to 1500");
 
         // Use tick() to advance time and trigger
-        k6.tick(400);  // Now at 1400
+        k6.tick(400); // Now at 1400
         check(irq_timer_fired == 0, "timer not fired at 1400");
 
-        k6.tick(200);  // Now at 1600, timer should fire
+        k6.tick(200); // Now at 1600, timer should fire
         check(irq_timer_fired == 1, "timer fired after 1600");
     }
 
@@ -423,7 +443,8 @@ int main() {
 
         int count = 0;
         k7.for_each_task([&](umi::TaskId, const umi::TaskConfig& cfg, auto) {
-            if (cfg.name) ++count;
+            if (cfg.name)
+                ++count;
         });
 
         check(count == 2, "for_each_task iterates all tasks");

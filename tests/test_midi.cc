@@ -1,4 +1,4 @@
-#include <umios/umi_midi.hh>
+#include <umios/kernel/umi_midi.hh>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

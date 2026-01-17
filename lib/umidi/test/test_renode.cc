@@ -11,8 +11,8 @@
 #pragma GCC diagnostic ignored "-Wsection"
 #endif
 
-#include "../../../port/arm/cortex-m/common/vector_table.hh"
-#include <umidi/umidi.hh>
+#include <umios/backend/cm/common/vector_table.hh>
+#include <umidi.hh>
 
 #include <cstdint>
 #include <cstddef>

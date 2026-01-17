@@ -15,10 +15,10 @@
 #include <array>
 #include <span>
 
-#include <umios/processor.hh>
-#include <umios/audio_context.hh>
-#include <umios/event.hh>
-#include <umios/coro.hh>
+#include <umios/core/processor.hh>
+#include <umios/core/audio_context.hh>
+#include <umios/core/event.hh>
+#include <umios/kernel/coro.hh>
 
 // =====================================================================
 // Syscall Interface (provided by kernel)

@@ -1,4 +1,4 @@
-#include <umios/umi_audio.hh>
+#include <umios/kernel/umi_audio.hh>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>

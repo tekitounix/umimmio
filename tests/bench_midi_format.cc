@@ -457,7 +457,6 @@ inline size_t serialize(const Event& e, uint8_t* out) {
 // Benchmark
 // =============================================================================
 
-constexpr size_t NUM_MESSAGES = 100;
 constexpr size_t ITERATIONS = 100;
 
 // シミュレートされたMIDI入力データ (Note On/Off, CC)

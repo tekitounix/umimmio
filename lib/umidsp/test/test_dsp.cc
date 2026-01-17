@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // UMI-OS DSP Module Tests
 
-#include <dsp/dsp.hh>
+#include <dsp.hh>
 #include <cstdio>
 #include <cmath>
 
