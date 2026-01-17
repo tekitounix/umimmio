@@ -77,15 +77,16 @@ if has_config("coverage") and is_mode("debug") then
 end
 
 -- =====================================================================
--- Core Library (Header-only)
+-- UMI Package (provides all library include paths)
 -- =====================================================================
 
+includes("lib/umi")
+
+-- Legacy umios target for backward compatibility
 target("umios")
     set_kind("headeronly")
     set_group("libraries")
-    add_headerfiles("lib/umios/*.hh")
-    add_includedirs(".", {public = true})
-    add_includedirs("lib/umios", {public = true})
+    add_deps("umi.core")
     if is_config("kernel", "micro") then
         add_defines("UMI_KERNEL_MICRO", {public = true})
     end
@@ -95,17 +96,7 @@ target_end()
 -- Host Tests (using host.test rule from arm-embedded)
 -- =====================================================================
 
-local test_includedirs = {
-    "lib/umios/core",
-    "lib/umios/kernel",
-    "lib/umidsp/include",
-    "lib/umiboot/include",
-    "lib/umidi/include",
-    "lib",
-    "tests"
-}
-
--- Main host tests
+-- Main host tests (use umi.all for all library includes)
 for _, test in ipairs({
     {"test_dsp", "lib/umidsp/test/test_dsp.cc"},
     {"test_kernel", "tests/test_kernel.cc"},
@@ -117,14 +108,14 @@ for _, test in ipairs({
     target(test[1])
         add_rules("host.test")
         set_default(true)
+        add_deps("umi.all")
         add_files(test[2])
-        add_includedirs(test_includedirs)
+        add_includedirs("tests")
         add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
     target_end()
 end
 
 -- umidi library tests
-local umidi_dirs = {"lib/umidi/include", "lib/umiboot/include"}
 for _, test in ipairs({
     {"umidi_test_core", "lib/umidi/test/test_core.cc"},
     {"umidi_test_messages", "lib/umidi/test/test_messages.cc"},
@@ -134,14 +125,13 @@ for _, test in ipairs({
     target(test[1])
         add_rules("host.test")
         set_group("tests/umidi")
+        add_deps("umi.midi", "umi.boot")
         add_files(test[2])
-        add_includedirs(umidi_dirs)
         add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
     target_end()
 end
 
 -- umiboot library tests
-local umiboot_dirs = {"lib/umiboot/include"}
 for _, test in ipairs({
     {"umiboot_test_auth", "lib/umiboot/test/test_auth.cc"},
     {"umiboot_test_firmware", "lib/umiboot/test/test_firmware.cc"},
@@ -150,8 +140,8 @@ for _, test in ipairs({
     target(test[1])
         add_rules("host.test")
         set_group("tests/umiboot")
+        add_deps("umi.boot")
         add_files(test[2])
-        add_includedirs(umiboot_dirs)
         add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
     target_end()
 end
@@ -163,13 +153,6 @@ end
 local stm32f4_bsp = "lib/bsp/stm32f4-disco"
 local stm32f4_linker = stm32f4_bsp .. "/linker.ld"
 local stm32f4_syscalls = stm32f4_bsp .. "/syscalls.cc"
-
-local embedded_includedirs = {
-    ".", "lib",
-    "lib/umios/core", "lib/umios/kernel", "lib/umios/adapter", "lib/umios/backend/cm",
-    "lib/bsp/stm32f4-disco", "lib/hal/stm32",
-    "lib/umidi/include", "lib/umiboot/include", "lib/umidsp/include",
-}
 
 -- Helper: Create STM32F4 embedded target
 local function stm32f4_target(name, opts)
@@ -183,10 +166,11 @@ local function stm32f4_target(name, opts)
         if opts.optimize then
             set_values("embedded.optimize", opts.optimize)
         end
+        -- Use umi.embedded.full for all embedded targets
+        add_deps("umi.embedded.full")
         if opts.deps then
             add_deps(opts.deps)
         end
-        add_includedirs(embedded_includedirs)
         add_defines("STM32F4", "BOARD_STM32F4")
         add_files(stm32f4_syscalls)
         add_files(opts.source)
@@ -239,55 +223,8 @@ local has_emscripten = os.getenv("EMSDK") ~= nil
 
 if has_emscripten then
 
-local umim_exported_funcs = "[" .. table.concat({
-    "'_malloc'", "'_free'", "'_umi_create'", "'_umi_process'",
-    "'_umi_set_param'", "'_umi_get_param'", "'_umi_get_param_count'",
-    "'_umi_get_param_name'", "'_umi_get_param_min'", "'_umi_get_param_max'",
-    "'_umi_get_param_default'", "'_umi_get_param_curve'", "'_umi_get_param_id'",
-    "'_umi_get_param_unit'", "'_umi_note_on'", "'_umi_note_off'",
-    "'_umi_process_cc'", "'_umi_get_processor_name'"
-}, ",") .. "]"
-
-local umim_runtime_methods = "['ccall','cwrap','UTF8ToString','HEAPF32','HEAP8']"
-
--- Headless Web Host (UMI-OS Web Simulation)
--- This target builds the web simulation host from examples/headless_webhost
--- For standalone build: cd examples/headless_webhost && xmake build
-
-local sim_exported_funcs = "[" .. table.concat({
-    "'_malloc'", "'_free'",
-    "'_umi_sim_init'", "'_umi_sim_reset'", "'_umi_sim_process'",
-    "'_umi_sim_note_on'", "'_umi_sim_note_off'", "'_umi_sim_cc'", "'_umi_sim_midi'",
-    "'_umi_sim_load'", "'_umi_sim_position_lo'", "'_umi_sim_position_hi'",
-    "'_umi_sim_get_name'", "'_umi_sim_get_vendor'", "'_umi_sim_get_version'",
-    "'_umi_create'", "'_umi_destroy'", "'_umi_process'",
-    "'_umi_note_on'", "'_umi_note_off'",
-    "'_umi_get_processor_name'", "'_umi_get_name'", "'_umi_get_vendor'", "'_umi_get_version'",
-    "'_umi_get_type'", "'_umi_get_param_count'", "'_umi_set_param'", "'_umi_get_param'",
-    "'_umi_get_param_name'", "'_umi_get_param_min'", "'_umi_get_param_max'",
-    "'_umi_get_param_default'", "'_umi_get_param_curve'", "'_umi_get_param_id'",
-    "'_umi_get_param_unit'", "'_umi_process_cc'"
-}, ",") .. "]"
-
-target("headless_webhost")
-    set_kind("binary")
-    set_group("examples")
-    set_default(false)
-    set_plat("wasm")
-    set_arch("wasm32")
-    set_toolchains("emcc")
-    set_targetdir("examples/headless_webhost/build")
-    set_filename("webhost_sim.js")
-    add_files("examples/headless_webhost/src/synth_sim.cc")
-    add_includedirs("lib/umios/core", "lib/umios/kernel", "lib/umios/backend/wasm", "lib/umidsp/include", "lib", "examples/headless_webhost/src")
-    add_cxflags("-fno-exceptions", "-fno-rtti", "-O3", {force = true})
-    add_ldflags("-sWASM=1", "-sALLOW_MEMORY_GROWTH=0", {force = true})
-    add_ldflags("-sSTACK_SIZE=65536", "-sINITIAL_MEMORY=1048576", {force = true})
-    add_ldflags("-sEXPORTED_FUNCTIONS=" .. sim_exported_funcs, {force = true})
-    add_ldflags("-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','HEAPF32','HEAP8']", {force = true})
-    add_ldflags("-sENVIRONMENT=web,worker", "-sWASM_ASYNC_COMPILATION=1", {force = true})
-    add_ldflags("-sMODULARIZE=1", "-sEXPORT_NAME='createWebhostModule'", {force = true})
-target_end()
+-- Include headless_webhost subproject
+includes("examples/headless_webhost")
 
 end  -- if has_emscripten
 

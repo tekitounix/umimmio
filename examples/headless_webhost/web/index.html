@@ -1015,7 +1015,7 @@
 
     <script type="module">
         // ==================== Backend Manager ====================
-        import { BackendManager, BackendType, UmimBackend, UmiosBackend, RenodeBackend } from '../synth/backend_manager.js';
+        import { BackendManager, BackendType, UmimBackend, UmiosBackend, RenodeBackend } from './backend_manager.js';
 
         const backendManager = new BackendManager();
         // Default to UMI-OS kernel simulation (full UMI-OS with task scheduler, etc.)
@@ -1903,7 +1903,7 @@
         async function checkWasm() {
             try {
                 setStatus('Checking WASM...', 'loading');
-                const response = await fetch('../synth/synth_sim.wasm', { method: 'HEAD' });
+                const response = await fetch('./webhost_sim.wasm', { method: 'HEAD' });
                 if (response.ok) {
                     setStatus('Ready', 'ready');
                     startBtn.disabled = false;

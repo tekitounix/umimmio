@@ -3,8 +3,11 @@ build/
 
 # WASM build artifacts in examples
 examples/**/*.wasm
-examples/**/*.js
-!examples/**/README.js
+
+# Emscripten-generated JS (build artifacts)
+examples/**/build/*.js
+examples/**/umim_synth.js
+examples/**/webhost_sim.js
 
 # xmake cache
 .xmake/
