@@ -225,21 +225,8 @@ stm32f4_target("umidi_test_renode", {
     renode_script = "umidi_test.resc"
 })
 
-stm32f4_target("synth_example", {
-    source = "examples/synth/synth_example.cc",
-    group = "examples",
-    deps = "umios",
-    optimize = "size",
-    renode_script = "synth.resc"
-})
-
-stm32f4_target("synth_renode", {
-    source = "examples/synth/synth_renode.cc",
-    group = "examples",
-    deps = "umios",
-    optimize = "size",
-    renode_script = "synth_audio.resc"
-})
+-- Note: synth_example and synth_renode moved to examples/_archive
+-- These targets are now part of headless_webhost project
 
 -- =====================================================================
 -- WASM Targets (Emscripten)
@@ -263,34 +250,10 @@ local umim_exported_funcs = "[" .. table.concat({
 
 local umim_runtime_methods = "['ccall','cwrap','UTF8ToString','HEAPF32','HEAP8']"
 
--- Helper: Create UMIM WASM target
-local function umim_target(name, source_file)
-    target("umim_" .. name)
-        set_kind("binary")
-        set_group("umim")
-        set_default(false)
-        set_plat("wasm")
-        set_arch("wasm32")
-        set_toolchains("emcc")
-        set_targetdir("build/umim")
-        set_filename(name .. ".js")
-        add_includedirs("lib/umios/core", "lib/umios/kernel", "lib/umios/adapter", "lib", "lib/umidsp/include", "examples/synth")
-        add_files(source_file)
-        add_cxflags("-fno-exceptions", "-fno-rtti", "-O3", {force = true})
-        add_ldflags("-sWASM=1", "-sALLOW_MEMORY_GROWTH=1", {force = true})
-        add_ldflags("-sEXPORTED_FUNCTIONS=" .. umim_exported_funcs, {force = true})
-        add_ldflags("-sEXPORTED_RUNTIME_METHODS=" .. umim_runtime_methods, {force = true})
-        add_ldflags("-sENVIRONMENT=web,worker", "-sWASM_ASYNC_COMPILATION=0", {force = true})
-        add_ldflags("--pre-js=examples/workbench/worklet/worklet-preamble.js", {force = true})
-        add_ldflags("--post-js=examples/workbench/worklet/umi-processor-sync.js", {force = true})
-    target_end()
-end
+-- Headless Web Host (UMI-OS Web Simulation)
+-- This target builds the web simulation host from examples/headless_webhost
+-- For standalone build: cd examples/headless_webhost && xmake build
 
-umim_target("synth", "examples/synth/synth_wasm.cc")
-umim_target("delay", "examples/workbench/umim/delay/delay_wasm.cc")
-umim_target("volume", "examples/workbench/umim/volume/volume.cc")
-
--- Synth Simulator (umios simulation on Web)
 local sim_exported_funcs = "[" .. table.concat({
     "'_malloc'", "'_free'",
     "'_umi_sim_init'", "'_umi_sim_reset'", "'_umi_sim_process'",
@@ -306,24 +269,24 @@ local sim_exported_funcs = "[" .. table.concat({
     "'_umi_get_param_unit'", "'_umi_process_cc'"
 }, ",") .. "]"
 
-target("synth_sim")
+target("headless_webhost")
     set_kind("binary")
-    set_group("simulator")
+    set_group("examples")
     set_default(false)
     set_plat("wasm")
     set_arch("wasm32")
     set_toolchains("emcc")
-    set_targetdir("examples/synth")
-    set_filename("synth_sim.js")
-    add_files("examples/synth/synth_sim.cc")
-    add_includedirs("lib/umios/core", "lib/umios/kernel", "lib/umios/backend/wasm", "lib/umidsp/include", "lib", "examples/synth")
+    set_targetdir("examples/headless_webhost/build")
+    set_filename("webhost_sim.js")
+    add_files("examples/headless_webhost/src/synth_sim.cc")
+    add_includedirs("lib/umios/core", "lib/umios/kernel", "lib/umios/backend/wasm", "lib/umidsp/include", "lib", "examples/headless_webhost/src")
     add_cxflags("-fno-exceptions", "-fno-rtti", "-O3", {force = true})
     add_ldflags("-sWASM=1", "-sALLOW_MEMORY_GROWTH=0", {force = true})
     add_ldflags("-sSTACK_SIZE=65536", "-sINITIAL_MEMORY=1048576", {force = true})
     add_ldflags("-sEXPORTED_FUNCTIONS=" .. sim_exported_funcs, {force = true})
     add_ldflags("-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','HEAPF32','HEAP8']", {force = true})
     add_ldflags("-sENVIRONMENT=web,worker", "-sWASM_ASYNC_COMPILATION=1", {force = true})
-    add_ldflags("-sMODULARIZE=1", "-sEXPORT_NAME='createSynthModule'", {force = true})
+    add_ldflags("-sMODULARIZE=1", "-sEXPORT_NAME='createWebhostModule'", {force = true})
 target_end()
 
 end  -- if has_emscripten
@@ -393,26 +356,6 @@ task("renode-test")
     set_menu {usage = "xmake renode-test", description = "Run Renode automated tests"}
 task_end()
 
-task("renode-synth")
-    set_category("action")
-    on_run(function ()
-        print("Building synth example for Renode...")
-        os.exec("xmake build synth_example")
-        print("\nRunning Synth example in Renode...")
-        local renode = "/Applications/Renode.app/Contents/MacOS/Renode"
-        if not os.isfile(renode) then renode = "renode" end
-        os.execv(renode, {"--console", "--disable-xwt", "-e", "include @renode/synth.resc"})
-        local logfile = "build/synth_uart.log"
-        if os.isfile(logfile) then
-            print("\n" .. string.rep("=", 60))
-            print("UART Output")
-            print(string.rep("=", 60))
-            os.exec("cat " .. logfile)
-        end
-    end)
-    set_menu {usage = "xmake renode-synth", description = "Run synth example in Renode emulator"}
-task_end()
-
 task("robot")
     set_category("action")
     on_run(function ()
@@ -476,38 +419,33 @@ task("info")
     set_menu {usage = "xmake info", description = "Show build configuration"}
 task_end()
 
-task("wasm")
+task("webhost")
     set_category("action")
     on_run(function ()
-        print("Building UMIM modules...")
-        os.exec("xmake build umim_synth umim_delay umim_volume")
+        print("Building headless web host...")
+        os.exec("xmake build headless_webhost")
+        -- Copy to web directory
+        os.cp("examples/headless_webhost/build/webhost_sim.js", "examples/headless_webhost/web/")
+        os.cp("examples/headless_webhost/build/webhost_sim.wasm", "examples/headless_webhost/web/")
         print("\n" .. string.rep("=", 60))
-        print("WASM build complete! Output: build/umim/")
+        print("Web host build complete!")
+        print("Output: examples/headless_webhost/build/")
         print(string.rep("=", 60))
-        os.exec("ls -la build/umim/")
     end)
-    set_menu {usage = "xmake wasm", description = "Build UMIM WASM modules"}
+    set_menu {usage = "xmake webhost", description = "Build headless web host WASM module"}
 task_end()
 
-task("wasm-test")
+task("webhost-serve")
     set_category("action")
     on_run(function ()
-        print("Building UMIM modules...")
-        os.exec("xmake build umim_synth umim_delay umim_volume")
-        print("\nRunning WASM tests in Node.js...")
-        os.exec("node test/test-headless.mjs")
-    end)
-    set_menu {usage = "xmake wasm-test", description = "Run WASM tests in Node.js"}
-task_end()
-
-task("wasm-serve")
-    set_category("action")
-    on_run(function ()
-        print("Building UMIM modules...")
-        os.exec("xmake build umim_synth umim_delay umim_volume")
+        print("Building headless web host...")
+        os.exec("xmake build headless_webhost")
+        -- Copy to web directory
+        os.cp("examples/headless_webhost/build/webhost_sim.js", "examples/headless_webhost/web/")
+        os.cp("examples/headless_webhost/build/webhost_sim.wasm", "examples/headless_webhost/web/")
         print("\nStarting local server...")
         print("Open: http://localhost:8080/")
-        os.exec("cd examples/workbench && python3 -m http.server 8080")
+        os.exec("cd examples/headless_webhost/web && python3 -m http.server 8080")
     end)
-    set_menu {usage = "xmake wasm-serve", description = "Build and serve WASM workbench"}
+    set_menu {usage = "xmake webhost-serve", description = "Build and serve headless web host"}
 task_end()
