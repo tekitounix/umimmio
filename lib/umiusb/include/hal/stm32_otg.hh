@@ -100,6 +100,7 @@ inline constexpr uint32_t GINTSTS_USBRST = 1U << 12;
 inline constexpr uint32_t GINTSTS_ENUMDNE = 1U << 13;
 inline constexpr uint32_t GINTSTS_IEPINT = 1U << 18;
 inline constexpr uint32_t GINTSTS_OEPINT = 1U << 19;
+inline constexpr uint32_t GINTSTS_WKUPINT = 1U << 31;
 
 // GCCFG
 inline constexpr uint32_t GCCFG_PWRDWN = 1U << 16;
@@ -370,6 +371,14 @@ public:
         }
     }
 
+    /// Prepare EP0 to receive data (for control OUT data stage)
+    void ep0_prepare_rx(uint16_t len) {
+        // Setup transfer size for EP0 OUT
+        // STUPCNT=3, PKTCNT=1, XFRSIZ=len
+        Regs::reg(Regs::DOEPTSIZ(0)) = (3U << 29) | (1U << 19) | len;
+        Regs::reg(Regs::DOEPCTL(0)) |= otg::DEPCTL_CNAK | otg::DEPCTL_EPENA;
+    }
+
     void ep_stall(uint8_t ep, bool in) {
         if (in) {
             Regs::reg(Regs::DIEPCTL(ep)) |= otg::DEPCTL_STALL;
@@ -411,7 +420,19 @@ public:
         // Suspend
         if (gints & otg::GINTSTS_USBSUSP) {
             Regs::reg(Regs::GINTSTS) = otg::GINTSTS_USBSUSP;
+            // Enable wakeup interrupt, enter low power mode
+            Regs::reg(Regs::GINTMSK) |= otg::GINTSTS_WKUPINT;
+            Regs::reg(Regs::PCGCCTL) |= otg::PCGCCTL_STOPCLK;
             Base::notify_suspend();
+        }
+
+        // Wakeup / Remote wakeup
+        if (gints & otg::GINTSTS_WKUPINT) {
+            Regs::reg(Regs::GINTSTS) = otg::GINTSTS_WKUPINT;
+            // Exit low power mode, disable wakeup interrupt
+            Regs::reg(Regs::PCGCCTL) &= ~otg::PCGCCTL_STOPCLK;
+            Regs::reg(Regs::GINTMSK) &= ~otg::GINTSTS_WKUPINT;
+            Base::notify_resume();
         }
 
         // RX FIFO not empty
