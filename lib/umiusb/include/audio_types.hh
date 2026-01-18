@@ -225,20 +225,20 @@ public:
             overrun_count_++;
         }
 
-        if constexpr (Channels == 2) {
-            // Stereo: use 32-bit access for atomicity
-            const uint32_t* src = reinterpret_cast<const uint32_t*>(samples);
-            for (uint32_t i = 0; i < frame_count; ++i) {
-                uint32_t idx = (write + i) & MASK;
-                reinterpret_cast<uint32_t*>(buffer_)[idx] = src[i];
-            }
-        } else {
-            // Mono or other channel counts
-            for (uint32_t i = 0; i < frame_count; ++i) {
-                uint32_t idx = (write + i) & MASK;
-                for (uint8_t ch = 0; ch < Channels; ++ch) {
-                    buffer_[idx * Channels + ch] = samples[i * Channels + ch];
-                }
+        if (frame_count > 0) {
+            uint32_t write_idx = write & MASK;
+            uint32_t first_chunk = Frames - write_idx;  // Frames until wrap
+
+            if (frame_count <= first_chunk) {
+                // No wrap: single memcpy
+                __builtin_memcpy(&buffer_[write_idx * Channels], samples,
+                                frame_count * BYTES_PER_FRAME);
+            } else {
+                // Wrap: two memcpy calls
+                __builtin_memcpy(&buffer_[write_idx * Channels], samples,
+                                first_chunk * BYTES_PER_FRAME);
+                __builtin_memcpy(buffer_, &samples[static_cast<size_t>(first_chunk) * Channels],
+                                (frame_count - first_chunk) * BYTES_PER_FRAME);
             }
         }
 
