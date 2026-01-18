@@ -23,7 +23,7 @@
 -- =====================================================================
 
 set_project("umi_os")
-set_version("0.1.0")
+set_version("0.2.0")
 set_xmakever("2.8.0")
 
 -- =====================================================================
@@ -189,12 +189,37 @@ stm32f4_target("firmware", {
     deps = "umios"
 })
 
-stm32f4_target("renode_test", {
+stm32f4_target("renode_test_legacy", {
     source = "tests/renode_test.cc",
     deps = "umios",
     optimize = "size",
     renode_script = "test.resc"
 })
+
+-- New Renode test with syscall/MPU support
+target("renode_test")
+    set_group("firmware")
+    set_default(false)
+    add_rules("embedded")
+    set_values("embedded.mcu", "stm32f407vg")
+    set_values("embedded.linker_script", "port/renode/stm32f4/linker.ld")
+    set_values("embedded.optimize", "size")
+    -- Platform-specific includes (cm/platform/*.hh)
+    add_includedirs("lib/umios/backend/cm")
+    -- Kernel/driver includes
+    add_includedirs("lib/umios")
+    add_includedirs("lib")
+    add_deps("umi.core", "umi.dsp")
+    add_defines("STM32F4", "BOARD_STM32F4")
+    add_files("examples/renode_test/startup.cc")
+    add_files("examples/renode_test/main.cc")
+    on_run(function(target)
+        local renode = "/Applications/Renode.app/Contents/MacOS/Renode"
+        if not os.isfile(renode) then renode = "renode" end
+        os.execv(renode, {"--console", "--disable-xwt", "-e",
+            "include @port/renode/stm32f4/platform.resc; loadUmi; start"})
+    end)
+target_end()
 
 stm32f4_target("bench_midi_format", {
     source = "tests/bench_midi_format.cc",
@@ -227,6 +252,12 @@ if has_emscripten then
 includes("examples/headless_webhost")
 
 end  -- if has_emscripten
+
+-- =====================================================================
+-- STM32F4-Discovery Synthesizer
+-- =====================================================================
+
+includes("examples/stm32f4_synth")
 
 -- =====================================================================
 -- Tasks

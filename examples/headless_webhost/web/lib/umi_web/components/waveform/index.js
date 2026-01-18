@@ -7,23 +7,36 @@
  */
 
 /**
+ * Get CSS variable value from document root
+ * @param {string} name - CSS variable name (e.g., '--umi-bg')
+ * @param {string} fallback - Fallback value
+ * @returns {string}
+ */
+function getCSSVar(name, fallback) {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+}
+
+/**
  * Waveform display component
  */
 export class Waveform {
     /**
      * @param {HTMLCanvasElement} canvas - Canvas element for drawing
      * @param {object} options
-     * @param {string} [options.backgroundColor='#0a0a15']
-     * @param {string} [options.strokeColor='#4ecca3']
+     * @param {string} [options.backgroundColor] - Background color (default: CSS var --umi-bg or '#0a0a15')
+     * @param {string} [options.strokeColor] - Stroke color (default: CSS var --umi-accent or '#4ecca3')
      * @param {number} [options.lineWidth=2]
+     * @param {boolean} [options.useCSSVariables=true] - Read colors from CSS variables dynamically
      */
     constructor(canvas, options = {}) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
 
-        this.backgroundColor = options.backgroundColor || '#0a0a15';
-        this.strokeColor = options.strokeColor || '#4ecca3';
+        this._explicitBackgroundColor = options.backgroundColor || null;
+        this._explicitStrokeColor = options.strokeColor || null;
         this.lineWidth = options.lineWidth || 2;
+        this.useCSSVariables = options.useCSSVariables !== false;
 
         /** @type {AnalyserNode|null} */
         this.analyser = null;
@@ -32,6 +45,50 @@ export class Waveform {
 
         this._animationId = null;
         this._isRunning = false;
+    }
+
+    /**
+     * Get current background color (from CSS variable or explicit)
+     * @returns {string}
+     */
+    get backgroundColor() {
+        if (this._explicitBackgroundColor) {
+            return this._explicitBackgroundColor;
+        }
+        if (this.useCSSVariables) {
+            return getCSSVar('--umi-bg', '#0a0a15');
+        }
+        return '#0a0a15';
+    }
+
+    /**
+     * Get current stroke color (from CSS variable or explicit)
+     * @returns {string}
+     */
+    get strokeColor() {
+        if (this._explicitStrokeColor) {
+            return this._explicitStrokeColor;
+        }
+        if (this.useCSSVariables) {
+            return getCSSVar('--umi-accent', '#4ecca3');
+        }
+        return '#4ecca3';
+    }
+
+    /**
+     * Set background color explicitly
+     * @param {string} color
+     */
+    set backgroundColor(color) {
+        this._explicitBackgroundColor = color;
+    }
+
+    /**
+     * Set stroke color explicitly
+     * @param {string} color
+     */
+    set strokeColor(color) {
+        this._explicitStrokeColor = color;
     }
 
     /**

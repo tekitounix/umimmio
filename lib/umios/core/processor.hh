@@ -73,6 +73,69 @@ struct PortDescriptor {
 // Parameter Descriptor
 // ============================================================================
 
+/// Parameter curve type for UI scaling
+enum class ParamCurve : uint8_t {
+    Linear = 0,  // Linear mapping (default)
+    Log,         // Logarithmic (good for frequency, gain, time)
+    Exp,         // Exponential (inverse of log)
+    Auto = 255,  // Auto-detect based on name and range
+};
+
+/// Infer optimal curve from parameter characteristics
+/// Rules:
+///   - Frequency params (Hz range, "freq/cutoff/pitch"): Log
+///   - Time params (ms range, "attack/decay/release/time"): Log
+///   - Gain/volume with wide range (>10x): Log
+///   - 0-1 normalized params: Linear
+///   - Everything else: Linear
+[[nodiscard]] constexpr ParamCurve infer_param_curve(
+    std::string_view name, float min_val, float max_val) noexcept {
+
+    // Helper: case-insensitive contains
+    auto contains = [](std::string_view haystack, std::string_view needle) {
+        if (needle.size() > haystack.size()) return false;
+        for (size_t i = 0; i <= haystack.size() - needle.size(); ++i) {
+            bool match = true;
+            for (size_t j = 0; j < needle.size() && match; ++j) {
+                char h = haystack[i + j];
+                char n = needle[j];
+                // Simple lowercase
+                if (h >= 'A' && h <= 'Z') h += 32;
+                if (n >= 'A' && n <= 'Z') n += 32;
+                if (h != n) match = false;
+            }
+            if (match) return true;
+        }
+        return false;
+    };
+
+    // Frequency parameters (typically 20-20000 Hz range)
+    if (contains(name, "freq") || contains(name, "cutoff") ||
+        contains(name, "pitch") || contains(name, "hz")) {
+        return ParamCurve::Log;
+    }
+
+    // Time parameters (typically ms range)
+    if (contains(name, "attack") || contains(name, "decay") ||
+        contains(name, "release") || contains(name, "time") ||
+        contains(name, "delay") || contains(name, "rate")) {
+        // Only use log for time ranges > 10x
+        if (max_val > min_val * 10.0f && min_val > 0) {
+            return ParamCurve::Log;
+        }
+    }
+
+    // Gain/volume with large range
+    if (contains(name, "gain") || contains(name, "level")) {
+        if (max_val > min_val * 10.0f && min_val > 0) {
+            return ParamCurve::Log;
+        }
+    }
+
+    // Default: linear for normalized 0-1 params, percentages, etc.
+    return ParamCurve::Linear;
+}
+
 /// Parameter descriptor
 struct ParamDescriptor {
     param_id_t id = 0;
@@ -80,23 +143,121 @@ struct ParamDescriptor {
     float default_value = 0.0f;
     float min_value = 0.0f;
     float max_value = 1.0f;
-    
-    /// Normalize value to 0-1 range
+    ParamCurve curve = ParamCurve::Auto;  // Auto-detect by default
+
+    /// Get effective curve (resolves Auto)
+    [[nodiscard]] constexpr ParamCurve effective_curve() const noexcept {
+        if (curve == ParamCurve::Auto) {
+            return infer_param_curve(name, min_value, max_value);
+        }
+        return curve;
+    }
+
+    /// Normalize value to 0-1 range (applies curve)
     [[nodiscard]] constexpr float normalize(float value) const noexcept {
         if (max_value == min_value) return 0.0f;
-        return (value - min_value) / (max_value - min_value);
+
+        const auto c = effective_curve();
+        switch (c) {
+        case ParamCurve::Log: {
+            // Log scale: map [min, max] to [0, 1] logarithmically
+            // Avoid log(0) by using small offset
+            const float min_log = (min_value > 0) ? min_value : 1.0f;
+            const float log_min = log_approx(min_log);
+            const float log_max = log_approx(max_value);
+            const float log_val = log_approx(value > min_log ? value : min_log);
+            return (log_val - log_min) / (log_max - log_min);
+        }
+        case ParamCurve::Exp: {
+            // Exponential: square the linear value
+            float linear = (value - min_value) / (max_value - min_value);
+            return linear * linear;
+        }
+        default: // Linear (and Auto fallback)
+            return (value - min_value) / (max_value - min_value);
+        }
     }
-    
-    /// Denormalize from 0-1 range
+
+    /// Denormalize from 0-1 range (applies curve)
     [[nodiscard]] constexpr float denormalize(float normalized) const noexcept {
-        return min_value + normalized * (max_value - min_value);
+        const auto c = effective_curve();
+        switch (c) {
+        case ParamCurve::Log: {
+            // Log scale: exponential mapping
+            const float min_log = (min_value > 0) ? min_value : 1.0f;
+            const float log_min = log_approx(min_log);
+            const float log_max = log_approx(max_value);
+            const float log_val = log_min + normalized * (log_max - log_min);
+            return exp_approx(log_val);
+        }
+        case ParamCurve::Exp: {
+            // Exponential: sqrt of normalized value
+            float linear = (normalized > 0) ? sqrt_approx(normalized) : 0.0f;
+            return min_value + linear * (max_value - min_value);
+        }
+        default: // Linear
+            return min_value + normalized * (max_value - min_value);
+        }
     }
-    
+
     /// Clamp value to valid range
     [[nodiscard]] constexpr float clamp(float value) const noexcept {
         if (value < min_value) return min_value;
         if (value > max_value) return max_value;
         return value;
+    }
+
+private:
+    // Simple approximations for constexpr context
+    [[nodiscard]] static constexpr float log_approx(float x) noexcept {
+        // Natural log approximation using series expansion
+        // For the range we care about (20-20000), this is sufficient
+        if (x <= 0) return -10.0f;
+
+        // Normalize to [1, 2) range and count powers of 2
+        float result = 0.0f;
+        while (x >= 2.0f) { x *= 0.5f; result += 0.693147f; }  // ln(2)
+        while (x < 1.0f)  { x *= 2.0f; result -= 0.693147f; }
+
+        // Taylor series for ln(1+y) where y = x-1, |y| < 1
+        float y = x - 1.0f;
+        float term = y;
+        result += term;
+        term *= -y; result += term * 0.5f;
+        term *= -y; result += term * 0.333333f;
+        term *= -y; result += term * 0.25f;
+        return result;
+    }
+
+    [[nodiscard]] static constexpr float exp_approx(float x) noexcept {
+        // Exponential approximation
+        // Reduce to e^(n*ln2 + r) = 2^n * e^r where |r| < ln(2)/2
+        if (x > 10.0f) return 22026.0f;  // Cap at e^10
+        if (x < -10.0f) return 0.0f;
+
+        // Count integer part
+        float result = 1.0f;
+        while (x >= 0.693147f) { x -= 0.693147f; result *= 2.0f; }
+        while (x < 0.0f)       { x += 0.693147f; result *= 0.5f; }
+
+        // Taylor series for e^x where |x| < ln(2)
+        float term = 1.0f;
+        float sum = 1.0f;
+        term *= x; sum += term;              // x
+        term *= x * 0.5f; sum += term;       // x^2/2!
+        term *= x * 0.333333f; sum += term;  // x^3/3!
+        term *= x * 0.25f; sum += term;      // x^4/4!
+        return result * sum;
+    }
+
+    [[nodiscard]] static constexpr float sqrt_approx(float x) noexcept {
+        if (x <= 0) return 0.0f;
+        // Newton-Raphson
+        float guess = x * 0.5f;
+        for (int i = 0; i < 5; ++i) {
+            guess = 0.5f * (guess + x / guess);
+        }
+        return guess;
     }
 };
 

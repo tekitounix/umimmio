@@ -164,13 +164,19 @@ export class UmiosBackend extends BackendInterface {
     isPlaying() { return this._isPlaying; }
 
     // UMI-OS specific methods
+    requestKernelState() {
+        if (this.workletNode) {
+            this.workletNode.port.postMessage({ type: 'get-kernel-state' });
+        }
+    }
+
     sendShellCommand(text) {
         if (this.workletNode) {
             this.workletNode.port.postMessage({ type: 'shell-input', text });
         }
     }
 
-    applyHwSettings(settings) {
+    setHwSettings(settings) {
         if (this.workletNode) {
             this.workletNode.port.postMessage({ type: 'hw-settings', settings });
         }
@@ -349,13 +355,19 @@ export class UmiosGenericBackend extends BackendInterface {
     getAppInfo() { return this.appInfo; }
 
     // UMI-OS specific methods
+    requestKernelState() {
+        if (this.workletNode) {
+            this.workletNode.port.postMessage({ type: 'get-kernel-state' });
+        }
+    }
+
     sendShellCommand(text) {
         if (this.workletNode) {
             this.workletNode.port.postMessage({ type: 'shell-input', text });
         }
     }
 
-    applyHwSettings(settings) {
+    setHwSettings(settings) {
         if (this.workletNode) {
             this.workletNode.port.postMessage({ type: 'hw-settings', settings });
         }

@@ -25,6 +25,10 @@ namespace umi::synth {
 // Parameter Descriptors
 // ============================================================================
 
+// Parameter descriptors - curves are auto-inferred from name and range:
+//   Attack/Decay/Release: Log (time params with >10x range)
+//   Cutoff: Log (frequency param)
+//   Sustain/Resonance/Volume: Linear (0-1 normalized)
 inline constexpr std::array<umi::ParamDescriptor, PARAM_COUNT> kParamDescriptors = {{
     { static_cast<uint32_t>(ParamId::Attack),    "Attack",    10.0f,   1.0f,   1000.0f },
     { static_cast<uint32_t>(ParamId::Decay),     "Decay",    100.0f,   1.0f,   2000.0f },

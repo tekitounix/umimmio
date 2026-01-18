@@ -11,7 +11,8 @@
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
-#define WASM_EXPORT __attribute__((used, visibility("default")))
+// EMSCRIPTEN_KEEPALIVE prevents function name minification with -O3
+#define WASM_EXPORT EMSCRIPTEN_KEEPALIVE
 #else
 #define WASM_EXPORT
 #endif

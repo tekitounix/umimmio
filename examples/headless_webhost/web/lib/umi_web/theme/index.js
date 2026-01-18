@@ -186,6 +186,31 @@ export function getBaseStyles() {
     color: var(--umi-key-label);
     pointer-events: none;
 }
+.umi-keyboard .key-hint {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    font-weight: 600;
+    padding: 1px 3px;
+    border-radius: 2px;
+    pointer-events: none;
+    opacity: 0.7;
+}
+.umi-keyboard .key.white .key-hint {
+    color: var(--umi-bg-secondary, #1a1a2e);
+    background: rgba(0, 0, 0, 0.1);
+}
+.umi-keyboard .key.black .key-hint {
+    color: var(--umi-text-primary, #fff);
+    background: rgba(255, 255, 255, 0.15);
+    top: 2px;
+    font-size: 8px;
+}
+.umi-keyboard .key.active .key-hint {
+    opacity: 1;
+}
 
 /* Parameter Control */
 .umi-param-control .param {
