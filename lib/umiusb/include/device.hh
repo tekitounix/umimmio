@@ -72,6 +72,7 @@ private:
 
     // State
     bool configured_ = false;
+    bool suspended_ = false;
     std::array<uint8_t, 4> alt_settings_{};  // Alternate setting per interface
 
     // EP0 buffer for responses
@@ -104,6 +105,12 @@ public:
         hal_.callbacks.on_rx = [](void* ctx, uint8_t ep, const uint8_t* d, uint16_t l) {
             static_cast<Device*>(ctx)->class_.on_rx(ep, std::span<const uint8_t>(d, l));
         };
+        hal_.callbacks.on_suspend = [](void* ctx) {
+            static_cast<Device*>(ctx)->handle_suspend();
+        };
+        hal_.callbacks.on_resume = [](void* ctx) {
+            static_cast<Device*>(ctx)->handle_resume();
+        };
 
         hal_.init();
     }
@@ -113,6 +120,9 @@ public:
 
     /// Check if device is configured
     [[nodiscard]] bool is_configured() const { return configured_; }
+
+    /// Check if device is suspended
+    [[nodiscard]] bool is_suspended() const { return suspended_; }
 
     /// Direct HAL access (for class implementations)
     HalT& hal() { return hal_; }
@@ -136,7 +146,18 @@ private:
 
     void handle_reset() {
         configured_ = false;
+        suspended_ = false;
         class_.on_configured(false);
+    }
+
+    void handle_suspend() {
+        suspended_ = true;
+        // Class can optionally implement on_suspend
+    }
+
+    void handle_resume() {
+        suspended_ = false;
+        // Class can optionally implement on_resume
     }
 
     void handle_setup(const SetupPacket& setup) {
@@ -268,20 +289,37 @@ private:
     void handle_class_request(const SetupPacket& setup) {
         std::span<uint8_t> response(ep0_buf_, EP0_SIZE);
         if (class_.handle_request(setup, response)) {
-            if (setup.direction() == Direction::In && !response.empty()) {
-                send_response(response.data(),
-                              static_cast<uint16_t>(response.size()),
-                              setup.wLength);
+            if (setup.direction() == Direction::In) {
+                // GET request - send data
+                if (!response.empty()) {
+                    send_response(response.data(),
+                                  static_cast<uint16_t>(response.size()),
+                                  setup.wLength);
+                } else {
+                    send_zlp();
+                }
             } else {
-                send_zlp();
+                // SET request (direction == Out)
+                // If wLength > 0, we expect DATA OUT stage
+                if (setup.wLength > 0) {
+                    // Prepare EP0 to receive data
+                    hal_.ep0_prepare_rx(setup.wLength);
+                } else {
+                    send_zlp();
+                }
             }
         } else {
             hal_.ep_stall(0, true);
         }
     }
 
-    void handle_ep0_rx(const uint8_t* /*data*/, uint16_t /*len*/) {
-        // DATA OUT stage - currently not used
+    void handle_ep0_rx(const uint8_t* data, uint16_t len) {
+        // DATA OUT stage - forward to class for SET requests
+        if constexpr (requires { class_.on_ep0_rx(std::declval<std::span<const uint8_t>>()); }) {
+            class_.on_ep0_rx(std::span<const uint8_t>(data, len));
+        }
+        // Send status ZLP after receiving data
+        send_zlp();
     }
 
     void handle_set_interface(const SetupPacket& setup) {

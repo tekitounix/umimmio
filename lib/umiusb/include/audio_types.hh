@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <span>
 #include <array>
+#include <asrc.hh>  // umidsp ASRC components
 
 namespace umiusb {
 
@@ -39,63 +40,11 @@ enum class AudioDirection : uint8_t {
 };
 
 // ============================================================================
-// PLL Rate Controller (for Adaptive mode)
+// Type aliases for ASRC components from umidsp
 // ============================================================================
 
-/// Controls I2S clock rate based on buffer level
-/// Target: maintain buffer at 50% fill to absorb USB jitter
-class PllRateController {
-public:
-    // Buffer level targets (in frames)
-    static constexpr int32_t TARGET_LEVEL = 128;  // 50% of 256
-    static constexpr int32_t HYSTERESIS = 16;     // ±16 frames dead zone
-
-    // PLL adjustment range (PPM from nominal)
-    static constexpr int32_t MAX_PPM_ADJUST = 500;  // ±500ppm max
-
-    void reset() {
-        current_ppm_ = 0;
-        integral_ = 0;
-    }
-
-    /// Update PLL based on buffer level
-    /// Returns PPM adjustment (-500 to +500)
-    /// Positive = speed up I2S clock, negative = slow down
-    int32_t update(int32_t buffer_level) {
-        int32_t error = buffer_level - TARGET_LEVEL;
-
-        // Dead zone to avoid constant hunting
-        if (error > -HYSTERESIS && error < HYSTERESIS) {
-            return current_ppm_;
-        }
-
-        // PI controller
-        // P term: immediate response
-        int32_t p_term = error / 4;  // Scale down error
-
-        // I term: slow drift correction
-        integral_ += error;
-        // Clamp integral to prevent windup
-        if (integral_ > 10000) integral_ = 10000;
-        if (integral_ < -10000) integral_ = -10000;
-        int32_t i_term = integral_ / 100;
-
-        // Calculate total adjustment
-        current_ppm_ = p_term + i_term;
-
-        // Clamp to safe range
-        if (current_ppm_ > MAX_PPM_ADJUST) current_ppm_ = MAX_PPM_ADJUST;
-        if (current_ppm_ < -MAX_PPM_ADJUST) current_ppm_ = -MAX_PPM_ADJUST;
-
-        return current_ppm_;
-    }
-
-    [[nodiscard]] int32_t current_ppm() const { return current_ppm_; }
-
-private:
-    int32_t current_ppm_ = 0;
-    int32_t integral_ = 0;
-};
+// PI Rate Controller with USB Audio defaults (see lib/umidsp/include/asrc.hh)
+using PllRateController = umidsp::UsbAudioPiController;
 
 // ============================================================================
 // Feedback Calculator (for Asynchronous mode)
@@ -196,11 +145,13 @@ private:
     uint32_t accumulated_samples_ = 0;
 };
 
+
 // ============================================================================
 // Ring Buffer for USB Audio
 // ============================================================================
 
 /// Lock-free SPSC ring buffer for USB <-> Audio DMA transfer
+/// Supports optional cubic hermite interpolation for ASRC
 template<uint32_t Frames = 256, uint8_t Channels = 2>
 class AudioRingBuffer {
 public:
@@ -213,6 +164,7 @@ public:
     void reset() {
         write_pos_ = 0;
         read_pos_ = 0;
+        read_frac_ = 0;
         playback_started_ = false;
         underrun_count_ = 0;
         overrun_count_ = 0;
@@ -314,6 +266,92 @@ public:
         return to_read;
     }
 
+    /// Read frames with cubic hermite interpolation (ASRC)
+    /// rate_q16: Q16.16 fixed-point rate ratio (0x10000 = 1.0)
+    ///   > 0x10000: consume more input (speed up output)
+    ///   < 0x10000: consume fewer input (slow down output)
+    /// Returns actual frames output (always == frame_count if enough data)
+    uint32_t read_interpolated(int16_t* dest, uint32_t frame_count, uint32_t rate_q16) {
+        if (!playback_started_) {
+            __builtin_memset(dest, 0, static_cast<size_t>(frame_count) * BYTES_PER_FRAME);
+            return 0;
+        }
+
+        asm volatile("dmb" ::: "memory");
+        uint32_t write = write_pos_;
+        uint32_t read = read_pos_;
+        uint32_t available = (write - read) & MASK;
+
+        // Need at least 4 frames for cubic interpolation (y0, y1, y2, y3)
+        if (available < 4) {
+            __builtin_memset(dest, 0, static_cast<size_t>(frame_count) * BYTES_PER_FRAME);
+            underrun_count_ += frame_count;
+            return 0;
+        }
+
+        uint32_t out_frames = 0;
+        uint32_t frac = read_frac_;
+
+        while (out_frames < frame_count) {
+            // Check if we have enough samples (need at least 3 ahead: y1, y2, y3)
+            uint32_t cur_read = read_pos_;
+            uint32_t cur_available = (write - cur_read) & MASK;
+            if (cur_available < 4) {
+                break;  // Not enough data
+            }
+
+            // Get 4 sample positions for interpolation
+            uint32_t idx0 = cur_read & MASK;
+            uint32_t idx1 = (cur_read + 1) & MASK;
+            uint32_t idx2 = (cur_read + 2) & MASK;
+            uint32_t idx3 = (cur_read + 3) & MASK;
+
+            // Interpolate each channel
+            for (uint8_t ch = 0; ch < Channels; ++ch) {
+                int16_t s0 = buffer_[idx0 * Channels + ch];
+                int16_t s1 = buffer_[idx1 * Channels + ch];
+                int16_t s2 = buffer_[idx2 * Channels + ch];
+                int16_t s3 = buffer_[idx3 * Channels + ch];
+
+                dest[out_frames * Channels + ch] =
+                    umidsp::cubic_hermite::interpolate_i16(s0, s1, s2, s3, frac);
+            }
+            out_frames++;
+
+            // Advance fractional position
+            frac += rate_q16;
+            uint32_t consumed = frac >> 16;
+            frac &= 0xFFFF;
+
+            // Advance read position by consumed whole samples
+            read_pos_ = (cur_read + consumed) & MASK;
+        }
+
+        read_frac_ = frac;
+
+        // Zero-fill any remaining frames (underrun)
+        if (out_frames < frame_count) {
+            uint32_t underrun_frames = frame_count - out_frames;
+            __builtin_memset(dest + (out_frames * Channels), 0,
+                            static_cast<size_t>(underrun_frames) * BYTES_PER_FRAME);
+            underrun_count_ += underrun_frames;
+        }
+
+        return out_frames;
+    }
+
+    /// Set ASRC rate from PPM adjustment
+    /// ppm: parts per million adjustment (-500 to +500 typical)
+    /// Positive ppm = device clock is fast, need to consume more input
+    [[nodiscard]] static uint32_t ppm_to_rate_q16(int32_t ppm) {
+        // rate = 1.0 + ppm/1000000
+        // In Q16.16: rate = 0x10000 + (0x10000 * ppm) / 1000000
+        //                 = 0x10000 + (ppm * 65536) / 1000000
+        //                 = 0x10000 + (ppm * 65536 + 500000) / 1000000  (rounded)
+        // Simplified: rate ≈ 0x10000 + ppm / 15  (approximation for small ppm)
+        return static_cast<uint32_t>(0x10000 + (ppm * 65536 + 500000) / 1000000);
+    }
+
     [[nodiscard]] bool is_playback_started() const { return playback_started_; }
     [[nodiscard]] uint32_t buffered_frames() const {
         return (write_pos_ - read_pos_) & MASK;
@@ -328,6 +366,7 @@ private:
     alignas(32) int16_t buffer_[Frames * Channels]{};
     volatile uint32_t write_pos_ = 0;
     volatile uint32_t read_pos_ = 0;
+    uint32_t read_frac_ = 0;  // Fractional read position (Q0.16)
     volatile bool playback_started_ = false;
     uint32_t underrun_count_ = 0;
     uint32_t overrun_count_ = 0;

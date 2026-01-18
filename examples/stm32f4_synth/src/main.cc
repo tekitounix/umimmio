@@ -101,78 +101,11 @@ umiusb::Device<umiusb::Stm32FsHal, decltype(usb_audio)> usb_device(
     }
 );
 
-// Sync mode state (for button switching)
-// LED display: Green=Async, Orange=Adaptive, Blue=Sync
-volatile bool user_button_prev = false;
-
 // Synth engine
 umi::synth::PolySynth synth;
 
 // LED state (for activity indication)
 volatile uint32_t led_counter = 0;
-
-// ============================================================================
-/// Update LED to show current sync mode
-/// Green=Async(0x05), Orange=Adaptive(0x09), Blue=Sync(0x0D)
-void update_sync_mode_led() {
-    auto mode = usb_audio.current_sync_mode();
-
-    // Turn off all mode LEDs first
-    gpio_d.reset(12);  // Green
-    gpio_d.reset(13);  // Orange
-    gpio_d.reset(15);  // Blue
-
-    switch (mode) {
-        case umiusb::AudioSyncMode::Async:
-            gpio_d.set(12);  // Green
-            break;
-        case umiusb::AudioSyncMode::Adaptive:
-            gpio_d.set(13);  // Orange
-            break;
-        case umiusb::AudioSyncMode::Sync:
-            gpio_d.set(15);  // Blue
-            break;
-    }
-}
-
-/// Cycle to next sync mode
-umiusb::AudioSyncMode next_sync_mode(umiusb::AudioSyncMode current) {
-    switch (current) {
-        case umiusb::AudioSyncMode::Async:
-            return umiusb::AudioSyncMode::Adaptive;
-        case umiusb::AudioSyncMode::Adaptive:
-            return umiusb::AudioSyncMode::Sync;
-        case umiusb::AudioSyncMode::Sync:
-        default:
-            return umiusb::AudioSyncMode::Async;
-    }
-}
-
-/// Reinitialize USB with new sync mode
-void reinit_usb_with_mode(umiusb::AudioSyncMode new_mode) {
-    // Disable USB interrupt during reconfiguration
-    NVIC::disable(67);
-
-    // Disconnect USB
-    usb_hal.disconnect();
-
-    // Wait for host to notice disconnection
-    for (int i = 0; i < 500000; ++i) { asm volatile("" ::: "memory"); }
-
-    // Set new sync mode and reset AudioInterface state
-    usb_audio.set_sync_mode(new_mode);
-    usb_audio.reset();
-
-    // Reinitialize USB
-    usb_device.init();
-    usb_hal.connect();
-
-    // Re-enable USB interrupt
-    NVIC::enable(67);
-
-    // Update LED
-    update_sync_mode_led();
-}
 
 // PLLI2S configuration for I2S clock
 void init_plli2s() {
@@ -296,14 +229,6 @@ void init_usb() {
     // Set streaming status callback (optional, not used for LED indication)
     usb_audio.on_streaming_change = nullptr;
 
-    // Set PLL adjustment callback for Adaptive mode
-    // This would be called to adjust I2S PLL for clock synchronization
-    usb_audio.on_pll_adjust = [](int32_t ppm) {
-        // TODO: Implement actual PLL adjustment via PLLI2S tuning
-        // For now, just log the adjustment request
-        (void)ppm;
-    };
-
     // Set string descriptors
     usb_device.set_strings(usb_config::string_table);
 
@@ -318,14 +243,9 @@ void init_usb() {
 }
 
 /// Fill audio buffer from AudioInterface ring buffer
+/// Uses PI+ASRC: Software resampling with cubic hermite interpolation
 void fill_audio_buffer(int16_t* buf, uint32_t frame_count) {
-    // Read audio from AudioInterface's internal ring buffer
-    uint32_t frames_read = usb_audio.read_audio(buf, frame_count);
-
-    // Notify feedback calculator about consumed samples (for Async mode)
-    if (frames_read > 0) {
-        usb_audio.on_samples_consumed(frames_read);
-    }
+    uint32_t frames_read = usb_audio.read_audio_asrc(buf, frame_count);
 
     // Check for underrun
     if (frames_read < frame_count) {
@@ -470,40 +390,14 @@ extern "C" [[noreturn]] void Reset_Handler() {
     // Initialize SysTick (1ms)
     SysTick::init(168000 - 1);  // 168MHz / 1000
 
-    // Enable DWT cycle counter
+    // Enable DWT cycle counter (for debugging/profiling)
     DWT::enable();
 
-    // Show initial sync mode on LED (default: Async = Green)
-    update_sync_mode_led();
+    // Show status LED (Green = streaming active)
+    gpio_d.set(12);
 
     // Main loop
     while (true) {
-        // Poll USER button (PA0, active high)
-        bool button_now = gpio_a.read(0);
-
-        // Detect rising edge (button press)
-        if (button_now && !user_button_prev) {
-            // Debounce delay
-            for (int i = 0; i < 50000; ++i) { asm volatile("" ::: "memory"); }
-
-            // Check button still pressed
-            if (gpio_a.read(0)) {
-                // Cycle to next sync mode
-                auto current = usb_audio.current_sync_mode();
-                auto next = next_sync_mode(current);
-
-                // Red LED on during transition
-                gpio_d.set(14);
-
-                // Reinitialize USB with new mode
-                reinit_usb_with_mode(next);
-
-                // Red LED off
-                gpio_d.reset(14);
-            }
-        }
-        user_button_prev = button_now;
-
         // Wait for interrupts (saves power)
         CM4::wfi();
     }
