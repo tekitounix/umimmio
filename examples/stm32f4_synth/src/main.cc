@@ -112,61 +112,6 @@ umi::synth::PolySynth synth;
 volatile uint32_t led_counter = 0;
 
 // ============================================================================
-// Benchmark Statistics (DWT cycle counter)
-// ============================================================================
-struct BenchmarkStats {
-    uint32_t min_cycles = UINT32_MAX;
-    uint32_t max_cycles = 0;
-    uint64_t total_cycles = 0;
-    uint32_t count = 0;
-
-    void record(uint32_t cycles) {
-        if (cycles < min_cycles) min_cycles = cycles;
-        if (cycles > max_cycles) max_cycles = cycles;
-        total_cycles += cycles;
-        count++;
-    }
-
-    uint32_t avg() const { return count > 0 ? static_cast<uint32_t>(total_cycles / count) : 0; }
-    void reset() { min_cycles = UINT32_MAX; max_cycles = 0; total_cycles = 0; count = 0; }
-};
-
-volatile BenchmarkStats bench_read;    // ring_buffer_.read()
-volatile BenchmarkStats bench_sof;     // on_sof()
-// volatile BenchmarkStats bench_write;   // on_rx() -> ring_buffer_.write() (TODO: add later)
-volatile bool bench_enabled = false;
-
-// Sync mode evaluation statistics
-struct SyncModeStats {
-    uint32_t streaming_time_ms = 0;    // Total streaming time
-    uint32_t underrun_count = 0;       // Buffer underruns
-    uint32_t overrun_count = 0;        // Buffer overruns
-    int32_t min_buffer_level = 256;    // Minimum buffer level seen
-    int32_t max_buffer_level = 0;      // Maximum buffer level seen
-    uint32_t feedback_updates = 0;     // Feedback EP transmissions (Async only)
-
-    void reset() {
-        streaming_time_ms = 0;
-        underrun_count = 0;
-        overrun_count = 0;
-        min_buffer_level = 256;
-        max_buffer_level = 0;
-        feedback_updates = 0;
-    }
-
-    void update_buffer_level(int32_t level) {
-        if (level < min_buffer_level) min_buffer_level = level;
-        if (level > max_buffer_level) max_buffer_level = level;
-    }
-};
-
-volatile SyncModeStats mode_stats;
-
-// Benchmark results can be read via debugger:
-// - bench_read.min_cycles, bench_read.max_cycles, bench_read.avg()
-// - bench_sof.min_cycles, bench_sof.max_cycles, bench_sof.avg()
-// At 168MHz: cycles / 168 = microseconds
-
 /// Update LED to show current sync mode
 /// Green=Async(0x05), Orange=Adaptive(0x09), Blue=Sync(0x0D)
 void update_sync_mode_led() {
@@ -213,11 +158,6 @@ void reinit_usb_with_mode(umiusb::AudioSyncMode new_mode) {
 
     // Wait for host to notice disconnection
     for (int i = 0; i < 500000; ++i) { asm volatile("" ::: "memory"); }
-
-    // Reset mode statistics for new mode test
-    const_cast<SyncModeStats&>(mode_stats).reset();
-    const_cast<BenchmarkStats&>(bench_read).reset();
-    const_cast<BenchmarkStats&>(bench_sof).reset();
 
     // Set new sync mode and reset AudioInterface state
     usb_audio.set_sync_mode(new_mode);
@@ -353,13 +293,8 @@ void init_usb() {
     // Small delay for USB PHY
     for (int i = 0; i < 10000; ++i) { asm volatile(""); }
 
-    // Set streaming status callback
-    usb_audio.on_streaming_change = [](bool streaming) {
-        if (streaming) {
-            // Clear red LED when streaming starts
-            gpio_d.reset(14);
-        }
-    };
+    // Set streaming status callback (optional, not used for LED indication)
+    usb_audio.on_streaming_change = nullptr;
 
     // Set PLL adjustment callback for Adaptive mode
     // This would be called to adjust I2S PLL for clock synchronization
@@ -384,18 +319,8 @@ void init_usb() {
 
 /// Fill audio buffer from AudioInterface ring buffer
 void fill_audio_buffer(int16_t* buf, uint32_t frame_count) {
-    uint32_t start = 0;
-    if (bench_enabled) {
-        start = DWT::cycles();
-    }
-
     // Read audio from AudioInterface's internal ring buffer
     uint32_t frames_read = usb_audio.read_audio(buf, frame_count);
-
-    if (bench_enabled) {
-        uint32_t elapsed = DWT::cycles() - start;
-        const_cast<BenchmarkStats&>(bench_read).record(elapsed);
-    }
 
     // Notify feedback calculator about consumed samples (for Async mode)
     if (frames_read > 0) {
@@ -491,28 +416,8 @@ extern "C" void OTG_FS_IRQHandler() {
 }
 
 extern "C" void SysTick_Handler() {
-    // 1ms tick - simulate SOF for feedback calculation in Async mode
-    // Real SOF comes from USB but timing is similar
-    if (usb_audio.is_streaming()) {
-        uint32_t start = 0;
-        if (bench_enabled) {
-            start = DWT::cycles();
-        }
-
-        usb_audio.on_sof(usb_hal);
-
-        if (bench_enabled) {
-            uint32_t elapsed = DWT::cycles() - start;
-            const_cast<BenchmarkStats&>(bench_sof).record(elapsed);
-        }
-
-        // Update mode statistics
-        const_cast<SyncModeStats&>(mode_stats).streaming_time_ms++;
-        const_cast<SyncModeStats&>(mode_stats).underrun_count = usb_audio.underrun_count();
-        const_cast<SyncModeStats&>(mode_stats).overrun_count = usb_audio.overrun_count();
-        const_cast<SyncModeStats&>(mode_stats).update_buffer_level(
-            static_cast<int32_t>(usb_audio.buffered_frames()));
-    }
+    // 1ms tick - call on_sof for feedback calculation in Async mode
+    usb_audio.on_sof(usb_hal);
 }
 
 // ============================================================================
@@ -565,9 +470,8 @@ extern "C" [[noreturn]] void Reset_Handler() {
     // Initialize SysTick (1ms)
     SysTick::init(168000 - 1);  // 168MHz / 1000
 
-    // Enable DWT cycle counter for benchmarking
+    // Enable DWT cycle counter
     DWT::enable();
-    bench_enabled = true;
 
     // Show initial sync mode on LED (default: Async = Green)
     update_sync_mode_led();
