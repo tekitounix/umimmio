@@ -8,6 +8,7 @@
 
 /**
  * Default key mappings (computer keyboard -> MIDI note)
+ * Each entry includes both the note and the keyboard key for display
  */
 export const DEFAULT_KEY_MAP = {
     'a': { note: 48, label: 'C3' },
@@ -28,6 +29,17 @@ export const DEFAULT_KEY_MAP = {
     'p': { note: 63, label: 'D#4' },
     ';': { note: 64, label: 'E4' },
 };
+
+/**
+ * Reverse lookup: note -> keyboard key
+ */
+function buildNoteToKeyMap(keyMap) {
+    const map = new Map();
+    for (const [key, info] of Object.entries(keyMap)) {
+        map.set(info.note, key);
+    }
+    return map;
+}
 
 /**
  * Default note layout for visual keyboard
@@ -68,12 +80,19 @@ export class Keyboard {
         this.notes = options.notes || DEFAULT_NOTES;
         this.keyMap = options.keyMap || DEFAULT_KEY_MAP;
         this.velocity = options.velocity || 100;
+        this.showKeyHints = options.showKeyHints !== false;  // Default: true
 
         /** @type {Set<number>} Active notes */
         this.activeNotes = new Set();
 
         /** @type {Map<number, HTMLElement>} Note -> key element */
         this.keyElements = new Map();
+
+        /** @type {Map<number, string>} Note -> keyboard key */
+        this.noteToKey = buildNoteToKeyMap(this.keyMap);
+
+        /** @type {boolean} Mouse is pressed (for drag-to-play) */
+        this._mouseDown = false;
 
         // Callbacks
         /** @type {function|null} */
@@ -83,6 +102,7 @@ export class Keyboard {
 
         this._boundKeyDown = this._handleKeyDown.bind(this);
         this._boundKeyUp = this._handleKeyUp.bind(this);
+        this._boundMouseUp = this._handleGlobalMouseUp.bind(this);
 
         this._build();
     }
@@ -93,6 +113,7 @@ export class Keyboard {
     enable() {
         document.addEventListener('keydown', this._boundKeyDown);
         document.addEventListener('keyup', this._boundKeyUp);
+        document.addEventListener('mouseup', this._boundMouseUp);
     }
 
     /**
@@ -101,6 +122,7 @@ export class Keyboard {
     disable() {
         document.removeEventListener('keydown', this._boundKeyDown);
         document.removeEventListener('keyup', this._boundKeyUp);
+        document.removeEventListener('mouseup', this._boundMouseUp);
     }
 
     /**
@@ -170,6 +192,16 @@ export class Keyboard {
             key.className = 'key ' + (n.black ? 'black' : 'white');
             key.dataset.note = n.note;
 
+            // PC keyboard hint
+            const pcKey = this.noteToKey.get(n.note);
+            if (this.showKeyHints && pcKey) {
+                const hint = document.createElement('span');
+                hint.className = 'key-hint';
+                hint.textContent = pcKey.toUpperCase();
+                key.appendChild(hint);
+            }
+
+            // Note label (for white keys)
             if (!n.black) {
                 const label = document.createElement('span');
                 label.className = 'key-label';
@@ -177,15 +209,23 @@ export class Keyboard {
                 key.appendChild(label);
             }
 
-            // Mouse events
+            // Mouse events (with drag-to-play support)
             key.addEventListener('mousedown', (e) => {
                 e.preventDefault();
+                this._mouseDown = true;
                 this.noteOn(n.note);
             });
             key.addEventListener('mouseup', () => {
                 this.noteOff(n.note);
             });
+            key.addEventListener('mouseenter', () => {
+                // Play note when dragging into key
+                if (this._mouseDown) {
+                    this.noteOn(n.note);
+                }
+            });
             key.addEventListener('mouseleave', () => {
+                // Release when leaving key (while dragging or not)
                 if (this.activeNotes.has(n.note)) {
                     this.noteOff(n.note);
                 }
@@ -219,8 +259,9 @@ export class Keyboard {
     _handleKeyDown(e) {
         if (e.repeat) return;
 
-        // Ignore if focused on input element
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        // Ignore if focused on text input (but allow range sliders)
+        if (e.target.tagName === 'TEXTAREA') return;
+        if (e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
 
         const info = this.keyMap[e.key.toLowerCase()];
         if (info) {
@@ -233,6 +274,14 @@ export class Keyboard {
         const info = this.keyMap[e.key.toLowerCase()];
         if (info) {
             this.noteOff(info.note);
+        }
+    }
+
+    _handleGlobalMouseUp() {
+        // Release all mouse-triggered notes when mouse is released anywhere
+        if (this._mouseDown) {
+            this._mouseDown = false;
+            this.allNotesOff();
         }
     }
 }

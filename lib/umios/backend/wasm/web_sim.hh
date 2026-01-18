@@ -857,16 +857,173 @@ struct SysExLogBuffer {
 inline SysExLogBuffer g_sysex_log;
 
 // ============================================================================
+// Shell Access Control
+// ============================================================================
+
+enum class AccessLevel : uint8_t {
+    USER = 0,      // Basic operations only
+    ADMIN = 1,     // Configuration changes allowed
+    FACTORY = 2    // All features including production tests
+};
+
+struct AuthState {
+    AccessLevel level = AccessLevel::USER;
+    uint64_t last_activity_us = 0;
+    uint8_t failed_attempts = 0;
+    uint64_t lockout_until_us = 0;
+
+    static constexpr uint64_t TIMEOUT_US = 5 * 60 * 1000000ULL;  // 5 minutes
+    static constexpr uint64_t LOCKOUT_US = 30 * 1000000ULL;      // 30 seconds
+    static constexpr uint8_t MAX_ATTEMPTS = 3;
+
+    // Simple password check (in real system, use HMAC-SHA256)
+    // Admin password: "admin", Factory password: "factory"
+    bool check_password(AccessLevel target, const char* password) {
+        if (target == AccessLevel::ADMIN) {
+            return strcmp(password, "admin") == 0;
+        }
+        if (target == AccessLevel::FACTORY) {
+            return strcmp(password, "factory") == 0;
+        }
+        return false;
+    }
+
+    bool is_locked_out(uint64_t now_us) const {
+        return now_us < lockout_until_us;
+    }
+
+    void record_failure(uint64_t now_us) {
+        failed_attempts++;
+        if (failed_attempts >= MAX_ATTEMPTS) {
+            lockout_until_us = now_us + LOCKOUT_US;
+            failed_attempts = 0;
+        }
+    }
+
+    void record_success(AccessLevel new_level, uint64_t now_us) {
+        level = new_level;
+        last_activity_us = now_us;
+        failed_attempts = 0;
+    }
+
+    void check_timeout(uint64_t now_us) {
+        if (level != AccessLevel::USER && (now_us - last_activity_us) > TIMEOUT_US) {
+            level = AccessLevel::USER;
+        }
+    }
+
+    void touch(uint64_t now_us) {
+        last_activity_us = now_us;
+    }
+
+    void logout() {
+        level = AccessLevel::USER;
+    }
+};
+
+// ============================================================================
+// Shell Configuration State
+// ============================================================================
+
+struct ShellConfig {
+    // MIDI settings
+    uint8_t midi_channel = 1;      // 1-16
+    int8_t midi_transpose = 0;     // -24 to +24
+
+    // Audio settings
+    uint8_t audio_gain = 80;       // 0-100
+    uint32_t sample_rate = 48000;  // Sample rate
+
+    // Power settings
+    uint16_t sleep_timeout_min = 5;   // Minutes until sleep (0=disabled)
+    uint8_t low_battery_threshold = 15; // Percent
+    uint8_t shutdown_threshold = 5;   // Percent
+
+    // MIDI monitor
+    bool midi_monitor_enabled = false;
+
+    // Factory info (read from flash in real system)
+    char serial_number[20] = "SIM-00000000";
+    uint32_t manufacture_date = 20240101;  // YYYYMMDD
+    bool factory_locked = false;
+};
+
+inline ShellConfig g_shell_config;
+
+// ============================================================================
+// Error Log
+// ============================================================================
+
+struct ErrorLogEntry {
+    uint64_t timestamp_us = 0;
+    uint8_t severity = 0;     // 0=info, 1=warning, 2=error, 3=critical
+    char message[64] = {0};   // NOLINT
+};
+
+// NOLINTBEGIN(misc-non-private-member-variables-in-classes,readability-identifier-naming)
+struct ErrorLog {
+    static constexpr size_t max_entries = 16;
+    ErrorLogEntry entries[max_entries];  // NOLINT
+    size_t head = 0;
+    size_t entry_count = 0;
+
+    void add(uint8_t sev, uint64_t time_us, const char* msg) {
+        ErrorLogEntry& ent = entries[head];
+        ent.timestamp_us = time_us;
+        ent.severity = sev;
+        size_t idx = 0;
+        while (msg[idx] != '\0' && idx < sizeof(ent.message) - 1) {
+            ent.message[idx] = msg[idx];
+            idx++;
+        }
+        ent.message[idx] = '\0';
+        head = (head + 1) % max_entries;
+        if (entry_count < max_entries) {
+            entry_count++;
+        }
+    }
+
+    void clear() {
+        head = 0;
+        entry_count = 0;
+    }
+
+    [[nodiscard]] size_t count() const { return entry_count; }
+    [[nodiscard]] const ErrorLogEntry& get(size_t idx) const {
+        size_t actual = (head + max_entries - entry_count + idx) % max_entries;
+        return entries[actual];
+    }
+};
+// NOLINTEND(misc-non-private-member-variables-in-classes,readability-identifier-naming)
+
+inline ErrorLog g_error_log;
+
+// ============================================================================
+// System Mode
+// ============================================================================
+
+enum class SystemMode : uint8_t {
+    NORMAL = 0,
+    DFU = 1,           // Device Firmware Update mode
+    BOOTLOADER = 2,    // Bootloader mode
+    SAFE = 3           // Safe mode (minimal features)
+};
+
+inline SystemMode g_system_mode = SystemMode::NORMAL;
+
+// ============================================================================
 // Shell Command Buffer
 // ============================================================================
 
 struct ShellState {
     static constexpr size_t CMD_BUF_SIZE = 256;
-    static constexpr size_t OUTPUT_BUF_SIZE = 1024;
+    static constexpr size_t OUTPUT_BUF_SIZE = 2048;
 
     char cmd_buffer[CMD_BUF_SIZE];
     size_t cmd_len = 0;
     bool cmd_ready = false;
+
+    AuthState auth;
 
     void receive_char(char c) {
         if (c == '\n' || c == '\r') {
@@ -891,30 +1048,995 @@ struct ShellState {
         cmd_ready = false;
     }
 
-    // Execute command and return response
-    const char* execute(const char* cmd) {
-        // Built-in commands
-        if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) {
-            return "Commands: help, status, log [level], reset, version, uptime, mem, tasks, wdt";
+    // Output buffer for formatted responses
+    static inline char output_buffer[OUTPUT_BUF_SIZE];
+    static inline size_t output_pos = 0;
+
+    // Simple formatting helpers (no snprintf to avoid WASM import issues)
+    static void out_clear() { output_pos = 0; output_buffer[0] = '\0'; }
+    static void out_str(const char* s) {
+        while (*s && output_pos < OUTPUT_BUF_SIZE - 1) {
+            output_buffer[output_pos++] = *s++;
         }
-        if (strcmp(cmd, "status") == 0) {
-            return "OK";
+        output_buffer[output_pos] = '\0';
+    }
+    static void out_char(char c) {
+        if (output_pos < OUTPUT_BUF_SIZE - 1) {
+            output_buffer[output_pos++] = c;
+            output_buffer[output_pos] = '\0';
+        }
+    }
+    static void out_num(uint32_t n) {
+        char tmp[12];
+        int idx = 0;
+        if (n == 0) { tmp[idx++] = '0'; }
+        else {
+            while (n > 0) { tmp[idx++] = static_cast<char>('0' + (n % 10)); n /= 10; }
+        }
+        while (idx > 0 && output_pos < OUTPUT_BUF_SIZE - 1) {
+            output_buffer[output_pos++] = tmp[--idx];
+        }
+        output_buffer[output_pos] = '\0';
+    }
+    static void out_num_signed(int32_t n) {
+        if (n < 0) {
+            out_char('-');
+            n = -n;
+        }
+        out_num(static_cast<uint32_t>(n));
+    }
+    static void out_num2(uint32_t n) {  // 2-digit with leading zero
+        if (n < 10) out_str("0");
+        out_num(n);
+    }
+    static void out_num_fixed(uint32_t n, uint32_t decimals) {  // Fixed point: n/10^decimals
+        uint32_t divisor = 1;
+        for (uint32_t i = 0; i < decimals; i++) divisor *= 10;
+        out_num(n / divisor);
+        out_char('.');
+        uint32_t frac = n % divisor;
+        // Leading zeros for fractional part
+        for (uint32_t d = divisor / 10; d > 0 && frac < d; d /= 10) {
+            out_char('0');
+        }
+        if (frac > 0) out_num(frac);
+    }
+    static void out_line() { out_str("\n"); }
+    static void out_kv(const char* key, const char* value) {
+        out_str("  "); out_str(key); out_str(": "); out_str(value); out_line();
+    }
+    static void out_kv_num(const char* key, uint32_t value, const char* unit = "") {
+        out_str("  "); out_str(key); out_str(": "); out_num(value);
+        if (unit[0]) { out_str(" "); out_str(unit); }
+        out_line();
+    }
+
+    // Helper to check if string starts with prefix
+    static bool starts_with(const char* str, const char* prefix) {
+        while (*prefix) {
+            if (*str++ != *prefix++) return false;
+        }
+        return true;
+    }
+
+    // Helper to skip whitespace
+    static const char* skip_ws(const char* s) {
+        while (*s == ' ' || *s == '\t') s++;
+        return s;
+    }
+
+    // Parse integer from string
+    static int32_t parse_int(const char* s, bool* ok = nullptr) {
+        bool neg = false;
+        if (*s == '-') { neg = true; s++; }
+        else if (*s == '+') { s++; }
+
+        int32_t val = 0;
+        bool found = false;
+        while (*s >= '0' && *s <= '9') {
+            val = val * 10 + (*s - '0');
+            s++;
+            found = true;
+        }
+        if (ok) *ok = found;
+        return neg ? -val : val;
+    }
+
+    // ========== Command Handlers ==========
+
+    const char* cmd_help(const char* /* args */) {
+        out_clear();
+        out_str("UMI-OS Shell v2.0\n");
+        out_str("================\n");
+        out_str("Basic commands:\n");
+        out_str("  help [cmd]    - Show help\n");
+        out_str("  version       - Show version\n");
+        out_str("  uptime        - Show uptime\n");
+        out_str("  whoami        - Show access level\n");
+        out_str("  auth <level> <pass> - Authenticate\n");
+        out_str("  logout        - Return to USER level\n");
+        out_line();
+        out_str("Show commands:\n");
+        out_str("  show system   - System overview\n");
+        out_str("  show cpu      - CPU load\n");
+        out_str("  show memory   - Memory usage\n");
+        out_str("  show tasks    - Task list\n");
+        out_str("  show audio    - Audio status\n");
+        out_str("  show midi     - MIDI status\n");
+        out_str("  show battery  - Battery status\n");
+        out_str("  show power    - Power management\n");
+        out_str("  show usb      - USB status\n");
+        out_str("  show errors   - Error log\n");
+        out_str("  show config   - Current settings\n");
+        out_line();
+        out_str("Mode commands:\n");
+        out_str("  mode          - Show current mode\n");
+        out_str("  mode <name>   - Switch mode (ADMIN)\n");
+        if (auth.level >= AccessLevel::ADMIN) {
+            out_line();
+            out_str("Config commands (ADMIN):\n");
+            out_str("  config midi channel <1-16>\n");
+            out_str("  config midi transpose <-24..24>\n");
+            out_str("  config audio gain <0-100>\n");
+            out_str("  config power sleep <min>\n");
+            out_str("  config power lowbat <%%>\n");
+            out_str("  config log level <0-4>\n");
+            out_str("  config save / config reset\n");
+        }
+        out_line();
+        out_str("MIDI commands:\n");
+        out_str("  midi status   - MIDI statistics\n");
+        out_str("  midi monitor [on|off] - Monitor\n");
+        out_str("  midi panic    - All notes off\n");
+        if (auth.level >= AccessLevel::ADMIN) {
+            out_str("  midi sysex dump (ADMIN)\n");
+        }
+        if (auth.level >= AccessLevel::ADMIN) {
+            out_line();
+            out_str("Diag commands (ADMIN):\n");
+            out_str("  diag cpu / diag memory\n");
+            out_str("  diag watchdog [feed|enable|disable]\n");
+            out_str("  diag reset [soft|hard]\n");
+        }
+        if (auth.level >= AccessLevel::FACTORY) {
+            out_line();
+            out_str("Factory commands (FACTORY):\n");
+            out_str("  factory info\n");
+            out_str("  factory serial [set <sn>|clear]\n");
+            out_str("  factory test <all|adc|dac|...>\n");
+            out_str("  factory calibrate <adc|dac> <ch>\n");
+            out_str("  factory lock\n");
+        }
+        return output_buffer;
+    }
+
+    const char* cmd_version() {
+        return "UMI-OS v2.0.0 (WASM Simulator)";
+    }
+
+    const char* cmd_uptime() {
+        uint64_t uptime_us = g_kernel_state.uptime_us;
+        uint32_t secs = static_cast<uint32_t>(uptime_us / 1000000);
+        uint32_t mins = secs / 60;
+        uint32_t hours = mins / 60;
+        uint32_t days = hours / 24;
+        out_clear();
+        out_str("Uptime: ");
+        if (days > 0) { out_num(days); out_str("d "); }
+        out_num2(hours % 24); out_str(":");
+        out_num2(mins % 60); out_str(":");
+        out_num2(secs % 60);
+        return output_buffer;
+    }
+
+    const char* cmd_whoami() {
+        out_clear();
+        out_str("Access level: ");
+        switch (auth.level) {
+            case AccessLevel::USER: out_str("USER"); break;
+            case AccessLevel::ADMIN: out_str("ADMIN"); break;
+            case AccessLevel::FACTORY: out_str("FACTORY"); break;
+        }
+        return output_buffer;
+    }
+
+    const char* cmd_auth(const char* args) {
+        uint64_t now = g_kernel_state.uptime_us;
+        if (auth.is_locked_out(now)) {
+            return "ERROR: Locked out. Try again later.";
+        }
+
+        args = skip_ws(args);
+        AccessLevel target = AccessLevel::USER;
+        if (starts_with(args, "admin")) {
+            target = AccessLevel::ADMIN;
+            args += 5;
+        } else if (starts_with(args, "factory")) {
+            target = AccessLevel::FACTORY;
+            args += 7;
+        } else {
+            return "Usage: auth <admin|factory> <password>";
+        }
+
+        args = skip_ws(args);
+        if (auth.check_password(target, args)) {
+            auth.record_success(target, now);
+            out_clear();
+            out_str("Authenticated as ");
+            out_str(target == AccessLevel::ADMIN ? "ADMIN" : "FACTORY");
+            return output_buffer;
+        } else {
+            auth.record_failure(now);
+            return "ERROR: Authentication failed";
+        }
+    }
+
+    const char* cmd_logout() {
+        auth.logout();
+        return "Logged out. Access level: USER";
+    }
+
+    // ========== Show Commands ==========
+
+    const char* cmd_show_system() {
+        out_clear();
+        out_str("System Information\n");
+        out_str("==================\n");
+        out_kv("Version", "UMI-OS v2.0.0");
+        out_kv("Serial", g_shell_config.serial_number);
+        out_str("  Uptime: ");
+        uint32_t secs = static_cast<uint32_t>(g_kernel_state.uptime_us / 1000000);
+        uint32_t mins = secs / 60;
+        uint32_t hours = mins / 60;
+        out_num(hours); out_str("h "); out_num(mins % 60); out_str("m\n");
+        out_kv_num("Tasks", g_kernel_state.task_count());
+        out_kv_num("Ctx switches", g_kernel_state.context_switches);
+        out_kv_num("Log level", g_kernel_state.log_level);
+        return output_buffer;
+    }
+
+    const char* cmd_show_cpu() {
+        out_clear();
+        out_str("CPU Status\n");
+        out_str("==========\n");
+        out_kv_num("Frequency", g_hw_sim_params.cpu_freq_mhz, "MHz");
+
+        uint32_t cpu_util = 0;
+        if (g_kernel_state.uptime_us > 0) {
+            cpu_util = static_cast<uint32_t>((g_kernel_state.total_run_time_us * 100) / g_kernel_state.uptime_us);
+        }
+        out_str("  CPU util: "); out_num(cpu_util); out_str("%\n");
+
+        uint32_t dsp_load = g_kernel_state.dsp_load_percent_x100 / 100;
+        uint32_t dsp_frac = g_kernel_state.dsp_load_percent_x100 % 100;
+        out_str("  DSP load: "); out_num(dsp_load); out_str("."); out_num2(dsp_frac); out_str("%\n");
+
+        uint32_t dsp_peak = g_kernel_state.dsp_load_peak_x100 / 100;
+        uint32_t dsp_peak_frac = g_kernel_state.dsp_load_peak_x100 % 100;
+        out_str("  DSP peak: "); out_num(dsp_peak); out_str("."); out_num2(dsp_peak_frac); out_str("%\n");
+
+        out_kv_num("IRQ count", g_kernel_state.irq_count);
+        return output_buffer;
+    }
+
+    const char* cmd_show_memory() {
+        out_clear();
+        out_str("Memory Status\n");
+        out_str("=============\n");
+        out_str("Heap:\n");
+        out_str("  Used: "); out_num(g_kernel_state.heap_used);
+        out_str("/"); out_num(g_kernel_state.heap_total); out_str(" bytes\n");
+        out_str("  Peak: "); out_num(g_kernel_state.heap_peak); out_str(" bytes\n");
+        uint32_t heap_pct = g_kernel_state.heap_total > 0 ?
+            (g_kernel_state.heap_used * 100 / g_kernel_state.heap_total) : 0;
+        out_str("  Usage: "); out_num(heap_pct); out_str("%\n");
+
+        out_str("SRAM:\n");
+        out_kv_num("  Total", g_kernel_state.sram_total / 1024, "KB");
+        out_str("Flash:\n");
+        out_str("  Used: "); out_num(g_kernel_state.flash_used / 1024);
+        out_str("/"); out_num(g_kernel_state.flash_total / 1024); out_str(" KB\n");
+        return output_buffer;
+    }
+
+    const char* cmd_show_tasks() {
+        out_clear();
+        out_str("Task List\n");
+        out_str("=========\n");
+        for (uint8_t i = 0; i < g_kernel_state.task_count(); ++i) {
+            const auto& t = g_kernel_state.tasks[i];
+            out_str("  ["); out_num(i); out_str("] ");
+            out_str(t.name); out_str(": ");
+            switch (t.state) {
+                case TaskState::Ready: out_str("Ready"); break;
+                case TaskState::Running: out_str("Running"); break;
+                case TaskState::Blocked: out_str("Blocked"); break;
+                case TaskState::Suspended: out_str("Suspended"); break;
+            }
+            out_str(" (pri="); out_num(t.priority);
+            out_str(", stk="); out_num(t.stack_high_water);
+            out_str("/"); out_num(t.stack_size); out_str(")\n");
+        }
+        return output_buffer;
+    }
+
+    const char* cmd_show_audio() {
+        out_clear();
+        out_str("Audio Status\n");
+        out_str("============\n");
+        out_kv("State", g_kernel_state.audio_running ? "Running" : "Stopped");
+        out_kv_num("Sample rate", g_shell_config.sample_rate, "Hz");
+        out_kv_num("Buffers processed", g_kernel_state.audio_buffer_count);
+        out_kv_num("Drops", g_kernel_state.audio_drop_count);
+
+        uint32_t dsp_load = g_kernel_state.dsp_load_percent_x100 / 100;
+        out_str("  DSP load: "); out_num(dsp_load); out_str("%\n");
+        out_kv_num("Output gain", g_shell_config.audio_gain, "%");
+        return output_buffer;
+    }
+
+    const char* cmd_show_midi() {
+        out_clear();
+        out_str("MIDI Status\n");
+        out_str("===========\n");
+        out_kv_num("Channel", g_shell_config.midi_channel);
+        out_str("  Transpose: "); out_num_signed(g_shell_config.midi_transpose); out_line();
+        out_kv_num("RX count", g_kernel_state.midi_rx_count);
+        out_kv_num("TX count", g_kernel_state.midi_tx_count);
+        out_kv("Monitor", g_shell_config.midi_monitor_enabled ? "ON" : "OFF");
+        return output_buffer;
+    }
+
+    const char* cmd_show_battery() {
+        out_clear();
+        out_str("Battery Status\n");
+        out_str("==============\n");
+        out_str("  Voltage: ");
+        out_num(g_kernel_state.battery_voltage_mv / 1000); out_str(".");
+        out_num2((g_kernel_state.battery_voltage_mv % 1000) / 10); out_str(" V\n");
+        out_kv_num("Capacity", g_kernel_state.battery_percent, "%");
+        out_kv("State", g_kernel_state.battery_charging ? "Charging" : "Discharging");
+        // Simulated values
+        out_kv("Health", "Good (simulated)");
+        out_kv("Temperature", "25C (simulated)");
+        return output_buffer;
+    }
+
+    const char* cmd_show_power() {
+        out_clear();
+        out_str("Power Management\n");
+        out_str("================\n");
+        out_kv("Mode", "Normal");
+        out_str("  Sleep timeout: ");
+        if (g_shell_config.sleep_timeout_min > 0) {
+            out_num(g_shell_config.sleep_timeout_min); out_str(" min\n");
+        } else {
+            out_str("Disabled\n");
+        }
+        out_kv_num("Low battery threshold", g_shell_config.low_battery_threshold, "%");
+        out_kv_num("Shutdown threshold", g_shell_config.shutdown_threshold, "%");
+        out_kv("USB", g_kernel_state.usb_connected ? "Connected" : "Disconnected");
+        return output_buffer;
+    }
+
+    const char* cmd_show_config() {
+        out_clear();
+        out_str("Current Configuration\n");
+        out_str("=====================\n");
+        out_str("MIDI:\n");
+        out_kv_num("  Channel", g_shell_config.midi_channel);
+        out_str("  Transpose: "); out_num_signed(g_shell_config.midi_transpose); out_line();
+        out_str("Audio:\n");
+        out_kv_num("  Gain", g_shell_config.audio_gain, "%");
+        out_kv_num("  Sample rate", g_shell_config.sample_rate, "Hz");
+        out_str("Power:\n");
+        out_kv_num("  Sleep timeout", g_shell_config.sleep_timeout_min, "min");
+        out_kv_num("  Low battery", g_shell_config.low_battery_threshold, "%");
+        out_str("Logging:\n");
+        out_kv_num("  Level", g_kernel_state.log_level);
+        return output_buffer;
+    }
+
+    const char* cmd_show_usb() {
+        out_clear();
+        out_str("USB Status\n");
+        out_str("==========\n");
+        out_kv("State", g_kernel_state.usb_connected ? "Connected" : "Disconnected");
+        out_kv("Mode", "Device");
+        if (g_kernel_state.usb_connected) {
+            out_kv("Speed", "Full Speed (12 Mbps)");
+            out_kv("Class", "Audio/MIDI Composite");
+        }
+        out_str("Endpoints:\n");
+        out_str("  MIDI IN:  Enabled\n");
+        out_str("  MIDI OUT: Enabled\n");
+        out_str("  Audio IN: Disabled (simulated)\n");
+        out_str("  Audio OUT: Enabled\n");
+        return output_buffer;
+    }
+
+    const char* cmd_show_errors() {
+        out_clear();
+        out_str("Error Log\n");
+        out_str("=========\n");
+        size_t count = g_error_log.count();
+        if (count == 0) {
+            out_str("No errors recorded.\n");
+            return output_buffer;
+        }
+        out_str("Last "); out_num(static_cast<uint32_t>(count)); out_str(" entries:\n\n");
+        for (size_t idx = 0; idx < count; ++idx) {
+            const ErrorLogEntry& entry = g_error_log.get(idx);
+            // Time in seconds
+            auto secs = static_cast<uint32_t>(entry.timestamp_us / 1000000);
+            out_str("["); out_num(secs); out_str("s] ");
+            // Severity
+            switch (entry.severity) {
+                case 0: out_str("[INFO] "); break;
+                case 1: out_str("[WARN] "); break;
+                case 2: out_str("[ERR]  "); break;
+                case 3: out_str("[CRIT] "); break;
+                default: out_str("[???]  "); break;
+            }
+            out_str(entry.message);
+            out_line();
+        }
+        return output_buffer;
+    }
+
+    const char* cmd_show_mode() {
+        out_clear();
+        out_str("System Mode\n");
+        out_str("===========\n");
+        out_str("  Current: ");
+        switch (g_system_mode) {
+            case SystemMode::NORMAL: out_str("NORMAL"); break;
+            case SystemMode::DFU: out_str("DFU (Firmware Update)"); break;
+            case SystemMode::BOOTLOADER: out_str("BOOTLOADER"); break;
+            case SystemMode::SAFE: out_str("SAFE MODE"); break;
+        }
+        out_line();
+        out_str("\nAvailable modes:\n");
+        out_str("  normal     - Normal operation\n");
+        out_str("  dfu        - Device Firmware Update\n");
+        out_str("  bootloader - Bootloader mode\n");
+        out_str("  safe       - Safe mode (minimal)\n");
+        return output_buffer;
+    }
+
+    const char* cmd_show(const char* args) {
+        args = skip_ws(args);
+        if (starts_with(args, "system")) return cmd_show_system();
+        if (starts_with(args, "cpu")) return cmd_show_cpu();
+        if (starts_with(args, "memory") || starts_with(args, "mem")) return cmd_show_memory();
+        if (starts_with(args, "tasks")) return cmd_show_tasks();
+        if (starts_with(args, "audio")) return cmd_show_audio();
+        if (starts_with(args, "midi")) return cmd_show_midi();
+        if (starts_with(args, "battery") || starts_with(args, "bat")) return cmd_show_battery();
+        if (starts_with(args, "power")) return cmd_show_power();
+        if (starts_with(args, "config")) return cmd_show_config();
+        if (starts_with(args, "usb")) return cmd_show_usb();
+        if (starts_with(args, "errors") || starts_with(args, "err")) return cmd_show_errors();
+        if (starts_with(args, "mode")) return cmd_show_mode();
+        return "Usage: show <system|cpu|memory|tasks|audio|midi|battery|power|config|usb|errors|mode>";
+    }
+
+    // ========== Config Commands ==========
+
+    const char* cmd_config(const char* args) {
+        if (auth.level < AccessLevel::ADMIN) {
+            return "ERROR: ADMIN access required";
+        }
+
+        args = skip_ws(args);
+
+        // config midi channel <1-16>
+        if (starts_with(args, "midi channel ")) {
+            args += 13;
+            bool ok;
+            int32_t ch = parse_int(args, &ok);
+            if (ok && ch >= 1 && ch <= 16) {
+                g_shell_config.midi_channel = static_cast<uint8_t>(ch);
+                out_clear();
+                out_str("MIDI channel set to "); out_num(ch);
+                return output_buffer;
+            }
+            return "ERROR: Channel must be 1-16";
+        }
+
+        // config midi transpose <-24..24>
+        if (starts_with(args, "midi transpose ")) {
+            args += 15;
+            bool ok;
+            int32_t tr = parse_int(args, &ok);
+            if (ok && tr >= -24 && tr <= 24) {
+                g_shell_config.midi_transpose = static_cast<int8_t>(tr);
+                out_clear();
+                out_str("Transpose set to "); out_num_signed(tr);
+                return output_buffer;
+            }
+            return "ERROR: Transpose must be -24 to +24";
+        }
+
+        // config audio gain <0-100>
+        if (starts_with(args, "audio gain ")) {
+            args += 11;
+            bool ok;
+            int32_t gain = parse_int(args, &ok);
+            if (ok && gain >= 0 && gain <= 100) {
+                g_shell_config.audio_gain = static_cast<uint8_t>(gain);
+                out_clear();
+                out_str("Audio gain set to "); out_num(gain); out_str("%");
+                return output_buffer;
+            }
+            return "ERROR: Gain must be 0-100";
+        }
+
+        // config power sleep <minutes>
+        if (starts_with(args, "power sleep ")) {
+            args += 12;
+            bool ok;
+            int32_t mins = parse_int(args, &ok);
+            if (ok && mins >= 0 && mins <= 60) {
+                g_shell_config.sleep_timeout_min = static_cast<uint16_t>(mins);
+                out_clear();
+                if (mins > 0) {
+                    out_str("Sleep timeout set to "); out_num(mins); out_str(" min");
+                } else {
+                    out_str("Sleep timeout disabled");
+                }
+                return output_buffer;
+            }
+            return "ERROR: Sleep timeout must be 0-60 minutes";
+        }
+
+        // config power lowbat <percent>
+        if (starts_with(args, "power lowbat ")) {
+            args += 13;
+            bool ok;
+            int32_t pct = parse_int(args, &ok);
+            if (ok && pct >= 5 && pct <= 50) {
+                g_shell_config.low_battery_threshold = static_cast<uint8_t>(pct);
+                out_clear();
+                out_str("Low battery threshold set to "); out_num(pct); out_str("%");
+                return output_buffer;
+            }
+            return "ERROR: Threshold must be 5-50%";
+        }
+
+        // config log level <0-4>
+        if (starts_with(args, "log level ")) {
+            args += 10;
+            bool ok;
+            int32_t level = parse_int(args, &ok);
+            if (ok && level >= 0 && level <= 4) {
+                g_kernel_state.log_level = static_cast<uint8_t>(level);
+                out_clear();
+                out_str("Log level set to "); out_num(level);
+                return output_buffer;
+            }
+            return "ERROR: Level must be 0-4";
+        }
+
+        // config save
+        if (starts_with(args, "save")) {
+            return "Configuration saved (simulated)";
+        }
+
+        // config reset
+        if (starts_with(args, "reset")) {
+            g_shell_config = ShellConfig{};
+            return "Configuration reset to defaults";
+        }
+
+        return "Usage: config <midi|audio|power|log> <setting> <value>";
+    }
+
+    // ========== MIDI Commands ==========
+
+    const char* cmd_midi(const char* args) {
+        args = skip_ws(args);
+
+        if (starts_with(args, "status")) {
+            return cmd_show_midi();
+        }
+
+        if (starts_with(args, "monitor")) {
+            args += 7;
+            args = skip_ws(args);
+            if (starts_with(args, "on")) {
+                g_shell_config.midi_monitor_enabled = true;
+                return "MIDI monitor enabled";
+            }
+            if (starts_with(args, "off")) {
+                g_shell_config.midi_monitor_enabled = false;
+                return "MIDI monitor disabled";
+            }
+            // Toggle if no argument
+            g_shell_config.midi_monitor_enabled = !g_shell_config.midi_monitor_enabled;
+            return g_shell_config.midi_monitor_enabled ? "MIDI monitor enabled" : "MIDI monitor disabled";
+        }
+
+        if (starts_with(args, "panic")) {
+            // In real implementation, send all notes off
+            return "All notes off sent";
+        }
+
+        if (starts_with(args, "sysex")) {
+            if (auth.level < AccessLevel::ADMIN) {
+                return "ERROR: ADMIN access required";
+            }
+            args += 5;
+            args = skip_ws(args);
+            if (starts_with(args, "dump")) {
+                return "SysEx dump: (no data in simulator)";
+            }
+            return "Usage: midi sysex <dump>";
+        }
+
+        return "Usage: midi <status|monitor|panic|sysex>";
+    }
+
+    // ========== Diag Commands ==========
+
+    const char* cmd_diag(const char* args) {
+        if (auth.level < AccessLevel::ADMIN) {
+            return "ERROR: ADMIN access required";
+        }
+
+        args = skip_ws(args);
+
+        if (starts_with(args, "cpu")) {
+            return cmd_show_cpu();
+        }
+
+        if (starts_with(args, "memory") || starts_with(args, "mem")) {
+            return cmd_show_memory();
+        }
+
+        if (starts_with(args, "watchdog") || starts_with(args, "wdt")) {
+            args += (starts_with(args, "watchdog") ? 8 : 3);
+            args = skip_ws(args);
+
+            if (starts_with(args, "feed")) {
+                g_kernel_state.watchdog_last_feed_us = g_kernel_state.uptime_us;
+                return "Watchdog fed";
+            }
+            if (starts_with(args, "enable")) {
+                g_kernel_state.watchdog_enabled = true;
+                g_kernel_state.watchdog_timeout_ms = 5000;
+                g_kernel_state.watchdog_last_feed_us = g_kernel_state.uptime_us;
+                return "Watchdog enabled (5000ms timeout)";
+            }
+            if (starts_with(args, "disable")) {
+                g_kernel_state.watchdog_enabled = false;
+                return "Watchdog disabled";
+            }
+
+            // Show status
+            out_clear();
+            out_str("Watchdog Status\n");
+            out_str("===============\n");
+            out_kv("State", g_kernel_state.watchdog_enabled ? "Enabled" : "Disabled");
+            if (g_kernel_state.watchdog_enabled) {
+                out_kv_num("Timeout", g_kernel_state.watchdog_timeout_ms, "ms");
+                bool expired = false;
+                if (g_kernel_state.watchdog_last_feed_us > 0) {
+                    uint64_t elapsed_us = g_kernel_state.uptime_us - g_kernel_state.watchdog_last_feed_us;
+                    expired = (elapsed_us / 1000) > g_kernel_state.watchdog_timeout_ms;
+                }
+                out_kv("Expired", expired ? "YES!" : "No");
+            }
+            out_kv_num("Reset count", g_kernel_state.watchdog_reset_count);
+            return output_buffer;
+        }
+
+        if (starts_with(args, "reset")) {
+            args += 5;
+            args = skip_ws(args);
+            if (starts_with(args, "hard")) {
+                return "RESET_REQUESTED";  // Handled by caller
+            }
+            return "RESET_REQUESTED";  // Soft reset also triggers reload
+        }
+
+        if (starts_with(args, "bootloader")) {
+            out_clear();
+            out_str("Bootloader Info\n");
+            out_str("===============\n");
+            out_kv("Version", "1.0.0 (simulated)");
+            out_kv("Partition", "A");
+            out_kv("Boot count", "1");
+            return output_buffer;
+        }
+
+        if (starts_with(args, "dfu")) {
+            return "DFU mode not available in simulator";
+        }
+
+        return "Usage: diag <cpu|memory|watchdog|reset|bootloader|dfu>";
+    }
+
+    // ========== Factory Commands ==========
+
+    const char* cmd_factory(const char* args) {
+        if (auth.level < AccessLevel::FACTORY) {
+            return "ERROR: FACTORY access required";
+        }
+
+        args = skip_ws(args);
+
+        if (starts_with(args, "info")) {
+            out_clear();
+            out_str("Factory Information\n");
+            out_str("===================\n");
+            out_kv("Serial", g_shell_config.serial_number);
+            out_str("  Manufacture date: "); out_num(g_shell_config.manufacture_date); out_line();
+            out_kv("Locked", g_shell_config.factory_locked ? "Yes" : "No");
+            out_kv("Platform", "WASM Simulator");
+            return output_buffer;
+        }
+
+        if (starts_with(args, "serial")) {
+            if (g_shell_config.factory_locked) {
+                return "ERROR: Device is factory locked";
+            }
+            args += 6;
+            args = skip_ws(args);
+            if (starts_with(args, "set ")) {
+                args += 4;
+                args = skip_ws(args);
+                // Copy up to 19 characters
+                size_t i = 0;
+                while (*args && i < 19 && *args != ' ') {
+                    g_shell_config.serial_number[i++] = *args++;
+                }
+                g_shell_config.serial_number[i] = '\0';
+                out_clear();
+                out_str("Serial number set to: "); out_str(g_shell_config.serial_number);
+                return output_buffer;
+            }
+            if (starts_with(args, "clear")) {
+                strcpy(g_shell_config.serial_number, "UNSET");
+                return "Serial number cleared";
+            }
+            return "Usage: factory serial <set <sn>|clear>";
+        }
+
+        if (starts_with(args, "test")) {
+            if (g_shell_config.factory_locked) {
+                return "ERROR: Device is factory locked";
+            }
+            args += 4;
+            args = skip_ws(args);
+
+            out_clear();
+            out_str("Factory Test Results\n");
+            out_str("====================\n");
+
+            if (starts_with(args, "all") || starts_with(args, "adc")) {
+                out_str("[PASS] ADC test: Channels 0-7 OK\n");
+            }
+            if (starts_with(args, "all") || starts_with(args, "dac")) {
+                out_str("[PASS] DAC test: Output verified\n");
+            }
+            if (starts_with(args, "all") || starts_with(args, "button")) {
+                out_str("[PASS] Button test: All buttons OK\n");
+            }
+            if (starts_with(args, "all") || starts_with(args, "led")) {
+                out_str("[PASS] LED test: All LEDs OK\n");
+            }
+            if (starts_with(args, "all") || starts_with(args, "encoder")) {
+                out_str("[PASS] Encoder test: All encoders OK\n");
+            }
+            if (starts_with(args, "all") || starts_with(args, "display")) {
+                out_str("[PASS] Display test: Pattern OK\n");
+            }
+            if (starts_with(args, "all") || starts_with(args, "midi")) {
+                out_str("[PASS] MIDI test: Loopback OK\n");
+            }
+            if (starts_with(args, "all") || starts_with(args, "audio")) {
+                out_str("[PASS] Audio test: Loopback OK\n");
+            }
+            if (starts_with(args, "all") || starts_with(args, "flash")) {
+                out_str("[PASS] Flash test: R/W verified\n");
+            }
+            if (starts_with(args, "all") || starts_with(args, "sram")) {
+                out_str("[PASS] SRAM test: Pattern OK\n");
+            }
+            if (starts_with(args, "all") || starts_with(args, "battery") || starts_with(args, "bat")) {
+                out_str("[PASS] Battery test:\n");
+                out_str("  - Voltage reading: OK\n");
+                out_str("  - Charging detection: OK\n");
+                out_str("  - Temperature sensor: OK\n");
+            }
+            if (starts_with(args, "all") || starts_with(args, "charge")) {
+                out_str("[PASS] Charge circuit test: OK\n");
+            }
+
+            if (*args == '\0') {
+                return "Usage: factory test <all|adc|dac|button|led|encoder|display|midi|audio|flash|sram|battery|charge>";
+            }
+
+            out_str("\nAll tests passed (simulated)");
+            return output_buffer;
+        }
+
+        if (starts_with(args, "calibrate")) {
+            if (g_shell_config.factory_locked) {
+                return "ERROR: Device is factory locked";
+            }
+            args += 9;
+            args = skip_ws(args);
+            if (starts_with(args, "adc")) {
+                return "ADC calibration complete (simulated)";
+            }
+            if (starts_with(args, "dac")) {
+                return "DAC calibration complete (simulated)";
+            }
+            if (starts_with(args, "battery") || starts_with(args, "bat")) {
+                return "Battery calibration complete (simulated)";
+            }
+            if (starts_with(args, "save")) {
+                return "Calibration data saved (simulated)";
+            }
+            return "Usage: factory calibrate <adc|dac|battery|save>";
+        }
+
+        if (starts_with(args, "lock")) {
+            if (g_shell_config.factory_locked) {
+                return "Device is already locked";
+            }
+            g_shell_config.factory_locked = true;
+            return "WARNING: Device is now factory locked. This cannot be undone.";
+        }
+
+        return "Usage: factory <info|serial|test|calibrate|lock>";
+    }
+
+    // ========== Mode Command ==========
+
+    const char* cmd_mode(const char* args) {
+        args = skip_ws(args);
+
+        // Show current mode if no argument
+        if (*args == '\0') {
+            return cmd_show_mode();
+        }
+
+        // Mode changes require ADMIN
+        if (auth.level < AccessLevel::ADMIN) {
+            return "ERROR: ADMIN access required to change mode";
+        }
+
+        if (starts_with(args, "normal")) {
+            g_system_mode = SystemMode::NORMAL;
+            return "Mode set to NORMAL. System will continue normal operation.";
+        }
+        if (starts_with(args, "dfu")) {
+            g_system_mode = SystemMode::DFU;
+            out_clear();
+            out_str("Mode set to DFU.\n");
+            out_str("Device is ready for firmware update.\n");
+            out_str("In real hardware, USB would enumerate as DFU device.\n");
+            out_str("Use 'mode normal' to exit DFU mode.");
+            return output_buffer;
+        }
+        if (starts_with(args, "bootloader") || starts_with(args, "boot")) {
+            g_system_mode = SystemMode::BOOTLOADER;
+            out_clear();
+            out_str("Mode set to BOOTLOADER.\n");
+            out_str("In real hardware, system would reboot into bootloader.\n");
+            out_str("Use 'mode normal' to return to normal mode.");
+            return output_buffer;
+        }
+        if (starts_with(args, "safe")) {
+            g_system_mode = SystemMode::SAFE;
+            out_clear();
+            out_str("Mode set to SAFE.\n");
+            out_str("Running with minimal features.\n");
+            out_str("Use 'mode normal' to return to normal operation.");
+            return output_buffer;
+        }
+
+        return "Usage: mode [normal|dfu|bootloader|safe]";
+    }
+
+    // ========== Main Execute ==========
+
+    const char* execute(const char* cmd) {
+        // Update activity timestamp
+        auth.touch(g_kernel_state.uptime_us);
+        auth.check_timeout(g_kernel_state.uptime_us);
+
+        // Basic commands (no auth required)
+        if (strcmp(cmd, "help") == 0 || strcmp(cmd, "?") == 0) {
+            return cmd_help("");
+        }
+        if (starts_with(cmd, "help ")) {
+            return cmd_help(cmd + 5);
         }
         if (strcmp(cmd, "version") == 0) {
-            return "UMI-OS Simulator v1.0.0";
+            return cmd_version();
+        }
+        if (strcmp(cmd, "uptime") == 0) {
+            return cmd_uptime();
+        }
+        if (strcmp(cmd, "whoami") == 0) {
+            return cmd_whoami();
+        }
+        if (starts_with(cmd, "auth ")) {
+            return cmd_auth(cmd + 5);
+        }
+        if (strcmp(cmd, "logout") == 0) {
+            return cmd_logout();
+        }
+
+        // Show commands
+        if (starts_with(cmd, "show ")) {
+            return cmd_show(cmd + 5);
+        }
+
+        // Config commands (ADMIN+)
+        if (starts_with(cmd, "config ")) {
+            return cmd_config(cmd + 7);
+        }
+
+        // MIDI commands
+        if (starts_with(cmd, "midi ")) {
+            return cmd_midi(cmd + 5);
+        }
+        if (strcmp(cmd, "midi") == 0) {
+            return cmd_show_midi();
+        }
+
+        // Diag commands (ADMIN+)
+        if (starts_with(cmd, "diag ")) {
+            return cmd_diag(cmd + 5);
+        }
+
+        // Factory commands (FACTORY only)
+        if (starts_with(cmd, "factory ")) {
+            return cmd_factory(cmd + 8);
+        }
+
+        // Mode command
+        if (strcmp(cmd, "mode") == 0) {
+            return cmd_mode("");
+        }
+        if (starts_with(cmd, "mode ")) {
+            return cmd_mode(cmd + 5);
+        }
+
+        // Legacy commands for compatibility
+        if (strcmp(cmd, "status") == 0) {
+            return cmd_show_system();
         }
         if (strcmp(cmd, "reset") == 0) {
-            // Reset will be handled by caller since WebHwImpl not yet defined
-            return "RESET_REQUESTED";
+            if (auth.level >= AccessLevel::ADMIN) {
+                return "RESET_REQUESTED";
+            }
+            return "ERROR: ADMIN access required";
         }
         if (strncmp(cmd, "log ", 4) == 0) {
-            int level = cmd[4] - '0';
-            if (level >= 0 && level <= 4) {
-                g_kernel_state.log_level = level;
-                return "Log level set";
+            if (auth.level >= AccessLevel::ADMIN) {
+                out_clear();
+                out_str("config log level ");
+                out_str(cmd + 4);
+                return cmd_config(output_buffer + 7);
             }
-            return "Usage: log [0-4]";
+            return "ERROR: ADMIN access required";
         }
+        if (strcmp(cmd, "mem") == 0) {
+            return cmd_show_memory();
+        }
+        if (strcmp(cmd, "tasks") == 0) {
+            return cmd_show_tasks();
+        }
+        if (strcmp(cmd, "wdt") == 0) {
+            return cmd_diag("watchdog");
+        }
+
         return "Unknown command. Type 'help' for commands.";
     }
 };

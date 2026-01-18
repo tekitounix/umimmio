@@ -7,6 +7,69 @@
  */
 
 /**
+ * Parameter curve types (matches C++ ParamCurve enum)
+ */
+export const ParamCurve = {
+    Linear: 0,
+    Log: 1,
+    Exp: 2,
+};
+
+/**
+ * Apply curve: normalized (0-1) -> actual value
+ * @param {number} normalized - Value in 0-1 range
+ * @param {number} min - Minimum value
+ * @param {number} max - Maximum value
+ * @param {number} curve - Curve type
+ * @returns {number} Actual value
+ */
+function denormalize(normalized, min, max, curve) {
+    switch (curve) {
+        case ParamCurve.Log: {
+            // Log scale: exponential mapping for frequencies
+            const minLog = Math.max(min, 1);  // Avoid log(0)
+            const logMin = Math.log(minLog);
+            const logMax = Math.log(max);
+            const logVal = logMin + normalized * (logMax - logMin);
+            return Math.exp(logVal);
+        }
+        case ParamCurve.Exp: {
+            // Exponential: sqrt of normalized
+            const linear = normalized > 0 ? Math.sqrt(normalized) : 0;
+            return min + linear * (max - min);
+        }
+        default: // Linear
+            return min + normalized * (max - min);
+    }
+}
+
+/**
+ * Inverse curve: actual value -> normalized (0-1)
+ * @param {number} value - Actual value
+ * @param {number} min - Minimum value
+ * @param {number} max - Maximum value
+ * @param {number} curve - Curve type
+ * @returns {number} Normalized value (0-1)
+ */
+function normalize(value, min, max, curve) {
+    switch (curve) {
+        case ParamCurve.Log: {
+            const minLog = Math.max(min, 1);
+            const logMin = Math.log(minLog);
+            const logMax = Math.log(max);
+            const logVal = Math.log(Math.max(value, minLog));
+            return (logVal - logMin) / (logMax - logMin);
+        }
+        case ParamCurve.Exp: {
+            const linear = (value - min) / (max - min);
+            return linear * linear;
+        }
+        default: // Linear
+            return (value - min) / (max - min);
+    }
+}
+
+/**
  * Parameter control component with MIDI Learn
  */
 export class ParamControl {
@@ -55,7 +118,7 @@ export class ParamControl {
     }
 
     /**
-     * Get current parameter values
+     * Get current parameter values (actual values, not normalized)
      * @returns {Map<number, number>}
      */
     getValues() {
@@ -63,21 +126,26 @@ export class ParamControl {
         for (const p of this.params) {
             const slider = this.container.querySelector(`#param-${p.id}`);
             if (slider) {
-                values.set(p.id, parseFloat(slider.value));
+                const normalized = parseFloat(slider.value);
+                const curve = p.curve !== undefined ? p.curve : ParamCurve.Linear;
+                values.set(p.id, denormalize(normalized, p.min, p.max, curve));
             }
         }
         return values;
     }
 
     /**
-     * Set parameter value
+     * Set parameter value (actual value, will be normalized for slider)
      * @param {number} id - Parameter ID
-     * @param {number} value - Value
+     * @param {number} value - Actual value
      */
     setValue(id, value) {
+        const param = this.params.find(p => p.id === id);
         const slider = this.container.querySelector(`#param-${id}`);
-        if (slider) {
-            slider.value = value;
+        if (param && slider) {
+            const curve = param.curve !== undefined ? param.curve : ParamCurve.Linear;
+            const normalized = normalize(value, param.min, param.max, curve);
+            slider.value = normalized;
             this._updateValueDisplay(id, value);
         }
     }
@@ -169,9 +237,10 @@ export class ParamControl {
         if (paramId !== undefined) {
             const param = this.params.find(p => p.id === paramId);
             if (param) {
-                // Map 0-127 to param range
+                // Map 0-127 to normalized 0-1, then apply curve
                 const normalized = value / 127;
-                const paramValue = param.min + normalized * (param.max - param.min);
+                const curve = param.curve !== undefined ? param.curve : ParamCurve.Linear;
+                const paramValue = denormalize(normalized, param.min, param.max, curve);
                 this.setValue(paramId, paramValue);
 
                 if (this.onParamChange) {
@@ -226,37 +295,66 @@ export class ParamControl {
 
         for (const p of this.params) {
             const initialValue = p.default !== undefined ? p.default : p.min;
+            const curve = p.curve !== undefined ? p.curve : ParamCurve.Linear;
+
+            // Calculate initial normalized position (0-1)
+            const initialNormalized = normalize(initialValue, p.min, p.max, curve);
+
+            // Curve indicator badge
+            const curveName = curve === ParamCurve.Log ? 'log' :
+                              curve === ParamCurve.Exp ? 'exp' : 'lin';
 
             const div = document.createElement('div');
             div.className = 'param';
             div.dataset.paramId = p.id;
 
+            // Slider operates in 0-1 range; curve transformation happens on change
             div.innerHTML = `
                 <div class="param-label">
                     <span class="param-name">${p.name}</span>
+                    <span class="param-curve">${curveName}</span>
                     <span class="param-value" id="pval-${p.id}">${this._formatValue(p, initialValue)}</span>
                 </div>
                 <input type="range"
                        id="param-${p.id}"
-                       min="${p.min}"
-                       max="${p.max}"
-                       step="${(p.max - p.min) / 100}"
-                       value="${initialValue}">
+                       min="0"
+                       max="1"
+                       step="0.001"
+                       value="${initialNormalized}">
                 <div class="param-mapping" id="pmap-${p.id}"></div>
             `;
 
             this.container.appendChild(div);
             this.paramElements.set(p.id, div);
 
-            // Slider change handler
+            // Slider change handler - convert normalized to actual value
             const slider = div.querySelector('input');
             slider.addEventListener('input', () => {
-                const value = parseFloat(slider.value);
-                this._updateValueDisplay(p.id, value);
+                const normalized = parseFloat(slider.value);
+                const actualValue = denormalize(normalized, p.min, p.max, curve);
+                this._updateValueDisplay(p.id, actualValue);
                 if (this.onParamChange) {
-                    this.onParamChange(p.id, value);
+                    this.onParamChange(p.id, actualValue);
                 }
             });
+            // Remove focus after mouse release so keyboard can be used
+            slider.addEventListener('change', () => {
+                slider.blur();
+            });
+            // Wheel scroll to adjust value when hovering over slider
+            slider.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const step = e.shiftKey ? 0.1 : 0.02;  // Larger step with Shift
+                const delta = e.deltaY < 0 ? step : -step;
+                const current = parseFloat(slider.value);
+                const newVal = Math.max(0, Math.min(1, current + delta));
+                slider.value = newVal;
+                const actualValue = denormalize(newVal, p.min, p.max, curve);
+                this._updateValueDisplay(p.id, actualValue);
+                if (this.onParamChange) {
+                    this.onParamChange(p.id, actualValue);
+                }
+            }, { passive: false });
 
             // Click handler for MIDI learn
             div.addEventListener('click', (e) => {
