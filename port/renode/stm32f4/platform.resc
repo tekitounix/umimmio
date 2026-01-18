@@ -1,0 +1,22 @@
+# STM32F4 Platform Script for UMI-OS
+# Run with: renode port/renode/stm32f4/platform.resc
+
+using sysbus
+
+# Create machine
+mach create "stm32f4"
+
+# Load platform definition
+machine LoadPlatformDescription @port/renode/stm32f4/stm32f4.repl
+
+# Set up logging for UART2
+logLevel 0 usart2
+
+echo "STM32F4 UMI-OS Platform loaded"
+echo "Loading ELF..."
+
+# Load the ELF directly
+sysbus LoadELF @build/renode_test/release/renode_test.elf
+cpu VectorTableOffset 0x08000000
+
+echo "Ready. Use 'start' to begin execution"
