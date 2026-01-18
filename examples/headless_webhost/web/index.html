@@ -41,6 +41,7 @@
         .col-status .panel, .col-config .panel { margin-bottom: 0; }
 
         /* Category accent colors - semantic, not themed */
+        .category-system h2 { border-left: 3px solid #9b59b6; padding-left: 8px; }   /* purple - unified system panel */
         .category-kernel h2 { border-left: 3px solid #9b59b6; padding-left: 8px; }   /* purple */
         .category-mcu h2 { border-left: 3px solid #3498db; padding-left: 8px; }      /* blue */
         .category-audio h2 { border-left: 3px solid #27ae60; padding-left: 8px; }    /* green */
@@ -50,54 +51,300 @@
         .category-debug h2 { border-left: 3px solid #1abc9c; padding-left: 8px; }    /* teal */
         .category-info h2 { border-left: 3px solid #95a5a6; padding-left: 8px; }     /* gray */
 
+        /* System panel collapsible sections */
+        .system-section {
+            border-top: 1px solid var(--umi-border, #1a1a2e);
+            margin-top: 6px;
+            padding-top: 6px;
+        }
+        .system-section:first-of-type {
+            border-top: none;
+            margin-top: 2px;
+            padding-top: 0;
+        }
+        .system-section > summary {
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--umi-text-primary, #fff);
+            padding: 4px 8px;
+            margin: 0 -8px;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--umi-bg-secondary, #1a1a2e);
+            border-radius: 3px;
+        }
+        .system-section > summary::-webkit-details-marker { display: none; }
+        .system-section > summary::after {
+            content: '▾';
+            font-size: 10px;
+            color: var(--umi-text-secondary, #888);
+            transition: transform 0.15s;
+        }
+        .system-section:not([open]) > summary::after {
+            transform: rotate(-90deg);
+        }
+        .system-section > summary:hover {
+            background: var(--umi-bg-tertiary, #252538);
+        }
+        .section-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .section-icon {
+            display: inline-flex;
+            align-items: center;
+            font-size: 10px;
+        }
+        /* Section accent colors */
+        .system-section.sec-kernel > summary { border-left: 2px solid #9b59b6; }
+        .system-section.sec-memory > summary { border-left: 2px solid #3498db; }
+        .system-section.sec-audio > summary { border-left: 2px solid #27ae60; }
+        .system-section.sec-power > summary { border-left: 2px solid #f1c40f; }
+        .system-section.sec-processor > summary { border-left: 2px solid #95a5a6; }
+        .section-content {
+            padding: 8px 0 2px 0;
+        }
+
         /* Control buttons */
         .control-buttons { display: flex; gap: 8px; margin-bottom: 8px; }
         .control-buttons button { flex: 1; }
 
-        /* Auto performance */
-        .auto-perf-controls { display: flex; gap: 8px; align-items: center; }
-        .auto-perf-controls select { flex: 1; background: var(--umi-bg-primary, #0a0a15); border: 1px solid var(--umi-border, #1a1a2e); border-radius: 4px; color: var(--umi-accent, #4ecca3); padding: 6px; font-size: 11px; }
+        /* Step Sequencer */
+        .seq-controls {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .seq-controls input[type="number"] {
+            width: 50px;
+            background: var(--umi-bg-primary, #0a0a15);
+            border: 1px solid var(--umi-border, #1a1a2e);
+            border-radius: 3px;
+            color: var(--umi-accent, #4ecca3);
+            padding: 4px;
+            font-size: 11px;
+            text-align: center;
+        }
+        .seq-tempo-label {
+            font-size: 10px;
+            color: var(--umi-text-secondary, #888);
+        }
+        .seq-grid {
+            display: flex;
+            gap: 2px;
+            padding: 8px 0 4px 0;
+            align-items: flex-end;
+            height: 50px;
+        }
+        .seq-step {
+            flex: 1;
+            min-width: 0;
+            height: 32px;
+            background: var(--umi-bg-secondary, #1a1a2e);
+            border: 1px solid var(--umi-border, #252538);
+            border-radius: 2px;
+            cursor: pointer;
+            position: relative;
+            transition: background 0.1s, transform 0.1s;
+            transform: translateY(var(--pitch-offset, 0));
+            user-select: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            overflow: hidden;
+        }
+        .seq-step:hover {
+            border-color: var(--umi-accent, #4ecca3);
+        }
+        .seq-step.active {
+            background: var(--umi-accent, #4ecca3);
+            border-color: var(--umi-accent, #4ecca3);
+        }
+        .seq-step.playing {
+            box-shadow: 0 0 6px var(--umi-accent, #4ecca3);
+        }
+        .seq-step.beat-marker {
+            border-left: 2px solid var(--umi-text-secondary, #666);
+        }
+        .seq-note-label {
+            position: absolute;
+            top: 1px;
+            left: 0;
+            right: 0;
+            font-size: 7px;
+            text-align: center;
+            color: var(--umi-bg-primary, #0a0a15);
+            font-weight: 600;
+            pointer-events: none;
+        }
+        .seq-gate-bar {
+            height: 3px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 0 0 1px 1px;
+            transition: width 0.1s;
+        }
+        .seq-options {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            font-size: 10px;
+            color: var(--umi-text-secondary, #888);
+            margin-top: 4px;
+        }
+        .seq-options select {
+            background: var(--umi-bg-primary, #0a0a15);
+            border: 1px solid var(--umi-border, #1a1a2e);
+            border-radius: 3px;
+            color: var(--umi-text-primary, #fff);
+            padding: 2px 4px;
+            font-size: 10px;
+        }
+        .seq-options label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
 
-        /* Backend selection bar */
-        .backend-bar {
+        /* Simulator control - compact single row */
+        .sim-control { padding: 8px 12px !important; }
+        .sim-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .sim-row .app-select {
+            background: var(--umi-bg-primary, #0a0a15);
+            border: 1px solid var(--umi-border-light, #2a2a4e);
+            border-radius: 4px;
+            color: var(--umi-accent, #4ecca3);
+            font-size: 11px;
+            padding: 5px 8px;
+            min-width: 140px;
+        }
+        .sim-row button { padding: 5px 12px; font-size: 11px; }
+        .sim-row button.small { padding: 5px 8px; }
+        .sim-row .status {
+            font-size: 10px;
+            padding: 3px 8px;
+            margin: 0;
+        }
+        .sim-row .theme-toggle {
+            padding: 4px 8px;
+            font-size: 12px;
+            margin-left: auto;
+        }
+
+        /* I/O Bars - collapsible Audio/MIDI */
+        .io-bar {
             display: flex;
             align-items: center;
             gap: 12px;
             background: var(--umi-bg-tertiary, #16213e);
-            border-radius: 8px;
-            padding: 10px 16px;
-            margin-bottom: 16px;
-        }
-        .backend-label { color: var(--umi-text-muted, #888); font-size: 12px; font-weight: 500; }
-        .backend-buttons { display: flex; gap: 8px; }
-        .backend-btn {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            background: var(--umi-bg-primary, #0a0a15);
-            border: 2px solid var(--umi-border-light, #2a2a4e);
             border-radius: 6px;
-            padding: 8px 16px;
-            cursor: pointer;
-            transition: all 0.2s;
-            min-width: 80px;
-        }
-        .backend-btn:hover:not(:disabled) { border-color: var(--umi-accent, #4ecca3); }
-        .backend-btn.active { background: var(--umi-accent-dark, #1a3a2e); border-color: var(--umi-accent, #4ecca3); }
-        .backend-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        .backend-btn .backend-icon { font-size: 18px; margin-bottom: 2px; }
-        .backend-btn .backend-name { color: var(--umi-accent, #4ecca3); font-size: 11px; font-weight: 600; }
-        .backend-btn .backend-desc { color: var(--umi-text-disabled, #666); font-size: 9px; }
-        .backend-status {
-            margin-left: auto;
+            padding: 6px 12px;
+            margin-bottom: 8px;
             font-size: 11px;
-            color: var(--umi-text-muted, #888);
-            padding: 4px 10px;
-            background: var(--umi-bg-primary, #0a0a15);
-            border-radius: 10px;
         }
-        .backend-status.connected { color: var(--umi-success, #4ecca3); }
-        .backend-status.error { color: var(--umi-error, #e74c3c); }
+        .io-bar.collapsed .io-bar-content { display: none; }
+        .io-bar.collapsed { padding: 6px 12px; }
+        .io-bar-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            user-select: none;
+            flex-shrink: 0;
+        }
+        .io-bar-header:hover { color: var(--umi-accent, #4ecca3); }
+        .io-bar-title {
+            font-weight: 600;
+            color: var(--umi-accent, #4ecca3);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .io-bar-title .indicator { width: 6px; height: 6px; }
+        .io-collapse-icon {
+            font-size: 8px;
+            color: var(--umi-text-muted, #888);
+            transition: transform 0.2s;
+        }
+        .io-bar.collapsed .io-collapse-icon { transform: rotate(-90deg); }
+        .io-status-inline {
+            font-size: 9px;
+            color: var(--umi-text-muted, #888);
+            margin-left: 8px;
+            font-family: monospace;
+        }
+        .io-status-inline span {
+            display: inline-block;
+            min-width: 4ch;
+            text-align: right;
+        }
+        .io-bar-content {
+            display: flex;
+            gap: 16px;
+            flex: 1;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .io-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .io-item label {
+            font-size: 10px;
+            color: var(--umi-text-muted, #888);
+            flex-shrink: 0;
+        }
+        .io-item select {
+            font-size: 10px;
+            padding: 3px 6px;
+            min-width: 100px;
+        }
+        .midi-activity-inline {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--umi-text-disabled, #444);
+            transition: background 0.1s;
+        }
+        .midi-activity-inline.active { background: var(--umi-success, #4ecca3); }
+        /* MIDI device list in I/O bar */
+        .io-bar .midi-device-list {
+            max-height: 50px;
+            min-width: 120px;
+            font-size: 9px;
+        }
+        .io-bar .midi-device-item { padding: 2px 4px; }
+        /* MIDI Thru in I/O bar */
+        .io-bar .midi-thru-options {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+        }
+        .io-bar .midi-thru-options label {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+        .io-bar .midi-thru-options select {
+            min-width: 50px;
+            padding: 2px 4px;
+        }
+
+        @media (max-width: 900px) {
+            .io-bar { flex-wrap: wrap; }
+            .io-bar-content { width: 100%; margin-top: 6px; }
+        }
 
         /* Theme toggle */
         .theme-toggle {
@@ -114,37 +361,6 @@
             background: var(--umi-bg-hover, rgba(255,255,255,0.05));
         }
         .theme-icon { font-size: 16px; }
-
-        /* Application selection */
-        .app-select-wrapper {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-left: 16px;
-            padding-left: 16px;
-            border-left: 1px solid var(--umi-border-light, #2a2a4e);
-        }
-        .app-select {
-            background: var(--umi-bg-primary, #0a0a15);
-            border: 1px solid var(--umi-border-light, #2a2a4e);
-            border-radius: 4px;
-            color: var(--umi-accent, #4ecca3);
-            font-size: 12px;
-            padding: 6px 10px;
-            min-width: 180px;
-            cursor: pointer;
-        }
-        .app-select:hover { border-color: var(--umi-accent, #4ecca3); }
-        .app-select:focus { outline: none; border-color: var(--umi-accent, #4ecca3); }
-        .app-select option { background: var(--umi-bg-primary, #0a0a15); color: var(--umi-text-primary, #eee); }
-        .app-info {
-            font-size: 10px;
-            color: var(--umi-text-disabled, #666);
-            max-width: 150px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
 
         .panel {
             background: var(--umi-bg-tertiary, #16213e);
@@ -170,6 +386,18 @@
         .panel h2 .indicator.active { background: var(--umi-success, #4ecca3); }
         .panel h2 .indicator.warning { background: var(--umi-warning, #f39c12); }
         .panel h2 .indicator.error { background: var(--umi-error, #e74c3c); }
+        /* Small inline indicator for status rows */
+        .indicator.small {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: var(--umi-text-disabled, #444);
+            display: inline-block;
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+        .indicator.small.active { background: var(--umi-success, #4ecca3); }
+        .indicator.small.warning { background: var(--umi-warning, #f39c12); }
+        .indicator.small.error { background: var(--umi-error, #e74c3c); }
 
         button {
             background: var(--umi-accent, #4ecca3);
@@ -210,11 +438,14 @@
         .waveform canvas { width: 100%; height: 100%; }
 
         /* Parameters */
-        .param-grid {
+        .param-grid,
+        .umi-param-control {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 12px;
         }
+        .midi-learn-mode .param { cursor: pointer; }
+        .midi-learn-mode .param:hover { outline: 1px solid var(--umi-accent, #4ecca3); }
         .param {
             background: var(--umi-bg-hover, #0f1a30);
             border-radius: 6px;
@@ -227,7 +458,18 @@
             font-size: 12px;
         }
         .param-name { color: var(--umi-accent, #4ecca3); font-weight: 500; }
-        .param-value { color: var(--umi-text-muted, #888); font-family: monospace; }
+        .param-curve {
+            font-size: 9px;
+            font-weight: 500;
+            padding: 1px 4px;
+            border-radius: 3px;
+            background: var(--umi-bg-secondary, #1a1a2e);
+            color: var(--umi-text-muted, #888);
+            margin-left: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .param-value { color: var(--umi-text-muted, #888); font-family: monospace; margin-left: auto; }
         .param input[type="range"] {
             width: 100%;
             height: 6px;
@@ -280,6 +522,68 @@
         .load-bar-fill.warning { background: var(--umi-warning, #f39c12); }
         .load-bar-fill.critical { background: var(--umi-error, #e74c3c); }
 
+        /* Memory usage bar (案4: Heap | Free | Stack in one bar) */
+        .mem-usage-bar {
+            display: flex;
+            height: 12px;
+            background: var(--umi-bg-primary, #0a0a15);
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 8px 0;
+        }
+        .mem-usage-heap {
+            background: #3498db;
+            transition: flex 0.2s;
+        }
+        .mem-usage-free {
+            background: transparent;
+            transition: flex 0.2s;
+        }
+        .mem-usage-stack {
+            background: #e67e22;
+            transition: flex 0.2s;
+        }
+        .mem-usage-summary {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 10px;
+            color: var(--umi-text-muted, #888);
+        }
+        .mem-usage-label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .mem-usage-label span {
+            color: var(--umi-accent, #4ecca3);
+            font-family: monospace;
+        }
+        .mem-usage-free-label {
+            flex: 1;
+            text-align: center;
+            color: var(--umi-text-muted, #888);
+            font-family: monospace;
+            font-size: 11px;
+        }
+        .mem-status-badge {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+            background: var(--umi-success, #27ae60);
+            color: #fff;
+        }
+        .mem-status-badge.warning {
+            background: var(--umi-warning, #f39c12);
+            color: #000;
+        }
+        .mem-status-badge.critical {
+            background: var(--umi-error, #e74c3c);
+            color: #fff;
+        }
+
         /* Two-column status */
         .status-2col {
             display: grid;
@@ -293,17 +597,6 @@
         /* Info */
         .info { font-size: 12px; color: var(--umi-text-muted, #888); }
         .info code { background: var(--umi-bg-primary, #0a0a15); padding: 2px 6px; border-radius: 3px; color: var(--umi-accent, #4ecca3); }
-
-        /* Keybindings */
-        .keybindings { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-        .keybind {
-            background: var(--umi-bg-primary, #0a0a15);
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-        }
-        .keybind kbd { color: var(--umi-accent, #4ecca3); font-weight: bold; margin-right: 4px; }
-        .keybind .note { color: var(--umi-text-disabled, #666); }
 
         /* HW Settings */
         .hw-settings {
@@ -417,6 +710,25 @@
         #memMainStack { background: #e74c3c; }
         #memDma { background: #27ae60; }
         #memShared { background: #f1c40f; color: #333; text-shadow: none; }
+        .mem-region-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 10px;
+            font-size: 9px;
+            color: var(--umi-text-muted, #888);
+            margin-bottom: 4px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+        .legend-color {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+        }
         .mem-map-legend {
             display: flex;
             justify-content: space-between;
@@ -441,16 +753,19 @@
             color: #fff;
         }
         .warn-icon { font-size: 14px; }
-        .mem-details {
+        .mem-details,
+        .kernel-details {
             margin-top: 8px;
             font-size: 11px;
         }
-        .mem-details summary {
+        .mem-details summary,
+        .kernel-details summary {
             cursor: pointer;
             color: var(--umi-accent, #4ecca3);
             font-size: 10px;
         }
-        .mem-details[open] summary { margin-bottom: 6px; }
+        .mem-details[open] summary,
+        .kernel-details[open] summary { margin-bottom: 6px; }
         .status-grid.compact .status-row { padding: 2px 0; }
 
         /* MIDI */
@@ -743,62 +1058,88 @@
         <h1>UMI-OS Synth Simulator</h1>
         <p class="subtitle">Embedded synthesizer running in browser via WebAssembly + AudioWorklet</p>
 
-        <!-- Backend Selection Bar -->
-        <div class="backend-bar" id="backendBar">
-            <span class="backend-label">Backend:</span>
-            <div class="backend-buttons">
-                <button class="backend-btn active" data-backend="umios" id="backendUmios">
-                    <span class="backend-icon">⚡</span>
-                    <span class="backend-name">UMI-OS</span>
-                    <span class="backend-desc">Kernel Sim</span>
-                </button>
-                <button class="backend-btn" data-backend="umim" id="backendUmim" title="DSP only (lightweight)">
-                    <span class="backend-icon">🎵</span>
-                    <span class="backend-name">UMIM</span>
-                    <span class="backend-desc">DSP Only</span>
-                </button>
-                <button class="backend-btn" data-backend="renode" id="backendRenode">
-                    <span class="backend-icon">🔬</span>
-                    <span class="backend-name">Renode</span>
-                    <span class="backend-desc">HW Accurate</span>
-                </button>
+        <!-- Audio I/O Bar -->
+        <div class="io-bar" id="audioIOBar">
+            <div class="io-bar-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="io-bar-title">
+                    <span class="indicator" id="audioIOIndicator"></span>
+                    Audio
+                </span>
+                <span class="io-collapse-icon">&#9660;</span>
             </div>
-            <div class="app-select-wrapper">
-                <span class="backend-label">App:</span>
-                <select class="app-select" id="appSelect">
-                    <option value="">Loading...</option>
-                </select>
-                <span class="app-info" id="appInfo"></span>
+            <div class="io-bar-content">
+                <div class="io-item">
+                    <label>Output</label>
+                    <select class="audio-device-select" id="audioOutputSelect" disabled>
+                        <option value="">-- Default --</option>
+                    </select>
+                </div>
+                <div class="io-item">
+                    <label>Input</label>
+                    <select class="audio-device-select" id="audioInputSelect" disabled>
+                        <option value="">-- None --</option>
+                    </select>
+                </div>
             </div>
-            <span class="backend-status" id="backendStatus">Ready</span>
+        </div>
 
-            <!-- Theme Toggle -->
-            <button class="theme-toggle" id="themeToggle" title="Toggle theme">
-                <span class="theme-icon">🌙</span>
-            </button>
+        <!-- MIDI I/O Bar -->
+        <div class="io-bar" id="midiIOBar">
+            <div class="io-bar-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <span class="io-bar-title">
+                    <span class="indicator" id="midiIOIndicator"></span>
+                    MIDI
+                    <span class="midi-activity-inline" id="midiRxActivityIO" title="RX"></span>
+                    <span class="midi-activity-inline" id="midiTxActivityIO" title="TX"></span>
+                </span>
+                <span class="io-collapse-icon">&#9660;</span>
+                <span class="io-status-inline">
+                    RX: <span id="midiRxIO">0</span> / TX: <span id="midiTxIO">0</span>
+                </span>
+            </div>
+            <div class="io-bar-content">
+                <div class="io-item">
+                    <label>Inputs</label>
+                    <div class="midi-device-list disabled" id="midiInputList">
+                        <div class="midi-device-empty">No MIDI devices</div>
+                    </div>
+                </div>
+                <div class="io-item">
+                    <label>Outputs</label>
+                    <div class="midi-device-list disabled" id="midiOutputList">
+                        <div class="midi-device-empty">No MIDI devices</div>
+                    </div>
+                </div>
+                <div class="io-item">
+                    <label>Thru</label>
+                    <div class="midi-thru-options">
+                        <label><input type="checkbox" id="midiThruEnabled"> On</label>
+                        <select id="midiThruChannel">
+                            <option value="0">All</option>
+                            <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+                            <option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option>
+                            <option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option>
+                            <option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="main-grid three-col">
             <!-- ================ LEFT COLUMN: Synth Interface ================ -->
             <div class="col-synth">
                 <!-- Simulator Control -->
-                <div class="panel" id="simControlPanel">
-                    <h2>Simulator Control</h2>
-                    <div class="control-buttons">
-                        <button id="startBtn" disabled>Start Audio</button>
+                <div class="panel compact sim-control" id="simControlPanel">
+                    <div class="sim-row">
+                        <select class="app-select" id="appSelect">
+                            <option value="">Loading...</option>
+                        </select>
+                        <button id="startBtn" disabled>Start</button>
                         <button id="stopBtn" class="stop" disabled>Stop</button>
-                        <button id="resetBtn" class="secondary" disabled>Reset</button>
-                    </div>
-                    <span id="status" class="status loading">Loading...</span>
-                    <div class="status-2col" style="margin-top: 8px;">
-                        <div class="status-row">
-                            <span class="status-label">Processor</span>
-                            <span class="status-value" id="procName">--</span>
-                        </div>
-                        <div class="status-row">
-                            <span class="status-label">Version</span>
-                            <span class="status-value" id="procVersion">--</span>
-                        </div>
+                        <button id="resetBtn" class="secondary small" disabled>Reset</button>
+                        <span id="status" class="status loading">Loading...</span>
+                        <button class="theme-toggle" id="themeToggle" title="Toggle theme">🌙</button>
                     </div>
                 </div>
 
@@ -810,7 +1151,10 @@
 
                 <!-- Parameters -->
                 <div class="panel">
-                    <h2>Synth Parameters</h2>
+                    <h2>Synth Parameters
+                        <button class="midi-learn-btn small" id="midiLearnBtn" style="margin-left:auto;">MIDI Learn</button>
+                    </h2>
+                    <div class="midi-learn-status" id="midiLearnStatus"></div>
                     <div class="param-grid" id="paramGrid">
                         <div class="info">Start audio to load parameters...</div>
                     </div>
@@ -818,211 +1162,228 @@
 
                 <!-- Keyboard -->
                 <div class="panel">
-                    <h2>Virtual Keyboard</h2>
-                    <p class="info">Click keys or use computer keyboard (A-L, W-P)</p>
+                    <h2>Keyboard</h2>
                     <div id="keyboard"></div>
-                    <div class="keybindings" id="keybindings"></div>
                 </div>
 
-                <!-- Auto Performance (Demo) -->
+                <!-- Step Sequencer -->
                 <div class="panel compact">
-                    <h2>Auto Performance</h2>
-                    <div class="auto-perf-controls">
-                        <button id="autoPlayBtn" class="secondary">Play Demo</button>
-                        <button id="autoStopBtn" class="stop small" disabled>Stop</button>
-                        <select id="autoPatternSelect">
-                            <option value="arpeggio">Arpeggio</option>
-                            <option value="chord">Chord Progression</option>
-                            <option value="random">Random Notes</option>
-                            <option value="scale">Scale Run</option>
-                        </select>
+                    <h2>Sequencer</h2>
+                    <div class="seq-controls">
+                        <button id="seqPlayBtn" class="secondary">Play</button>
+                        <button id="seqStopBtn" class="stop small" disabled>Stop</button>
+                        <input type="number" id="seqTempo" value="120" min="40" max="300" title="BPM">
+                        <span class="seq-tempo-label">BPM</span>
                     </div>
-                    <div class="hw-settings" style="margin-top: 8px;">
-                        <div class="hw-setting">
-                            <label>Tempo (BPM)</label>
-                            <input type="number" id="autoTempo" value="120" min="40" max="300">
-                        </div>
-                        <div class="hw-setting">
-                            <label>Base Note</label>
-                            <input type="number" id="autoBaseNote" value="48" min="24" max="96">
-                        </div>
+                    <div class="seq-grid" id="seqGrid"></div>
+                    <div class="seq-options">
+                        <label><input type="checkbox" id="seqLoop" checked> Loop</label>
+                        <select id="seqSteps">
+                            <option value="8">8 steps</option>
+                            <option value="16" selected>16 steps</option>
+                        </select>
+                        <button id="seqClear" class="small">Clear</button>
                     </div>
                 </div>
             </div>
 
             <!-- ================ CENTER COLUMN: Status & Monitoring ================ -->
             <div class="col-status">
-                <!-- UMI-OS Kernel -->
-                <div class="panel compact category-kernel">
-                    <h2><span class="indicator" id="kernelIndicator"></span>UMI-OS Kernel</h2>
-                    <div class="status-grid">
-                        <div class="status-row">
-                            <span class="status-label">Uptime</span>
-                            <span class="status-value" id="uptime">--</span>
-                        </div>
-                        <div class="status-row">
-                            <span class="status-label">RTC</span>
-                            <span class="status-value" id="rtcTime">--</span>
-                        </div>
-                        <div class="status-row">
-                            <span class="status-label">Tasks</span>
-                            <span class="status-value" id="taskInfo">--</span>
-                        </div>
-                        <div class="status-row">
-                            <span class="status-label">Context Switches</span>
-                            <span class="status-value" id="ctxSwitches">--</span>
-                        </div>
-                    </div>
-                </div>
+                <!-- System Info Panel (Kernel, Memory, Audio unified) -->
+                <div class="panel compact category-system">
+                    <h2><span class="indicator" id="kernelIndicator"></span>System</h2>
 
-                <!-- MCU Internals: Memory -->
-                <div class="panel compact category-mcu">
-                    <h2><span class="indicator" id="memIndicator"></span>Memory (SRAM)</h2>
-                    <div class="mem-map" id="memMap">
-                        <div class="mem-region" id="memDataBss" title=".data/.bss"><span class="mem-region-label">.bss</span></div>
-                        <div class="mem-region" id="memHeap" title="Heap"><span class="mem-region-label">Heap</span></div>
-                        <div class="mem-region free" id="memFree" title="Free"><span class="mem-region-label">Free</span></div>
-                        <div class="mem-region" id="memTaskStacks" title="Task Stacks"><span class="mem-region-label">Stk</span></div>
-                        <div class="mem-region" id="memMainStack" title="MSP"><span class="mem-region-label">MSP</span></div>
-                        <div class="mem-region" id="memDma" title="DMA"><span class="mem-region-label">DMA</span></div>
-                        <div class="mem-region" id="memShared" title="Shared"><span class="mem-region-label">Shm</span></div>
-                    </div>
-                    <div class="mem-map-legend">
-                        <span>0x20000000</span>
-                        <span id="memTotalLabel">128KB</span>
-                    </div>
-                    <div class="mem-warning" id="memWarning" style="display:none;">
-                        <span class="warn-icon">!</span><span id="memWarningText"></span>
-                    </div>
-                    <div class="status-grid">
-                        <div class="status-row"><span class="status-label">Heap</span><span class="status-value" id="heapUsage">--</span></div>
-                        <div class="load-bar"><div class="load-bar-fill" id="heapBar" style="width:0%"></div></div>
-                        <div class="status-row"><span class="status-label">Stack</span><span class="status-value" id="stackUsage">--</span></div>
-                        <div class="load-bar"><div class="load-bar-fill" id="stackBar" style="width:0%"></div></div>
-                        <div class="status-row"><span class="status-label">Free Gap</span><span class="status-value" id="memFreeGap">--</span></div>
-                    </div>
-                    <details class="mem-details">
-                        <summary>Details</summary>
-                        <div class="status-grid compact">
-                            <div class="status-row"><span class="status-label">SRAM Total</span><span class="status-value" id="sramTotal">--</span></div>
-                            <div class="status-row"><span class="status-label">.data/.bss</span><span class="status-value" id="memDataBssSize">--</span></div>
-                            <div class="status-row"><span class="status-label">Task Stacks</span><span class="status-value" id="memTaskStacksSize">--</span></div>
-                            <div class="status-row"><span class="status-label">Main Stack</span><span class="status-value" id="memMainStackSize">--</span></div>
-                            <div class="status-row"><span class="status-label">DMA Buffer</span><span class="status-value" id="memDmaSize">--</span></div>
-                            <div class="status-row"><span class="status-label">Shared Mem</span><span class="status-value" id="memSharedSize">--</span></div>
-                            <div class="status-row" id="ccmRow" style="display:none;"><span class="status-label">CCM RAM</span><span class="status-value" id="memCcm">--</span></div>
+                    <!-- Kernel Section -->
+                    <details class="system-section sec-kernel" open>
+                        <summary><span class="section-title"><span class="section-icon">⚙</span>Kernel</span></summary>
+                        <div class="section-content">
+                            <div class="status-grid">
+                                <div class="status-2col">
+                                    <div class="status-row">
+                                        <span class="status-label">Uptime</span>
+                                        <span class="status-value" id="uptime">--</span>
+                                    </div>
+                                    <div class="status-row">
+                                        <span class="status-label">Scheduler</span>
+                                        <span class="status-value" id="schedulerState">--</span>
+                                    </div>
+                                </div>
+                                <div class="status-2col">
+                                    <div class="status-row">
+                                        <span class="status-label">Idle</span>
+                                        <span class="status-value" id="idlePercent">--</span>
+                                    </div>
+                                    <div class="status-row">
+                                        <span class="status-label">Tasks</span>
+                                        <span class="status-value" id="taskInfo">--</span>
+                                    </div>
+                                </div>
+                                <div class="status-2col">
+                                    <div class="status-row">
+                                        <span class="status-label">Ctx Switches</span>
+                                        <span class="status-value" id="ctxSwitches">--</span>
+                                    </div>
+                                    <div class="status-row">
+                                        <span class="status-label">Watchdog</span>
+                                        <span class="status-value" id="wdtStatus">--</span>
+                                        <span class="indicator small" id="wdtIndicator"></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <details class="kernel-details">
+                                <summary>Details</summary>
+                                <div class="status-grid compact">
+                                    <div class="status-row">
+                                        <span class="status-label">RTC</span>
+                                        <span class="status-value" id="rtcTime">--</span>
+                                    </div>
+                                    <div class="status-row">
+                                        <span class="status-label">Tick Rate</span>
+                                        <span class="status-value" id="tickRate">1000 Hz</span>
+                                    </div>
+                                    <div class="status-row">
+                                        <span class="status-label">WDT Timeout</span>
+                                        <span class="status-value" id="wdtTimeout">--</span>
+                                    </div>
+                                    <div class="status-row">
+                                        <span class="status-label">Kernel Ver</span>
+                                        <span class="status-value" id="kernelVersion">--</span>
+                                    </div>
+                                </div>
+                            </details>
+                        </div>
+                    </details>
+
+                    <!-- Memory Section -->
+                    <details class="system-section sec-memory" open>
+                        <summary><span class="section-title"><span class="indicator small" id="memIndicator"></span>Memory</span></summary>
+                        <div class="section-content">
+                            <div class="mem-map" id="memMap">
+                                <div class="mem-region" id="memDataBss" title=".data/.bss"><span class="mem-region-label">.bss</span></div>
+                                <div class="mem-region" id="memHeap" title="Heap"><span class="mem-region-label">Heap</span></div>
+                                <div class="mem-region free" id="memFree" title="Free"><span class="mem-region-label">Free</span></div>
+                                <div class="mem-region" id="memTaskStacks" title="Task Stacks"><span class="mem-region-label">Stk</span></div>
+                                <div class="mem-region" id="memMainStack" title="MSP"><span class="mem-region-label">MSP</span></div>
+                                <div class="mem-region" id="memDma" title="DMA"><span class="mem-region-label">DMA</span></div>
+                                <div class="mem-region" id="memShared" title="Shared"><span class="mem-region-label">Shm</span></div>
+                            </div>
+                            <div class="mem-region-legend">
+                                <span class="legend-item"><span class="legend-color" style="background:#9b59b6"></span>.bss</span>
+                                <span class="legend-item"><span class="legend-color" style="background:#3498db"></span>Heap</span>
+                                <span class="legend-item"><span class="legend-color" style="background:var(--umi-bg-secondary,#1a1a2e);border:1px solid #444"></span>Free</span>
+                                <span class="legend-item"><span class="legend-color" style="background:#e67e22"></span>Stacks</span>
+                                <span class="legend-item"><span class="legend-color" style="background:#e74c3c"></span>MSP</span>
+                                <span class="legend-item"><span class="legend-color" style="background:#27ae60"></span>DMA</span>
+                                <span class="legend-item"><span class="legend-color" style="background:#f1c40f"></span>Shm</span>
+                            </div>
+                            <div class="mem-map-legend">
+                                <span>0x20000000</span>
+                                <span id="memTotalLabel">128KB</span>
+                            </div>
+                            <div class="mem-warning" id="memWarning" style="display:none;">
+                                <span class="warn-icon">!</span><span id="memWarningText"></span>
+                            </div>
+                            <div class="mem-usage-bar" id="memUsageBar">
+                                <div class="mem-usage-heap" id="memUsageHeap" title="Heap"></div>
+                                <div class="mem-usage-free" id="memUsageFree" title="Free"></div>
+                                <div class="mem-usage-stack" id="memUsageStack" title="Stack"></div>
+                            </div>
+                            <div class="mem-usage-summary">
+                                <span class="mem-usage-label">Heap <span id="heapUsage">--</span></span>
+                                <span class="mem-usage-free-label" id="memFreeGap">--</span>
+                                <span class="mem-usage-label">Stack <span id="stackUsage">--</span></span>
+                                <span class="mem-status-badge" id="memStatusBadge">Safe</span>
+                            </div>
+                            <details class="mem-details">
+                                <summary>Details</summary>
+                                <div class="status-grid compact">
+                                    <div class="status-row"><span class="status-label">SRAM Total</span><span class="status-value" id="sramTotal">--</span></div>
+                                    <div class="status-row"><span class="status-label">.data/.bss</span><span class="status-value" id="memDataBssSize">--</span></div>
+                                    <div class="status-row"><span class="status-label">Task Stacks</span><span class="status-value" id="memTaskStacksSize">--</span></div>
+                                    <div class="status-row"><span class="status-label">Main Stack</span><span class="status-value" id="memMainStackSize">--</span></div>
+                                    <div class="status-row"><span class="status-label">DMA Buffer</span><span class="status-value" id="memDmaSize">--</span></div>
+                                    <div class="status-row"><span class="status-label">Shared Mem</span><span class="status-value" id="memSharedSize">--</span></div>
+                                    <div class="status-row" id="ccmRow" style="display:none;"><span class="status-label">CCM RAM</span><span class="status-value" id="memCcm">--</span></div>
+                                </div>
+                            </details>
+                        </div>
+                    </details>
+
+                    <!-- Audio Section -->
+                    <details class="system-section sec-audio" open>
+                        <summary><span class="section-title"><span class="indicator small" id="audioIndicator"></span>Audio</span></summary>
+                        <div class="section-content">
+                            <div class="status-grid">
+                                <div class="status-2col">
+                                    <div class="status-row"><span class="status-label">State</span><span class="status-value" id="engineState">--</span></div>
+                                    <div class="status-row"><span class="status-label">Rate</span><span class="status-value" id="sampleRate">--</span></div>
+                                </div>
+                                <div class="status-2col">
+                                    <div class="status-row">
+                                        <span class="status-label">DSP</span>
+                                        <span class="status-value" id="dspLoad">--</span>
+                                    </div>
+                                    <div class="status-row">
+                                        <span class="status-label">Peak</span>
+                                        <span class="status-value" id="dspPeak">--</span>
+                                        <button class="small" id="resetPeakBtn">Rst</button>
+                                    </div>
+                                </div>
+                                <div class="load-bar"><div class="load-bar-fill" id="dspLoadBar" style="width:0%"></div></div>
+                                <div class="status-2col">
+                                    <div class="status-row"><span class="status-label">Buffers</span><span class="status-value" id="bufferCount">--</span></div>
+                                    <div class="status-row"><span class="status-label">Drops</span><span class="status-value" id="dropCount">--</span></div>
+                                </div>
+                            </div>
+                            <details class="kernel-details">
+                                <summary>Details</summary>
+                                <div class="status-grid compact">
+                                    <div class="status-row"><span class="status-label">Buffer Size</span><span class="status-value" id="bufferSize">128</span></div>
+                                    <div class="status-row"><span class="status-label">Base Latency</span><span class="status-value" id="baseLatency">--</span></div>
+                                    <div class="status-row"><span class="status-label">Output Latency</span><span class="status-value" id="outputLatency">--</span></div>
+                                    <div class="status-row"><span class="status-label">Position</span><span class="status-value" id="samplePosition">--</span></div>
+                                </div>
+                            </details>
+                        </div>
+                    </details>
+
+                    <!-- Power Section -->
+                    <details class="system-section sec-power" open>
+                        <summary><span class="section-title"><span class="indicator small" id="powerIndicator"></span>Power</span></summary>
+                        <div class="section-content">
+                            <div class="status-grid">
+                                <div class="status-row"><span class="status-label">Battery</span><span class="status-value" id="batteryLevel">--</span></div>
+                                <div class="load-bar"><div class="load-bar-fill" id="batteryBar" style="width:100%;"></div></div>
+                                <div class="status-2col">
+                                    <div class="status-row"><span class="status-label">Voltage</span><span class="status-value" id="batteryVoltage">--</span></div>
+                                    <div class="status-row"><span class="status-label">USB</span><span class="status-value" id="usbStatus">--</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+
+                    <!-- Processor Section -->
+                    <details class="system-section sec-processor">
+                        <summary><span class="section-title">Processor</span></summary>
+                        <div class="section-content">
+                            <div class="status-grid compact">
+                                <div class="status-row"><span class="status-label">Vendor</span><span class="status-value" id="procVendor">--</span></div>
+                                <div class="status-row"><span class="status-label">Params</span><span class="status-value" id="paramCount">--</span></div>
+                            </div>
                         </div>
                     </details>
                 </div>
 
-                <!-- MCU Internals: DSP/CPU -->
-                <div class="panel compact category-mcu">
-                    <h2>DSP Load</h2>
-                    <div class="status-grid">
-                        <div class="status-row">
-                            <span class="status-label">Current</span>
-                            <span class="status-value" id="dspLoad">--</span>
-                        </div>
-                        <div class="load-bar"><div class="load-bar-fill" id="dspLoadBar" style="width:0%"></div></div>
-                        <div class="status-row">
-                            <span class="status-label">Peak</span>
-                            <span class="status-value" id="dspPeak">--</span>
-                            <button class="small" id="resetPeakBtn">Reset</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- MCU Internals: Watchdog -->
-                <div class="panel compact category-mcu">
-                    <h2><span class="indicator" id="wdtIndicator"></span>Watchdog</h2>
-                    <div class="status-2col">
-                        <div class="status-row"><span class="status-label">Status</span><span class="status-value" id="wdtStatus">--</span></div>
-                        <div class="status-row"><span class="status-label">Timeout</span><span class="status-value" id="wdtTimeout">--</span></div>
-                    </div>
-                </div>
-
-                <!-- Audio I/O -->
-                <div class="panel compact category-audio">
-                    <h2><span class="indicator" id="audioIndicator"></span>Audio Engine</h2>
-                    <div class="status-grid">
-                        <div class="status-row"><span class="status-label">State</span><span class="status-value" id="engineState">--</span></div>
-                        <div class="status-2col">
-                            <div class="status-row"><span class="status-label">Sample Rate</span><span class="status-value" id="sampleRate">--</span></div>
-                            <div class="status-row"><span class="status-label">Buffer</span><span class="status-value" id="bufferSize">128</span></div>
-                        </div>
-                        <div class="status-2col">
-                            <div class="status-row"><span class="status-label">Buffers</span><span class="status-value" id="bufferCount">--</span></div>
-                            <div class="status-row"><span class="status-label">Drops</span><span class="status-value" id="dropCount">--</span></div>
-                        </div>
-                        <div class="status-2col">
-                            <div class="status-row"><span class="status-label">Base Latency</span><span class="status-value" id="baseLatency">--</span></div>
-                            <div class="status-row"><span class="status-label">Output</span><span class="status-value" id="outputLatency">--</span></div>
-                        </div>
-                        <div class="status-row"><span class="status-label">Position</span><span class="status-value" id="samplePosition">--</span></div>
-                    </div>
-                </div>
-
-                <!-- Audio I/O -->
-                <div class="panel compact category-audio">
-                    <h2><span class="indicator" id="audioIndicator"></span>Audio I/O</h2>
-                    <div class="hw-settings">
-                        <div class="hw-setting">
-                            <label>Output</label>
-                            <select class="audio-device-select" id="audioOutputSelect" disabled>
-                                <option value="">-- Default --</option>
-                            </select>
-                        </div>
-                        <div class="hw-setting">
-                            <label>Input</label>
-                            <select class="audio-device-select" id="audioInputSelect" disabled>
-                                <option value="">-- None --</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- MIDI I/O -->
+                <!-- MIDI Monitor (separate from I/O) -->
                 <div class="panel compact category-midi">
-                    <h2><span class="indicator" id="midiIndicator"></span>MIDI I/O
+                    <h2><span class="indicator" id="midiIndicator"></span>MIDI Monitor
                         <span class="midi-activity" id="midiRxActivity" title="RX"></span>
                         <span class="midi-activity" id="midiTxActivity" title="TX"></span>
+                        <span class="midi-filter-toggle" id="midiFilterToggle" title="Filter settings">&#9881;</span>
                     </h2>
-                    <div class="hw-setting" style="margin-bottom:6px;">
-                        <label>Inputs (multi-select)</label>
-                        <div class="midi-device-list disabled" id="midiInputList">
-                            <div class="midi-device-empty">No MIDI devices</div>
-                        </div>
-                    </div>
-                    <div class="hw-setting" style="margin-bottom:6px;">
-                        <label>Outputs (multi-select)</label>
-                        <div class="midi-device-list disabled" id="midiOutputList">
-                            <div class="midi-device-empty">No MIDI devices</div>
-                        </div>
-                    </div>
-                    <div class="hw-setting" style="margin-bottom:6px;">
-                        <label>MIDI Thru</label>
-                        <div class="midi-thru-options">
-                            <label class="midi-thru-label"><input type="checkbox" id="midiThruEnabled"> Enable</label>
-                            <label class="midi-thru-label">Ch: <select id="midiThruChannel" style="width:60px;">
-                                <option value="0">All</option>
-                                <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
-                                <option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option>
-                                <option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option>
-                                <option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option>
-                            </select></label>
-                        </div>
-                    </div>
-                    <div class="status-2col" style="margin-top:4px;">
+                    <div class="status-2col" style="margin-bottom:4px;">
                         <div class="status-row"><span class="status-label">RX</span><span class="status-value" id="midiRx">0</span></div>
                         <div class="status-row"><span class="status-label">TX</span><span class="status-value" id="midiTx">0</span></div>
-                    </div>
-                    <div class="midi-learn-row">
-                        <button class="midi-learn-btn small" id="midiLearnBtn">Learn</button>
-                        <span class="midi-learn-status" id="midiLearnStatus"></span>
-                    </div>
-                    <!-- MIDI Monitor with Filters -->
-                    <div class="hw-section-title">Monitor
-                        <span class="midi-filter-toggle" id="midiFilterToggle" title="Filter settings">&#9881;</span>
                     </div>
                     <div class="midi-filter-panel" id="midiFilterPanel" style="display:none;">
                         <div class="midi-filter-row">
@@ -1044,19 +1405,6 @@
                     </div>
                     <div class="midi-monitor" id="midiMonitor">
                         <div class="midi-msg other"><span class="time">--:--:--</span> Waiting for MIDI...</div>
-                    </div>
-                </div>
-
-                <!-- External Peripherals: Power -->
-                <div class="panel compact category-peripheral">
-                    <h2><span class="indicator" id="powerIndicator"></span>Power Supply</h2>
-                    <div class="status-grid">
-                        <div class="status-row"><span class="status-label">Battery</span><span class="status-value" id="batteryLevel">--</span></div>
-                        <div class="load-bar"><div class="load-bar-fill" id="batteryBar" style="width:100%;"></div></div>
-                        <div class="status-2col">
-                            <div class="status-row"><span class="status-label">Voltage</span><span class="status-value" id="batteryVoltage">--</span></div>
-                            <div class="status-row"><span class="status-label">USB</span><span class="status-value" id="usbStatus">--</span></div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -1145,14 +1493,6 @@
                     </div>
                 </div>
 
-                <!-- Processor Info (collapsed) -->
-                <details class="panel compact category-info">
-                    <summary><h2 style="display:inline;">Processor Info</h2></summary>
-                    <div class="status-grid" style="margin-top:8px;">
-                        <div class="status-row"><span class="status-label">Vendor</span><span class="status-value" id="procVendor">--</span></div>
-                        <div class="status-row"><span class="status-label">Params</span><span class="status-value" id="paramCount">--</span></div>
-                    </div>
-                </details>
             </div>
         </div>
     </div>
@@ -1170,12 +1510,27 @@
             Keyboard,
             DEFAULT_KEY_MAP,
             MidiMonitor,
+            ParamControl,
             // Theme
             darkTheme,
             lightTheme,
             applyTheme,
             getCompleteStyles
         } from './lib/umi_web/index.js';
+
+        // ==================== Simulator Modules ====================
+        import {
+            formatBytes,
+            formatUptime,
+            Logger,
+            MemoryDisplay,
+            MEM_WARNING_MESSAGES,
+            KernelStatus,
+            HwSettings,
+            HW_PRESETS,
+            AutoPlayer,
+            AUTO_PATTERNS
+        } from './js/index.js';
 
         const backendManager = new BackendManager();
         // Default to UMI-OS kernel simulation (full UMI-OS with task scheduler, etc.)
@@ -1184,7 +1539,6 @@
 
         // Application selection UI
         const appSelect = document.getElementById('appSelect');
-        const appInfo = document.getElementById('appInfo');
 
         // Check URL params for backend/app selection
         const urlParams = new URLSearchParams(window.location.search);
@@ -1245,16 +1599,9 @@
             const app = backendManager.getApplication(appId);
             if (app) {
                 currentApp = app;
-                appInfo.textContent = app.description || '';
-                appInfo.title = `${app.vendor || 'Unknown'} v${app.version || '0.0.0'}`;
-
                 // Update backend type from app config
-                if (app.backend === 'umim' || app.backend === 'umios') {
+                if (app.backend === 'umim' || app.backend === 'umios' || app.backend === 'renode') {
                     currentBackendType = app.backend;
-                    // Update backend buttons
-                    document.querySelectorAll('.backend-btn').forEach(btn => {
-                        btn.classList.toggle('active', btn.dataset.backend === app.backend);
-                    });
                 }
             }
         }
@@ -1275,38 +1622,25 @@
             }
 
             // Normalize type for backward compatibility
-            // 'wasm' maps to 'umios' for legacy URLs/buttons
+            // 'wasm' maps to 'umios' for legacy URLs
             if (type === 'wasm') type = 'umios';
-
-            // Update UI - match data-backend attribute to type string
-            document.querySelectorAll('.backend-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.backend === type);
-            });
 
             currentBackendType = type;
 
-            const statusEl = document.getElementById('backendStatus');
-            statusEl.textContent = type === 'umios' ? 'Ready' :
-                                   type === 'umim' ? 'Ready' :
-                                   type === 'renode' ? 'Checking...' : 'Loading...';
-            statusEl.className = 'backend-status';
-
             if (type === 'renode') {
                 // Check Renode availability
+                setStatus('Checking Renode...', 'loading');
                 try {
                     const backends = await backendManager.getAvailableBackends();
                     const renode = backends.find(b => b.type === BackendType.RENODE);
                     if (renode && renode.available) {
-                        statusEl.textContent = 'Connected';
-                        statusEl.className = 'backend-status connected';
+                        setStatus('Renode ready', 'ready');
                     } else {
-                        statusEl.textContent = 'Server offline';
-                        statusEl.className = 'backend-status error';
+                        setStatus('Renode offline', 'error');
                         log('Renode server not available. Run: python3 renode/scripts/web_bridge.py', 'warn');
                     }
                 } catch {
-                    statusEl.textContent = 'Error';
-                    statusEl.className = 'backend-status error';
+                    setStatus('Renode error', 'error');
                 }
             } else {
                 checkWasm();
@@ -1314,14 +1648,6 @@
 
             log(`Backend switched to: ${type}`);
         }
-
-        // Set up backend button handlers
-        document.querySelectorAll('.backend-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                if (btn.disabled) return;
-                switchBackend(btn.dataset.backend);
-            });
-        });
 
         // Use keyboard keymap from library
         const keyMap = DEFAULT_KEY_MAP;
@@ -1335,8 +1661,7 @@
         let backend = null;  // Current backend instance
         let params = [];
         let startTime = 0;
-        let lastMidiRx = 0;
-        let midiFlashTimeout = null;
+        // lastMidiRx and midiFlashTimeout are now managed by KernelStatus module
 
         // WebMIDI
         let midiAccess = null;
@@ -1357,183 +1682,57 @@
         // Audio output device
         const audioOutputSelect = document.getElementById('audioOutputSelect');
 
-        // MIDI Learn
-        let midiLearnMode = false;
-        let midiLearnTarget = null;  // { id, element }
-        let midiMappings = {};  // { cc_channel_cc: { paramId, channel, cc } }
+        // MIDI Learn - using ParamControl component
         const midiLearnBtn = document.getElementById('midiLearnBtn');
         const midiLearnStatus = document.getElementById('midiLearnStatus');
+        const paramGrid = document.getElementById('paramGrid');
 
-        // Load MIDI mappings from localStorage
-        function loadMidiMappings() {
-            try {
-                const saved = localStorage.getItem('umi-synth-midi-mappings');
-                if (saved) {
-                    midiMappings = JSON.parse(saved);
-                    log('Loaded ' + Object.keys(midiMappings).length + ' MIDI mappings');
-                }
-            } catch (e) {
-                console.error('Failed to load MIDI mappings:', e);
+        // Initialize ParamControl component
+        const paramControl = new ParamControl(paramGrid, {
+            storageKey: 'umi-synth-midi-mappings'
+        });
+
+        // ParamControl callbacks
+        paramControl.onParamChange = (paramId, value) => {
+            // Use BackendManager's current backend instead of direct workletNode access
+            const backend = window.currentBackend;
+            if (backend && backend.setParam) {
+                backend.setParam(paramId, value);
+            } else if (workletNode) {
+                // Fallback for direct worklet access (legacy)
+                workletNode.port.postMessage({ type: 'set-param', id: paramId, value });
             }
-        }
+        };
 
-        // Save MIDI mappings to localStorage
-        function saveMidiMappings() {
-            try {
-                localStorage.setItem('umi-synth-midi-mappings', JSON.stringify(midiMappings));
-            } catch (e) {
-                console.error('Failed to save MIDI mappings:', e);
-            }
-        }
-
-        // Start MIDI Learn mode
-        function startMidiLearn() {
-            midiLearnMode = true;
-            midiLearnTarget = null;
+        paramControl.onLearnStart = () => {
             midiLearnBtn.classList.add('active');
-            midiLearnBtn.textContent = 'Cancel';
+            midiLearnBtn.textContent = 'Finish';
             midiLearnStatus.textContent = 'Click a parameter to assign...';
             midiLearnStatus.classList.add('active');
             log('MIDI Learn mode started');
+        };
 
-            // Add click handlers to parameters
-            document.querySelectorAll('.param').forEach(el => {
-                el.style.cursor = 'pointer';
-            });
+        paramControl.onLearnComplete = (paramId, channel, cc) => {
+            const paramName = params.find(p => p.id === paramId)?.name || 'Param ' + paramId;
+            log(`Assigned CC${cc} (ch${channel + 1}) to "${paramName}"`);
+            midiLearnStatus.textContent = `Assigned CC${cc} to "${paramName}"`;
+            setTimeout(() => {
+                if (paramControl.learnMode) {
+                    midiLearnStatus.textContent = 'Click a parameter to assign...';
+                }
+            }, 1500);
+        };
+
+        function startMidiLearn() {
+            paramControl.startLearn();
         }
 
-        // Stop MIDI Learn mode
         function stopMidiLearn() {
-            midiLearnMode = false;
-            if (midiLearnTarget) {
-                midiLearnTarget.element.classList.remove('learn-target');
-            }
-            midiLearnTarget = null;
+            paramControl.stopLearn();
             midiLearnBtn.classList.remove('active');
             midiLearnBtn.textContent = 'Learn';
             midiLearnStatus.textContent = '';
             midiLearnStatus.classList.remove('active');
-
-            // Remove click handlers from parameters
-            document.querySelectorAll('.param').forEach(el => {
-                el.style.cursor = '';
-            });
-        }
-
-        // Select parameter for MIDI Learn
-        function selectLearnTarget(paramId, element) {
-            if (!midiLearnMode) return;
-
-            // Clear previous target
-            if (midiLearnTarget) {
-                midiLearnTarget.element.classList.remove('learn-target');
-            }
-
-            midiLearnTarget = { id: paramId, element };
-            element.classList.add('learn-target');
-
-            const paramName = params.find(p => p.id === paramId)?.name || 'Param ' + paramId;
-            midiLearnStatus.textContent = `Move CC for "${paramName}"...`;
-            log(`Selected "${paramName}" for MIDI Learn`);
-        }
-
-        // Assign CC to parameter
-        function assignMidiCC(channel, cc, paramId) {
-            // Remove existing mapping for this param
-            for (const key of Object.keys(midiMappings)) {
-                if (midiMappings[key].paramId === paramId) {
-                    delete midiMappings[key];
-                }
-            }
-
-            const key = `cc_${channel}_${cc}`;
-            midiMappings[key] = { paramId, channel, cc };
-            saveMidiMappings();
-
-            const paramName = params.find(p => p.id === paramId)?.name || 'Param ' + paramId;
-            log(`Assigned CC${cc} (ch${channel + 1}) to "${paramName}"`);
-
-            // Update UI
-            updateParamMappingDisplay(paramId, channel, cc);
-        }
-
-        // Clear CC mapping for parameter
-        function clearMidiMapping(paramId) {
-            for (const key of Object.keys(midiMappings)) {
-                if (midiMappings[key].paramId === paramId) {
-                    delete midiMappings[key];
-                    log(`Cleared MIDI mapping for param ${paramId}`);
-                }
-            }
-            saveMidiMappings();
-
-            // Update UI
-            const mappingEl = document.querySelector(`#param-mapping-${paramId}`);
-            if (mappingEl) {
-                mappingEl.remove();
-            }
-        }
-
-        // Update parameter display to show CC mapping
-        function updateParamMappingDisplay(paramId, channel, cc) {
-            const paramEl = document.querySelector(`#param-${paramId}`)?.closest('.param');
-            if (!paramEl) return;
-
-            // Remove existing mapping display
-            const existingMapping = paramEl.querySelector('.midi-mapping');
-            if (existingMapping) {
-                existingMapping.remove();
-            }
-
-            // Add new mapping display
-            const mappingEl = document.createElement('div');
-            mappingEl.className = 'midi-mapping';
-            mappingEl.id = `param-mapping-${paramId}`;
-            mappingEl.innerHTML = `CC${cc} (ch${channel + 1}) <span class="clear-btn" data-param="${paramId}">[×]</span>`;
-            paramEl.appendChild(mappingEl);
-
-            // Add clear handler
-            mappingEl.querySelector('.clear-btn').addEventListener('click', (e) => {
-                e.stopPropagation();
-                clearMidiMapping(parseInt(e.target.dataset.param));
-            });
-        }
-
-        // Apply CC value to mapped parameter
-        function applyMidiCC(channel, cc, value) {
-            const key = `cc_${channel}_${cc}`;
-            const mapping = midiMappings[key];
-            if (!mapping) return false;
-
-            const param = params.find(p => p.id === mapping.paramId);
-            if (!param) return false;
-
-            // Scale CC value (0-127) to parameter range
-            const normalized = value / 127;
-            const paramValue = param.min + (param.max - param.min) * normalized;
-
-            // Update synth
-            workletNode?.port.postMessage({ type: 'set-param', id: mapping.paramId, value: paramValue });
-
-            // Update UI slider
-            const slider = document.getElementById(`param-${mapping.paramId}`);
-            if (slider) {
-                slider.value = paramValue;
-            }
-            const valueEl = document.getElementById(`pval-${mapping.paramId}`);
-            if (valueEl) {
-                valueEl.textContent = formatParamValue({ ...param, value: paramValue });
-            }
-
-            return true;
-        }
-
-        // Restore mapping displays after params are loaded
-        function restoreMappingDisplays() {
-            for (const key of Object.keys(midiMappings)) {
-                const { paramId, channel, cc } = midiMappings[key];
-                updateParamMappingDisplay(paramId, channel, cc);
-            }
         }
 
         const startBtn = document.getElementById('startBtn');
@@ -1541,10 +1740,8 @@
         const resetBtn = document.getElementById('resetBtn');
         const statusEl = document.getElementById('status');
         const keyboardEl = document.getElementById('keyboard');
-        const keybindingsEl = document.getElementById('keybindings');
         const waveformCanvas = document.getElementById('waveformCanvas');
         const waveformCtx = waveformCanvas.getContext('2d');
-        const paramGrid = document.getElementById('paramGrid');
         const logViewer = document.getElementById('logViewer');
         const shellInput = document.getElementById('shellInput');
         const shellOutput = document.getElementById('shellOutput');
@@ -1569,20 +1766,7 @@
             statusEl.className = 'status ' + className;
         }
 
-        function formatBytes(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            return (bytes / 1024).toFixed(1) + ' KB';
-        }
-
-        function formatUptime(us) {
-            const sec = Math.floor(us / 1000000);
-            const min = Math.floor(sec / 60);
-            const hr = Math.floor(min / 60);
-            if (hr > 0) {
-                return `${hr}:${(min % 60).toString().padStart(2, '0')}:${(sec % 60).toString().padStart(2, '0')}`;
-            }
-            return `${min}:${(sec % 60).toString().padStart(2, '0')}`;
-        }
+        // formatBytes and formatUptime are now imported from js/utils.js
 
         // ==================== WebMIDI ====================
 
@@ -1607,7 +1791,11 @@
 
                 midiInputList.classList.remove('disabled');
                 midiOutputList.classList.remove('disabled');
-                document.getElementById('midiIndicator').className = 'indicator active';
+                // Update MIDI indicators (I/O bar and Monitor panel)
+                const midiIOInd = document.getElementById('midiIOIndicator');
+                const midiMonInd = document.getElementById('midiIndicator');
+                if (midiIOInd) midiIOInd.className = 'indicator active';
+                if (midiMonInd) midiMonInd.className = 'indicator active';
 
             } catch (err) {
                 log('WebMIDI access denied: ' + err.message, 'error');
@@ -1796,11 +1984,19 @@
             sendMIDIThru(data);
 
             midiRxCount++;
-            document.getElementById('midiRx').textContent = midiRxCount;
+            // Update RX count in both I/O bar and Monitor panel
+            const midiRxEl = document.getElementById('midiRx');
+            const midiRxIOEl = document.getElementById('midiRxIO');
+            if (midiRxEl) midiRxEl.textContent = midiRxCount;
+            if (midiRxIOEl) midiRxIOEl.textContent = midiRxCount;
 
-            // Flash RX indicator
-            midiRxActivity.classList.add('active');
-            setTimeout(() => midiRxActivity.classList.remove('active'), 100);
+            // Flash RX indicators
+            midiRxActivity?.classList.add('active');
+            document.getElementById('midiRxActivityIO')?.classList.add('active');
+            setTimeout(() => {
+                midiRxActivity?.classList.remove('active');
+                document.getElementById('midiRxActivityIO')?.classList.remove('active');
+            }, 100);
 
             // Parse and display in monitor
             addMIDIMonitorEntry(data, 'rx');
@@ -1809,20 +2005,12 @@
             const cmd = status & 0xF0;
             const channel = status & 0x0F;
 
-            // MIDI Learn: capture CC for assignment
-            if (midiLearnMode && midiLearnTarget && cmd === 0xB0 && data.length >= 3) {
-                const cc = data[1];
-                assignMidiCC(channel, cc, midiLearnTarget.id);
-                stopMidiLearn();
-                return;  // Don't route this CC during learn
-            }
-
-            // Apply CC to mapped parameters
+            // Handle CC for MIDI Learn and parameter control
             if (cmd === 0xB0 && data.length >= 3) {
                 const cc = data[1];
                 const value = data[2];
-                if (applyMidiCC(channel, cc, value)) {
-                    // CC was handled by mapping, optionally still route to synth
+                if (paramControl.handleCC(channel, cc, value)) {
+                    // CC was handled by ParamControl (learn or mapping)
                 }
             }
 
@@ -1854,12 +2042,18 @@
                     output.send(data);
                 }
                 midiTxCount++;
-                document.getElementById('midiTx').textContent = midiTxCount;
+                // Update TX count in both I/O bar and Monitor panel
+                const midiTxEl = document.getElementById('midiTx');
+                const midiTxIOEl = document.getElementById('midiTxIO');
+                if (midiTxEl) midiTxEl.textContent = midiTxCount;
+                if (midiTxIOEl) midiTxIOEl.textContent = midiTxCount;
 
-                // Flash TX indicator
-                midiTxActivity.classList.add('active', 'tx');
+                // Flash TX indicators
+                midiTxActivity?.classList.add('active', 'tx');
+                document.getElementById('midiTxActivityIO')?.classList.add('active');
                 setTimeout(() => {
-                    midiTxActivity.classList.remove('active', 'tx');
+                    midiTxActivity?.classList.remove('active', 'tx');
+                    document.getElementById('midiTxActivityIO')?.classList.remove('active');
                 }, 100);
 
                 addMIDIMonitorEntry(data, 'tx');
@@ -2178,240 +2372,77 @@
         // ==================== End WebMIDI ====================
 
         // ==================== Memory Display ====================
-        const MEM_WARNING_NAMES = ['None', 'HeapLow', 'StackLow', 'HeapCritical', 'StackCritical', 'Collision', 'Overflow'];
-        const MEM_WARNING_MESSAGES = {
-            1: 'Heap < 25% free',
-            2: 'Stack < 25% free',
-            3: 'Heap critical (< 10%)',
-            4: 'Stack critical (< 10%)',
-            5: 'Memory regions may collide!',
-            6: 'Memory OVERFLOW detected!'
-        };
+        // Using MemoryDisplay module from js/memory-display.js
+        const memoryDisplay = new MemoryDisplay({
+            heapUsage: document.getElementById('heapUsage'),
+            stackUsage: document.getElementById('stackUsage'),
+            memUsageHeap: document.getElementById('memUsageHeap'),
+            memUsageFree: document.getElementById('memUsageFree'),
+            memUsageStack: document.getElementById('memUsageStack'),
+            memStatusBadge: document.getElementById('memStatusBadge'),
+            sramTotal: document.getElementById('sramTotal'),
+            memTotalLabel: document.getElementById('memTotalLabel'),
+            memFreeGap: document.getElementById('memFreeGap'),
+            memWarning: document.getElementById('memWarning'),
+            memWarningText: document.getElementById('memWarningText'),
+            memIndicator: document.getElementById('memIndicator'),
+            memDataBssSize: document.getElementById('memDataBssSize'),
+            memTaskStacksSize: document.getElementById('memTaskStacksSize'),
+            memMainStackSize: document.getElementById('memMainStackSize'),
+            memDmaSize: document.getElementById('memDmaSize'),
+            memSharedSize: document.getElementById('memSharedSize'),
+            ccmRow: document.getElementById('ccmRow'),
+            memCcm: document.getElementById('memCcm')
+        });
 
         function updateMemoryDisplay(data) {
-            // Basic heap/stack display
-            if (data.heapUsed !== undefined && data.heapTotal !== undefined) {
-                const heapPercent = (data.heapUsed / data.heapTotal * 100).toFixed(0);
-                document.getElementById('heapUsage').textContent =
-                    `${formatBytes(data.heapUsed)} / ${formatBytes(data.heapTotal)} (${heapPercent}%)`;
-                const heapBar = document.getElementById('heapBar');
-                heapBar.style.width = heapPercent + '%';
-                heapBar.className = 'load-bar-fill' +
-                    (heapPercent > 90 ? ' critical' : heapPercent > 75 ? ' warning' : '');
-            }
-            if (data.stackUsed !== undefined && data.stackTotal !== undefined) {
-                const stackPercent = (data.stackUsed / data.stackTotal * 100).toFixed(0);
-                document.getElementById('stackUsage').textContent =
-                    `${formatBytes(data.stackUsed)} / ${formatBytes(data.stackTotal)} (${stackPercent}%)`;
-                const stackBar = document.getElementById('stackBar');
-                stackBar.style.width = stackPercent + '%';
-                stackBar.className = 'load-bar-fill' +
-                    (stackPercent > 90 ? ' critical' : stackPercent > 75 ? ' warning' : '');
-            }
-
-            // SRAM total
-            if (data.sramTotal !== undefined) {
-                document.getElementById('sramTotal').textContent = formatBytes(data.sramTotal);
-                document.getElementById('memTotalLabel').textContent = formatBytes(data.sramTotal);
-            }
-
-            // Free gap between heap and stack
-            if (data.freeGap !== undefined) {
-                document.getElementById('memFreeGap').textContent = formatBytes(data.freeGap);
-            }
-
-            // Memory map visualization
-            if (data.memLayout !== undefined) {
-                updateMemoryMap(data.memLayout, data.sramTotal);
-            }
-
-            // Memory warning
-            if (data.memWarning !== undefined) {
-                const warningEl = document.getElementById('memWarning');
-                const memInd = document.getElementById('memIndicator');
-
-                if (data.memWarning > 0) {
-                    warningEl.style.display = 'flex';
-                    document.getElementById('memWarningText').textContent =
-                        MEM_WARNING_MESSAGES[data.memWarning] || 'Unknown warning';
-                    warningEl.className = 'mem-warning' + (data.memWarning >= 5 ? ' critical' : '');
-                    memInd.className = 'indicator ' + (data.memWarning >= 5 ? 'error' : 'warning');
-                } else {
-                    warningEl.style.display = 'none';
-                    memInd.className = 'indicator active';
-                }
-            }
-
-            // Detailed memory info
-            if (data.memDetails !== undefined) {
-                const d = data.memDetails;
-                document.getElementById('memDataBssSize').textContent = formatBytes(d.dataBss || 0);
-                document.getElementById('memTaskStacksSize').textContent = formatBytes(d.taskStacks || 0);
-                document.getElementById('memMainStackSize').textContent = formatBytes(d.mainStack || 0);
-                document.getElementById('memDmaSize').textContent = formatBytes(d.dma || 0);
-                document.getElementById('memSharedSize').textContent = formatBytes(d.shared || 0);
-
-                // CCM RAM (only show if present)
-                if (d.ccmTotal !== undefined && d.ccmTotal > 0) {
-                    document.getElementById('ccmRow').style.display = 'flex';
-                    document.getElementById('memCcm').textContent =
-                        `${formatBytes(d.ccmUsed || 0)} / ${formatBytes(d.ccmTotal)}`;
-                } else {
-                    document.getElementById('ccmRow').style.display = 'none';
-                }
-            }
-        }
-
-        function updateMemoryMap(layout, total) {
-            if (!layout || !total) return;
-
-            // Calculate percentages for each region
-            const regions = [
-                { id: 'memDataBss', size: layout.dataBss || 0 },
-                { id: 'memHeap', size: layout.heap || 0 },
-                { id: 'memFree', size: layout.free || 0 },
-                { id: 'memTaskStacks', size: layout.taskStacks || 0 },
-                { id: 'memMainStack', size: layout.mainStack || 0 },
-                { id: 'memDma', size: layout.dma || 0 },
-                { id: 'memShared', size: layout.shared || 0 }
-            ];
-
-            for (const region of regions) {
-                const el = document.getElementById(region.id);
-                if (el) {
-                    const percent = (region.size / total * 100);
-                    el.style.flex = percent > 0 ? percent : '0';
-                    el.title = `${el.title.split(':')[0]}: ${formatBytes(region.size)}`;
-                    // Hide label if too small
-                    const label = el.querySelector('.mem-region-label');
-                    if (label) {
-                        label.style.display = percent < 5 ? 'none' : '';
-                    }
-                }
-            }
+            memoryDisplay.update(data);
         }
         // ==================== End Memory Display ====================
 
+        // ==================== Kernel Status ====================
+        // Using KernelStatus module from js/kernel-status.js
+        const kernelStatus = new KernelStatus({
+            kernelIndicator: document.getElementById('kernelIndicator'),
+            uptime: document.getElementById('uptime'),
+            rtcTime: document.getElementById('rtcTime'),
+            schedulerState: document.getElementById('schedulerState'),
+            idlePercent: document.getElementById('idlePercent'),
+            taskInfo: document.getElementById('taskInfo'),
+            ctxSwitches: document.getElementById('ctxSwitches'),
+            tickRate: document.getElementById('tickRate'),
+            kernelVersion: document.getElementById('kernelVersion'),
+            audioIndicator: document.getElementById('audioIndicator'),
+            engineState: document.getElementById('engineState'),
+            bufferCount: document.getElementById('bufferCount'),
+            dropCount: document.getElementById('dropCount'),
+            dspLoad: document.getElementById('dspLoad'),
+            dspLoadBar: document.getElementById('dspLoadBar'),
+            dspPeak: document.getElementById('dspPeak'),
+            midiRx: document.getElementById('midiRx'),
+            midiTx: document.getElementById('midiTx'),
+            midiIndicator: document.getElementById('midiIndicator'),
+            powerIndicator: document.getElementById('powerIndicator'),
+            batteryLevel: document.getElementById('batteryLevel'),
+            batteryBar: document.getElementById('batteryBar'),
+            batteryVoltage: document.getElementById('batteryVoltage'),
+            usbStatus: document.getElementById('usbStatus'),
+            wdtIndicator: document.getElementById('wdtIndicator'),
+            wdtStatus: document.getElementById('wdtStatus'),
+            wdtTimeout: document.getElementById('wdtTimeout'),
+            sampleRate: document.getElementById('sampleRate'),
+            baseLatency: document.getElementById('baseLatency'),
+            outputLatency: document.getElementById('outputLatency')
+        });
+
         function updateKernelStatus(data) {
-            // Kernel indicator
-            const kernelInd = document.getElementById('kernelIndicator');
-            kernelInd.className = 'indicator ' + (isPlaying ? 'active' : '');
-
-            // Uptime
-            if (data.uptime !== undefined) {
-                document.getElementById('uptime').textContent = formatUptime(data.uptime);
-            }
-
-            // RTC
-            if (data.rtc !== undefined) {
-                const date = new Date(data.rtc * 1000);
-                document.getElementById('rtcTime').textContent = date.toLocaleTimeString();
-            }
-
-            // Tasks
-            if (data.taskCount !== undefined) {
-                document.getElementById('taskInfo').textContent =
-                    `${data.taskCount} (${data.taskReady} ready, ${data.taskBlocked} blocked)`;
-            }
-
-            // Context switches
-            if (data.ctxSwitches !== undefined) {
-                document.getElementById('ctxSwitches').textContent = data.ctxSwitches.toLocaleString();
-            }
-
-            // Audio
-            const audioInd = document.getElementById('audioIndicator');
-            audioInd.className = 'indicator ' + (data.audioRunning ? 'active' : '');
-            document.getElementById('engineState').textContent = data.audioRunning ? 'Running' : 'Stopped';
-
-            if (data.bufferCount !== undefined) {
-                document.getElementById('bufferCount').textContent = data.bufferCount.toLocaleString();
-            }
-            if (data.dropCount !== undefined) {
-                const dropEl = document.getElementById('dropCount');
-                dropEl.textContent = data.dropCount;
-                dropEl.className = 'status-value' + (data.dropCount > 0 ? ' warning' : '');
-            }
-
-            // DSP Load
-            if (data.dspLoad !== undefined) {
-                const loadPercent = (data.dspLoad / 100).toFixed(1);
-                document.getElementById('dspLoad').textContent = loadPercent + '%';
-                const bar = document.getElementById('dspLoadBar');
-                bar.style.width = Math.min(100, data.dspLoad / 100) + '%';
-                bar.className = 'load-bar-fill' +
-                    (data.dspLoad > 8000 ? ' critical' : data.dspLoad > 5000 ? ' warning' : '');
-            }
-            if (data.dspPeak !== undefined) {
-                document.getElementById('dspPeak').textContent = (data.dspPeak / 100).toFixed(1) + '%';
-            }
-
-            // MIDI
-            if (data.midiRx !== undefined) {
-                document.getElementById('midiRx').textContent = data.midiRx;
-                const midiInd = document.getElementById('midiIndicator');
-                if (data.midiRx !== lastMidiRx) {
-                    midiInd.className = 'indicator active';
-                    clearTimeout(midiFlashTimeout);
-                    midiFlashTimeout = setTimeout(() => {
-                        midiInd.className = 'indicator';
-                    }, 100);
-                    lastMidiRx = data.midiRx;
-                }
-            }
-            if (data.midiTx !== undefined) {
-                document.getElementById('midiTx').textContent = data.midiTx;
-            }
-
-            // Memory
+            kernelStatus.update(data, isPlaying);
             updateMemoryDisplay(data);
-
-            // Power
-            if (data.batteryPercent !== undefined) {
-                const powerInd = document.getElementById('powerIndicator');
-                powerInd.className = 'indicator ' +
-                    (data.batteryCharging ? 'active' : data.batteryPercent < 20 ? 'warning' : '');
-
-                document.getElementById('batteryLevel').textContent =
-                    data.batteryPercent + '%' + (data.batteryCharging ? ' (Charging)' : '');
-                const batBar = document.getElementById('batteryBar');
-                batBar.style.width = data.batteryPercent + '%';
-                // Battery color based on level
-                const styles = getComputedStyle(document.documentElement);
-                batBar.style.background = data.batteryPercent < 20 ?
-                    (styles.getPropertyValue('--umi-error').trim() || '#e74c3c') :
-                    data.batteryPercent < 50 ?
-                    (styles.getPropertyValue('--umi-warning').trim() || '#f39c12') :
-                    (styles.getPropertyValue('--umi-success').trim() || '#27ae60');
-            }
-            if (data.batteryVoltage !== undefined) {
-                document.getElementById('batteryVoltage').textContent =
-                    (data.batteryVoltage / 1000).toFixed(2) + ' V';
-            }
-            if (data.usbConnected !== undefined) {
-                document.getElementById('usbStatus').textContent = data.usbConnected ? 'Connected' : 'Disconnected';
-            }
-
-            // Watchdog
-            if (data.wdtEnabled !== undefined) {
-                const wdtInd = document.getElementById('wdtIndicator');
-                wdtInd.className = 'indicator ' +
-                    (data.wdtExpired ? 'error' : data.wdtEnabled ? 'active' : '');
-                document.getElementById('wdtStatus').textContent =
-                    data.wdtExpired ? 'EXPIRED!' : data.wdtEnabled ? 'Active' : 'Disabled';
-                document.getElementById('wdtTimeout').textContent =
-                    data.wdtEnabled ? data.wdtTimeout + ' ms' : '--';
-            }
         }
 
         function updateAudioContextStatus() {
+            kernelStatus.updateAudioContext(audioContext);
             if (!audioContext) return;
-
-            document.getElementById('sampleRate').textContent = audioContext.sampleRate + ' Hz';
-            document.getElementById('baseLatency').textContent =
-                audioContext.baseLatency ? (audioContext.baseLatency * 1000).toFixed(2) + ' ms' : 'N/A';
-            document.getElementById('outputLatency').textContent =
-                audioContext.outputLatency ? (audioContext.outputLatency * 1000).toFixed(2) + ' ms' : 'N/A';
 
             if (isPlaying && startTime > 0) {
                 const elapsed = (audioContext.currentTime - startTime);
@@ -2521,19 +2552,10 @@
                 stopBtn.disabled = false;
                 resetBtn.disabled = false;
 
-                // Update processor info
-                if (currentApp) {
-                    document.getElementById('procName').textContent = currentApp.name;
-                    document.getElementById('procVendor').textContent = currentApp.vendor || 'Unknown';
-                    document.getElementById('procVersion').textContent = (currentApp.version || '0.0.0') + ' (' + currentApp.backend + ')';
-                } else {
-                    document.getElementById('procName').textContent = 'UMI Synth';
-                    document.getElementById('procVendor').textContent = 'UMI-OS';
-                    document.getElementById('procVersion').textContent = '1.0.0 (' + currentBackendType + ')';
-                }
-
                 // Enable shell input (only for UMI-OS kernel backend which has full shell support)
-                if (currentBackendType === 'umios') {
+                const isUmios = currentBackendType === BackendType.UMIOS || currentBackendType === 'umios';
+                console.log('Shell enable check: currentBackendType=', currentBackendType, 'isUmios=', isUmios);
+                if (isUmios) {
                     shellInput.disabled = false;
                     document.getElementById('shellIndicator').className = 'indicator active';
                 } else {
@@ -2548,57 +2570,20 @@
             }
         }
 
-        function buildParamUI(params) {
-            paramGrid.innerHTML = '';
-            params.forEach(p => {
+        function buildParamUI(paramList) {
+            // Use ParamControl component for parameter UI
+            paramControl.setParams(paramList);
+
+            // Send initial values to synth via backend
+            const backend = window.currentBackend;
+            paramList.forEach(p => {
                 const initialValue = p.default;
-                const div = document.createElement('div');
-                div.className = 'param';
-                div.dataset.paramId = p.id;
-                div.innerHTML = `
-                    <div class="param-label">
-                        <span class="param-name">${p.name}</span>
-                        <span class="param-value" id="pval-${p.id}">${formatParamValue({...p, value: initialValue})}</span>
-                    </div>
-                    <input type="range"
-                           id="param-${p.id}"
-                           min="${p.min}"
-                           max="${p.max}"
-                           step="${(p.max - p.min) / 100}"
-                           value="${initialValue}">
-                `;
-                paramGrid.appendChild(div);
-
-                workletNode?.port.postMessage({ type: 'set-param', id: p.id, value: initialValue });
-
-                const slider = div.querySelector('input');
-                slider.addEventListener('input', () => {
-                    const value = parseFloat(slider.value);
-                    workletNode?.port.postMessage({ type: 'set-param', id: p.id, value });
-                    document.getElementById(`pval-${p.id}`).textContent = formatParamValue({...p, value});
-                });
-
-                // MIDI Learn click handler
-                div.addEventListener('click', (e) => {
-                    if (midiLearnMode && e.target !== slider) {
-                        selectLearnTarget(p.id, div);
-                    }
-                });
+                if (backend && backend.setParam) {
+                    backend.setParam(p.id, initialValue);
+                } else if (workletNode) {
+                    workletNode.port.postMessage({ type: 'set-param', id: p.id, value: initialValue });
+                }
             });
-
-            // Restore saved MIDI mappings display
-            restoreMappingDisplays();
-        }
-
-        function formatParamValue(p) {
-            const v = p.value;
-            if (p.name === 'Sustain' || p.name === 'Resonance' || p.name === 'Volume') {
-                return (v * 100).toFixed(0) + '%';
-            } else if (p.name === 'Cutoff') {
-                return v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v.toFixed(0) + ' Hz';
-            } else {
-                return v.toFixed(0) + ' ms';
-            }
         }
 
         function stopAudio() {
@@ -2630,18 +2615,23 @@
 
         // Shell functions
         function sendShellCommand(cmd) {
+            console.log('[Shell] sendShellCommand called:', cmd);
             const backend = window.currentBackend;
+            console.log('[Shell] backend=', backend, 'isReady=', isReady, 'backendType=', currentBackendType);
             if (!backend || !isReady) return;
 
-            // Shell is only available for WASM backend
-            if (currentBackendType !== BackendType.WASM) {
+            // Shell is only available for UMI-OS backend
+            if (currentBackendType !== BackendType.UMIOS && currentBackendType !== 'umios') {
                 appendShellResponse('Shell not available in ' + currentBackendType + ' mode\n');
                 return;
             }
             shellHistory.push(cmd);
             historyIndex = shellHistory.length;
             if (backend.sendShellCommand) {
+                console.log('[Shell] Calling backend.sendShellCommand');
                 backend.sendShellCommand(cmd);
+            } else {
+                console.warn('[Shell] backend.sendShellCommand not available');
             }
             appendShellLine('<span class="prompt">umi$</span> ' + escapeHtml(cmd));
         }
@@ -2764,14 +2754,6 @@
             keyboard.enable();
         }
 
-        function buildKeybindings() {
-            for (const [key, info] of Object.entries(keyMap)) {
-                const el = document.createElement('div');
-                el.className = 'keybind';
-                el.innerHTML = `<kbd>${key.toUpperCase()}</kbd><span class="note">${info.label}</span>`;
-                keybindingsEl.appendChild(el);
-            }
-        }
 
         function startWaveformDisplay() {
             if (!analyzerNode) {
@@ -2820,13 +2802,19 @@
         function startStatusUpdates() {
             setInterval(() => {
                 updateAudioContextStatus();
-                // Request kernel state from worklet
-                workletNode?.port.postMessage({ type: 'get-kernel-state' });
+                // Request kernel state from backend
+                const backend = window.currentBackend;
+                if (backend && backend.requestKernelState) {
+                    backend.requestKernelState();
+                }
             }, 100);
         }
 
         document.getElementById('resetPeakBtn').addEventListener('click', () => {
-            workletNode?.port.postMessage({ type: 'reset-dsp-peak' });
+            const backend = window.currentBackend;
+            if (backend && backend.resetDspPeak) {
+                backend.resetDspPeak();
+            }
         });
 
         // Shell input handling
@@ -2855,93 +2843,30 @@
             }
         });
 
-        // HW Simulation Settings
-        const hwPresets = {
-            'STM32F4': {
-                cpuFreq: 168, isrOverhead: 100, baseCycles: 20, voiceCycles: 200,
-                sramKb: 128, heapKb: 48, dataBssKb: 8, mainStackKb: 2,
-                taskStackBytes: 1024, taskCount: 4, dmaKb: 2, sharedKb: 8,
-                flashKb: 512, flashUsedKb: 64
+        // ==================== HW Simulation Settings ====================
+        // Using HwSettings module from js/hw-settings.js
+        const hwSettings = new HwSettings({}, {
+            onApply: (settings) => {
+                const backend = window.currentBackend;
+                if (backend && backend.setHwSettings && isReady) {
+                    backend.setHwSettings(settings);
+                }
             },
-            'RP2040': {
-                cpuFreq: 133, isrOverhead: 80, baseCycles: 15, voiceCycles: 180,
-                sramKb: 264, heapKb: 64, dataBssKb: 16, mainStackKb: 4,
-                taskStackBytes: 2048, taskCount: 2, dmaKb: 4, sharedKb: 16,
-                flashKb: 2048, flashUsedKb: 128
-            },
-            'ESP32': {
-                cpuFreq: 240, isrOverhead: 150, baseCycles: 25, voiceCycles: 250,
-                sramKb: 520, heapKb: 128, dataBssKb: 32, mainStackKb: 8,
-                taskStackBytes: 4096, taskCount: 8, dmaKb: 8, sharedKb: 32,
-                flashKb: 4096, flashUsedKb: 256
-            },
-        };
+            log: log
+        });
 
         function applyHwPreset(preset) {
-            const p = hwPresets[preset];
-            if (!p) return;
-            // CPU
-            document.getElementById('hwCpuFreq').value = p.cpuFreq;
-            document.getElementById('hwIsrOverhead').value = p.isrOverhead;
-            document.getElementById('hwBaseCycles').value = p.baseCycles;
-            document.getElementById('hwVoiceCycles').value = p.voiceCycles;
-            // Memory
-            document.getElementById('hwSramKb').value = p.sramKb;
-            document.getElementById('hwHeapKb').value = p.heapKb;
-            document.getElementById('hwDataBssKb').value = p.dataBssKb;
-            document.getElementById('hwMainStackKb').value = p.mainStackKb;
-            document.getElementById('hwTaskStackBytes').value = p.taskStackBytes;
-            document.getElementById('hwTaskCount').value = p.taskCount;
-            document.getElementById('hwDmaKb').value = p.dmaKb;
-            document.getElementById('hwSharedKb').value = p.sharedKb;
-            // Flash
-            document.getElementById('hwFlashKb').value = p.flashKb;
-            document.getElementById('hwFlashUsedKb').value = p.flashUsedKb;
-            applyHwSettings();
-            log(`Applied HW preset: ${preset} (${p.cpuFreq}MHz, ${p.sramKb}KB RAM)`);
+            hwSettings.applyPreset(preset);
         }
 
         function applyHwSettings() {
             if (!workletNode || !isReady) return;
-
-            const sramKb = parseInt(document.getElementById('hwSramKb').value) || 128;
-            const settings = {
-                // CPU
-                cpuFreq: parseInt(document.getElementById('hwCpuFreq').value) || 168,
-                isrOverhead: parseInt(document.getElementById('hwIsrOverhead').value) || 100,
-                baseCycles: parseInt(document.getElementById('hwBaseCycles').value) || 20,
-                voiceCycles: parseInt(document.getElementById('hwVoiceCycles').value) || 200,
-                // Memory (use names expected by worklet)
-                sramTotalKb: sramKb,
-                heapSizeKb: parseInt(document.getElementById('hwHeapKb').value) || 48,
-                dataBssKb: parseInt(document.getElementById('hwDataBssKb').value) || 8,
-                mainStackKb: parseInt(document.getElementById('hwMainStackKb').value) || 2,
-                taskStackBytes: parseInt(document.getElementById('hwTaskStackBytes').value) || 1024,
-                taskCount: parseInt(document.getElementById('hwTaskCount').value) || 4,
-                dmaBufferKb: parseInt(document.getElementById('hwDmaKb').value) || 2,
-                sharedMemKb: parseInt(document.getElementById('hwSharedKb').value) || 8,
-                // Flash
-                flashTotalKb: parseInt(document.getElementById('hwFlashKb').value) || 512,
-                flashUsedKb: parseInt(document.getElementById('hwFlashUsedKb').value) || 64,
-                // Peripherals
-                batteryPercent: parseInt(document.getElementById('hwBatteryPercent').value) || 100,
-                batteryVoltage: parseInt(document.getElementById('hwBatteryVoltage').value) || 4200,
-                batteryCharging: document.getElementById('hwBatteryCharging').checked,
-                usbConnected: document.getElementById('hwUsbConnected').checked,
-                wdtEnabled: document.getElementById('hwWdtEnabled').checked,
-                wdtTimeout: parseInt(document.getElementById('hwWdtTimeout').value) || 0,
-            };
-
-            workletNode.port.postMessage({ type: 'hw-settings', settings });
-            log(`HW settings applied: CPU=${settings.cpuFreq}MHz, RAM=${sramKb}KB`);
+            hwSettings.apply();
         }
 
         // Update battery voltage based on percent slider
         document.getElementById('hwBatteryPercent').addEventListener('input', (e) => {
-            const percent = parseInt(e.target.value);
-            // Linear approximation: 3000mV (0%) to 4200mV (100%)
-            const voltage = 3000 + Math.round((percent / 100) * 1200);
-            document.getElementById('hwBatteryVoltage').value = voltage;
+            hwSettings.updateBatteryVoltage(parseInt(e.target.value));
         });
 
         document.getElementById('presetSTM32F4').addEventListener('click', () => applyHwPreset('STM32F4'));
@@ -2951,7 +2876,7 @@
 
         // MIDI Learn button handler
         midiLearnBtn.addEventListener('click', () => {
-            if (midiLearnMode) {
+            if (paramControl.learnMode) {
                 stopMidiLearn();
             } else {
                 startMidiLearn();
@@ -2960,122 +2885,256 @@
 
         // Cancel MIDI Learn on Escape key
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && midiLearnMode) {
+            if (e.key === 'Escape' && paramControl.learnMode) {
                 stopMidiLearn();
             }
         });
 
         buildKeyboard();
-        buildKeybindings();
         startBtn.addEventListener('click', initAudio);
         stopBtn.addEventListener('click', stopAudio);
         resetBtn.addEventListener('click', resetSystem);
         // Keyboard event handlers are now managed by Keyboard component
 
-        loadMidiMappings();
-
-        // Initialize backend button states based on currentBackendType
-        document.querySelectorAll('.backend-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.backend === currentBackendType);
-        });
-
         // Load applications then check WASM
         loadApplications().then(() => {
-            // If app was loaded from URL param, update backend buttons
-            if (currentApp) {
-                document.querySelectorAll('.backend-btn').forEach(btn => {
-                    btn.classList.toggle('active', btn.dataset.backend === currentApp.backend);
-                });
-            }
             checkWasm();
         });
 
         initWebMIDI();
         initAudioDevices();
 
-        // ==================== Auto Performance ====================
-        let autoPlayInterval = null;
-        let autoPlayStep = 0;
-
-        const autoPatterns = {
-            arpeggio: {
-                notes: [0, 4, 7, 12, 7, 4],  // Major arpeggio
-                duration: 0.25  // beats
-            },
-            chord: {
-                chords: [[0,4,7], [5,9,12], [7,11,14], [0,4,7]],  // I-IV-V-I
-                duration: 1
-            },
-            random: {
-                range: 24,
-                duration: 0.125
-            },
-            scale: {
-                notes: [0, 2, 4, 5, 7, 9, 11, 12, 11, 9, 7, 5, 4, 2],
-                duration: 0.125
-            }
+        // ==================== Step Sequencer ====================
+        const seqState = {
+            steps: [],  // Each step: { active: bool, note: number, gate: number (0-1) }
+            playing: false,
+            currentStep: 0,
+            intervalId: null,
+            gateTimeoutId: null,
+            baseNote: 60,  // C4
+            lastPlayedNote: null,
+            // Drag state
+            dragStep: null,
+            dragStartY: 0,
+            dragStartX: 0,
+            dragStartNote: 0,
+            dragStartGate: 0
         };
 
-        function startAutoPlay() {
-            if (autoPlayInterval) return;
+        function initSteps(count) {
+            seqState.steps = [];
+            for (let i = 0; i < count; i++) {
+                seqState.steps.push({ active: false, note: 60, gate: 0.5 });
+            }
+        }
+
+        function buildSeqGrid() {
+            const grid = document.getElementById('seqGrid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            const numSteps = parseInt(document.getElementById('seqSteps')?.value) || 16;
+            initSteps(numSteps);
+
+            for (let i = 0; i < numSteps; i++) {
+                const step = document.createElement('div');
+                step.className = 'seq-step' + (i % 4 === 0 ? ' beat-marker' : '');
+                step.dataset.step = i;
+
+                // Note label
+                const label = document.createElement('span');
+                label.className = 'seq-note-label';
+                step.appendChild(label);
+
+                // Gate bar
+                const gateBar = document.createElement('div');
+                gateBar.className = 'seq-gate-bar';
+                step.appendChild(gateBar);
+
+                // Mouse/touch events for drag editing
+                step.addEventListener('mousedown', (e) => startStepDrag(i, e));
+                step.addEventListener('touchstart', (e) => startStepDrag(i, e.touches[0]));
+
+                grid.appendChild(step);
+            }
+
+            document.addEventListener('mousemove', handleStepDrag);
+            document.addEventListener('mouseup', endStepDrag);
+            document.addEventListener('touchmove', (e) => handleStepDrag(e.touches[0]));
+            document.addEventListener('touchend', endStepDrag);
+
+            updateSeqGrid();
+        }
+
+        function startStepDrag(index, e) {
+            const step = seqState.steps[index];
+            seqState.dragStep = index;
+            seqState.dragStartY = e.clientY;
+            seqState.dragStartX = e.clientX;
+            seqState.dragStartNote = step.note;
+            seqState.dragStartGate = step.gate;
+            seqState.dragMoved = false;
+        }
+
+        function handleStepDrag(e) {
+            if (seqState.dragStep === null) return;
+
+            const dy = seqState.dragStartY - e.clientY;  // Up = positive
+            const dx = e.clientX - seqState.dragStartX;  // Right = positive
+
+            // Threshold for detecting movement
+            if (Math.abs(dy) > 3 || Math.abs(dx) > 3) {
+                seqState.dragMoved = true;
+            }
+
+            const step = seqState.steps[seqState.dragStep];
+
+            // Vertical: pitch (5px per semitone)
+            const noteDelta = Math.round(dy / 5);
+            step.note = Math.max(36, Math.min(84, seqState.dragStartNote + noteDelta));
+
+            // Horizontal: gate length (50px for full range)
+            const gateDelta = dx / 50;
+            step.gate = Math.max(0.1, Math.min(1.0, seqState.dragStartGate + gateDelta));
+
+            updateSeqGrid();
+        }
+
+        function endStepDrag() {
+            if (seqState.dragStep !== null) {
+                // If didn't move, toggle active state
+                if (!seqState.dragMoved) {
+                    const step = seqState.steps[seqState.dragStep];
+                    step.active = !step.active;
+                    updateSeqGrid();
+                }
+                seqState.dragStep = null;
+            }
+        }
+
+        function noteToName(note) {
+            const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+            const octave = Math.floor(note / 12) - 1;
+            return names[note % 12] + octave;
+        }
+
+        function updateSeqGrid() {
+            const grid = document.getElementById('seqGrid');
+            if (!grid) return;
+            const stepEls = grid.querySelectorAll('.seq-step');
+
+            stepEls.forEach((el, i) => {
+                const step = seqState.steps[i];
+                el.classList.toggle('active', step.active);
+                el.classList.toggle('playing', seqState.playing && i === seqState.currentStep);
+
+                // Update note label
+                const label = el.querySelector('.seq-note-label');
+                if (label) {
+                    label.textContent = step.active ? noteToName(step.note) : '';
+                }
+
+                // Update gate bar
+                const gateBar = el.querySelector('.seq-gate-bar');
+                if (gateBar) {
+                    gateBar.style.width = step.active ? (step.gate * 100) + '%' : '0%';
+                }
+
+                // Visual pitch indication (vertical position)
+                const pitchOffset = (step.note - 60) * 1.5;  // 1.5px per semitone from C4
+                el.style.setProperty('--pitch-offset', Math.max(-15, Math.min(15, pitchOffset)) + 'px');
+            });
+        }
+
+        function seqTick() {
+            const numSteps = seqState.steps.length;
+            const tempo = parseInt(document.getElementById('seqTempo')?.value) || 120;
+            const msPerStep = 60000 / tempo / 4;
+
+            // Note off for previous note
+            if (seqState.lastPlayedNote !== null) {
+                noteOff(seqState.lastPlayedNote);
+                seqState.lastPlayedNote = null;
+            }
+            if (seqState.gateTimeoutId) {
+                clearTimeout(seqState.gateTimeoutId);
+                seqState.gateTimeoutId = null;
+            }
+
+            // Advance step
+            seqState.currentStep = (seqState.currentStep + 1) % numSteps;
+            const step = seqState.steps[seqState.currentStep];
+
+            // Note on for current step
+            if (step.active) {
+                noteOn(step.note);
+                seqState.lastPlayedNote = step.note;
+
+                // Schedule note off based on gate
+                const gateMs = msPerStep * step.gate * 0.9;  // 90% max to avoid overlap
+                seqState.gateTimeoutId = setTimeout(() => {
+                    if (seqState.lastPlayedNote === step.note) {
+                        noteOff(step.note);
+                        seqState.lastPlayedNote = null;
+                    }
+                }, gateMs);
+            }
+
+            updateSeqGrid();
+
+            // Stop at end if not looping
+            if (!document.getElementById('seqLoop')?.checked && seqState.currentStep === 0) {
+                stopSequencer();
+            }
+        }
+
+        function startSequencer() {
+            if (seqState.playing) return;
             if (!isPlaying) {
-                log('Start audio first to use auto play', 'warn');
+                log('Start audio first to use sequencer', 'warn');
                 return;
             }
 
-            const pattern = document.getElementById('autoPatternSelect')?.value || 'arpeggio';
-            const tempo = parseInt(document.getElementById('autoTempo')?.value) || 120;
-            const baseNote = parseInt(document.getElementById('autoBaseNote')?.value) || 48;
-            const beatMs = 60000 / tempo;
+            const tempo = parseInt(document.getElementById('seqTempo')?.value) || 120;
+            const msPerStep = 60000 / tempo / 4;  // 16th notes
 
-            autoPlayStep = 0;
-            const patternData = autoPatterns[pattern];
-            const intervalMs = beatMs * patternData.duration;
+            seqState.playing = true;
+            seqState.currentStep = -1;
+            seqState.intervalId = setInterval(seqTick, msPerStep);
 
-            autoPlayInterval = setInterval(() => {
-                if (pattern === 'arpeggio' || pattern === 'scale') {
-                    const notes = patternData.notes;
-                    const prevNote = baseNote + notes[(autoPlayStep - 1 + notes.length) % notes.length];
-                    const note = baseNote + notes[autoPlayStep % notes.length];
-                    synthWorklet?.port.postMessage({ type: 'note-off', note: prevNote });
-                    synthWorklet?.port.postMessage({ type: 'note-on', note, velocity: 100 });
-                    autoPlayStep++;
-                } else if (pattern === 'chord') {
-                    const chords = patternData.chords;
-                    const prevChord = chords[(autoPlayStep - 1 + chords.length) % chords.length];
-                    const chord = chords[autoPlayStep % chords.length];
-                    prevChord.forEach(n => synthWorklet?.port.postMessage({ type: 'note-off', note: baseNote + n }));
-                    chord.forEach(n => synthWorklet?.port.postMessage({ type: 'note-on', note: baseNote + n, velocity: 100 }));
-                    autoPlayStep++;
-                } else if (pattern === 'random') {
-                    const note = baseNote + Math.floor(Math.random() * patternData.range);
-                    synthWorklet?.port.postMessage({ type: 'note-on', note, velocity: 80 + Math.floor(Math.random() * 47) });
-                    setTimeout(() => {
-                        synthWorklet?.port.postMessage({ type: 'note-off', note });
-                    }, intervalMs * 0.8);
-                }
-            }, intervalMs);
-
-            document.getElementById('autoPlayBtn').disabled = true;
-            document.getElementById('autoStopBtn').disabled = false;
-            log(`Auto play started: ${pattern} at ${tempo} BPM`);
+            document.getElementById('seqPlayBtn').disabled = true;
+            document.getElementById('seqStopBtn').disabled = false;
+            updateSeqGrid();
         }
 
-        function stopAutoPlay() {
-            if (autoPlayInterval) {
-                clearInterval(autoPlayInterval);
-                autoPlayInterval = null;
-                // All notes off
-                for (let n = 0; n < 128; n++) {
-                    synthWorklet?.port.postMessage({ type: 'note-off', note: n });
-                }
+        function stopSequencer() {
+            if (!seqState.playing) return;
+
+            clearInterval(seqState.intervalId);
+            if (seqState.gateTimeoutId) clearTimeout(seqState.gateTimeoutId);
+            seqState.playing = false;
+
+            // Note off
+            if (seqState.lastPlayedNote !== null) {
+                noteOff(seqState.lastPlayedNote);
+                seqState.lastPlayedNote = null;
             }
-            document.getElementById('autoPlayBtn').disabled = false;
-            document.getElementById('autoStopBtn').disabled = true;
+
+            document.getElementById('seqPlayBtn').disabled = false;
+            document.getElementById('seqStopBtn').disabled = true;
+            updateSeqGrid();
         }
 
-        document.getElementById('autoPlayBtn')?.addEventListener('click', startAutoPlay);
-        document.getElementById('autoStopBtn')?.addEventListener('click', stopAutoPlay);
+        function clearSequencer() {
+            const numSteps = seqState.steps.length;
+            initSteps(numSteps);
+            updateSeqGrid();
+        }
+
+        document.getElementById('seqPlayBtn')?.addEventListener('click', startSequencer);
+        document.getElementById('seqStopBtn')?.addEventListener('click', stopSequencer);
+        document.getElementById('seqClear')?.addEventListener('click', clearSequencer);
+        document.getElementById('seqSteps')?.addEventListener('change', buildSeqGrid);
+        buildSeqGrid();
 
         // Log clear button
         document.getElementById('logClearBtn')?.addEventListener('click', () => {
@@ -3091,7 +3150,6 @@
         // ==================== Theme System ====================
         const themeStyle = document.getElementById('theme-styles');
         const themeToggle = document.getElementById('themeToggle');
-        const themeIcon = themeToggle.querySelector('.theme-icon');
 
         // Available themes
         const themes = {
@@ -3108,7 +3166,7 @@
 
             currentThemeName = themeName;
             themeStyle.textContent = getCompleteStyles(themeConfig.theme);
-            themeIcon.textContent = themeConfig.icon;
+            themeToggle.textContent = themeConfig.icon;
             themeToggle.title = `Switch to ${themeConfig.next} theme`;
 
             // Save preference

@@ -94,23 +94,31 @@ local umim_exported_funcs = "[" .. table.concat({
 -- Common WASM settings
 -- AudioWorklet loads WASM directly via WebAssembly.instantiate()
 -- Uses -O3 which minifies imports to 'a' module (matches synth_sim_worklet.js)
+-- NOTE: --no-entry is required for standalone WASM (no main function)
+--       -sSTANDALONE_WASM=1 removes env/wasi dependencies
 local wasm_cxflags = {"-fno-exceptions", "-fno-rtti", "-O3"}
 local wasm_ldflags = {
     "-sWASM=1",
     "-sALLOW_MEMORY_GROWTH=0",
     "-sSTACK_SIZE=65536",
     "-sINITIAL_MEMORY=1048576",
-    "-sERROR_ON_UNDEFINED_SYMBOLS=0"  -- Allow undefined imports (worklet provides them)
+    "-sERROR_ON_UNDEFINED_SYMBOLS=0",  -- Allow undefined imports (worklet provides them)
+    "-sSTANDALONE_WASM=1",
+    "--no-entry"
 }
 
 -- UMIM-specific flags: Minimal Emscripten WASM for AudioWorklet
 -- Uses same flags as UMI-OS backend for consistency
+-- NOTE: --no-entry is required for standalone WASM (no main function)
+--       -sEXPORT_KEEPALIVE=1 prevents export name minification with -O3
 local umim_ldflags = {
     "-sWASM=1",
     "-sALLOW_MEMORY_GROWTH=0",
     "-sSTACK_SIZE=65536",
     "-sINITIAL_MEMORY=1048576",
-    "-sERROR_ON_UNDEFINED_SYMBOLS=0"
+    "-sERROR_ON_UNDEFINED_SYMBOLS=0",
+    "-sEXPORT_KEEPALIVE=1",
+    "--no-entry"
 }
 
 -- UMIM Backend (lightweight DSP-only, no kernel)

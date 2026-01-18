@@ -95,7 +95,10 @@ UMI_WEB_EXPORT float umi_get_param_default(uint32_t id) {
     auto* desc = umi::synth::SynthProcessor::get_param_descriptor(id);
     return desc ? desc->default_value : 0.0f;
 }
-UMI_WEB_EXPORT uint8_t umi_get_param_curve(uint32_t) { return 0; }  // Linear by default
+UMI_WEB_EXPORT uint8_t umi_get_param_curve(uint32_t id) {
+    auto* desc = umi::synth::SynthProcessor::get_param_descriptor(id);
+    return desc ? static_cast<uint8_t>(desc->effective_curve()) : 0;
+}
 UMI_WEB_EXPORT uint16_t umi_get_param_id(uint32_t id) {
     auto* desc = umi::synth::SynthProcessor::get_param_descriptor(id);
     return desc ? static_cast<uint16_t>(desc->id) : 0;
