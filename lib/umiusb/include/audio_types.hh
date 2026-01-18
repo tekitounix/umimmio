@@ -107,7 +107,9 @@ private:
 template<UacVersion Version = UacVersion::Uac1>
 class FeedbackCalculator {
 public:
-    static constexpr uint32_t MEASUREMENT_WINDOW = 64;  // SOF frames to average
+    // Use power-of-2 window for efficient shift-based calculation
+    static constexpr uint32_t MEASUREMENT_WINDOW = 32;  // SOF frames to average
+    static constexpr uint32_t WINDOW_SHIFT = 5;         // log2(32) = 5
 
     // UAC1 FS: 10.14 format, UAC2: 16.16 format
     static constexpr uint32_t FEEDBACK_SHIFT = (Version == UacVersion::Uac1) ? 14 : 16;
@@ -165,17 +167,20 @@ public:
 
 private:
     void update_feedback() {
-        if (sof_count_ > 0 && accumulated_samples_ > 0) {
-            // Calculate actual rate: samples / frames * (1 << SHIFT)
-            uint64_t measured = (static_cast<uint64_t>(accumulated_samples_) << FEEDBACK_SHIFT) / sof_count_;
+        if (accumulated_samples_ > 0) {
+            // Calculate feedback using shift instead of division
+            // measured = (samples << FEEDBACK_SHIFT) / WINDOW
+            //          = samples << (FEEDBACK_SHIFT - WINDOW_SHIFT)
+            uint32_t measured = accumulated_samples_ << (FEEDBACK_SHIFT - WINDOW_SHIFT);
 
             // Smooth the feedback to avoid sudden jumps
             // Use exponential moving average: new = old * 7/8 + measured * 1/8
-            current_feedback_ = (current_feedback_ * 7 + static_cast<uint32_t>(measured)) / 8;
+            // Implemented with shifts: (old * 7 + measured) >> 3
+            current_feedback_ = ((current_feedback_ * 7) + measured) >> 3;
 
             // Clamp to ±1% of nominal to prevent runaway
-            uint32_t min_fb = nominal_feedback_ * 99 / 100;
-            uint32_t max_fb = nominal_feedback_ * 101 / 100;
+            uint32_t min_fb = nominal_feedback_ - (nominal_feedback_ / 100);
+            uint32_t max_fb = nominal_feedback_ + (nominal_feedback_ / 100);
             if (current_feedback_ < min_fb) current_feedback_ = min_fb;
             if (current_feedback_ > max_fb) current_feedback_ = max_fb;
         }
