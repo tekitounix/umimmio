@@ -37,7 +37,7 @@ class CicDecimator {
     int32_t dc_prev_in_ = 0;   // x[n-1]
     int32_t dc_prev_out_ = 0;  // y[n-1]
 
-    int32_t gain_ = 4;  // Gain to compensate for OUTPUT_SHIFT=6
+    int32_t gain_ = 2;  // Gain to compensate for OUTPUT_SHIFT=6
 
     // Warmup counter to allow DC filter to stabilize
     uint32_t warmup_samples_ = 0;
