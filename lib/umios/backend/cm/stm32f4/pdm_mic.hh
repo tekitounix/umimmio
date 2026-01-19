@@ -37,7 +37,7 @@ class CicDecimator {
     int32_t dc_prev_in_ = 0;   // x[n-1]
     int32_t dc_prev_out_ = 0;  // y[n-1]
 
-    int32_t gain_ = 1;  // Lower gain for OUTPUT_SHIFT=6 (higher resolution)
+    int32_t gain_ = 4;  // Gain to compensate for OUTPUT_SHIFT=6
 
     // Warmup counter to allow DC filter to stabilize
     uint32_t warmup_samples_ = 0;
@@ -62,13 +62,9 @@ public:
     bool process(uint16_t pdm_word, int16_t& out) {
         bool sample_ready = false;
 
-        // Byte-swap the PDM word (like HTONS in BSP)
-        // STM32 is little-endian, but PDM data comes in big-endian byte order
-        pdm_word = static_cast<uint16_t>((pdm_word >> 8) | (pdm_word << 8));
-
-        // Process bits LSB-first (bit 0 = first/oldest PDM sample)
-        // BSP uses PDM_FILTER_BIT_ORDER_LSB with I2S_STANDARD_LSB
-        for (int bit = 0; bit < 16; ++bit) {
+        // Process bits MSB-first (bit 15 = first/oldest PDM sample)
+        // I2S receives data MSB-first in the 16-bit word
+        for (int bit = 15; bit >= 0; --bit) {
             // PDM bit: 0 -> -1, 1 -> +1
             int32_t input = ((pdm_word >> bit) & 1) ? 1 : -1;
 
