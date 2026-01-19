@@ -53,9 +53,11 @@ __attribute__((section(".dma_buffer")))
 int16_t audio_buf1[BUFFER_SIZE * 2];
 
 // PDM microphone DMA buffers
-// 64 samples at 48kHz = 1.33ms, PDM at 2.048MHz = ~2730 PDM bits = ~171 x 16-bit words
-// Round up to 256 for double buffering headroom
-constexpr uint32_t PDM_BUF_SIZE = 256;
+// I2S2 clock = ~1.024MHz (from 86MHz PLLI2S / prescaler 42 * 2)
+// PDM: 128 x 16-bit words = 2048 bits at 1.024MHz = 2ms of PDM data
+// After 64x CIC decimation: 2048/64 = 32 PCM samples at 16kHz
+// Smaller buffer = more frequent interrupts = smoother data flow to USB
+constexpr uint32_t PDM_BUF_SIZE = 128;
 
 __attribute__((section(".dma_buffer")))
 uint16_t pdm_buf0[PDM_BUF_SIZE];
@@ -64,14 +66,13 @@ __attribute__((section(".dma_buffer")))
 uint16_t pdm_buf1[PDM_BUF_SIZE];
 
 // PCM buffer for decimated audio (from PDM)
-// Each 64 PDM words -> ~1 PCM sample (64x decimation)
-// So 256 PDM words -> ~4 PCM samples, but we accumulate over multiple DMA transfers
-constexpr uint32_t PCM_BUF_SIZE = 128;
+// 128 PDM words * 16 bits = 2048 PDM bits / 64 decimation = 32 PCM samples at 16kHz
+constexpr uint32_t PCM_BUF_SIZE = 64;  // Extra headroom
 int16_t pcm_buf[PCM_BUF_SIZE];
 
-// Resampled buffer (32kHz -> 48kHz)
-// 3:2 ratio means 128 * 3/2 = 192 max
-constexpr uint32_t RESAMPLED_BUF_SIZE = 192;
+// Resampled buffer (16kHz -> 48kHz)
+// 3:1 ratio means 32 * 3 = 96 max
+constexpr uint32_t RESAMPLED_BUF_SIZE = 128;
 int16_t resampled_buf[RESAMPLED_BUF_SIZE];
 
 // ============================================================================
@@ -110,13 +111,13 @@ CS43L22 codec(i2c1);
 
 // USB stack instances (umiusb) - using AudioInterface class
 umiusb::Stm32FsHal usb_hal;
-// UAC1, 48kHz stereo Full Duplex (Audio IN + OUT)
-umiusb::AudioFullDuplex48k usb_audio;
+// UAC1, 48kHz stereo Audio IN Only (microphone)
+umiusb::AudioInOnly48k usb_audio;
 umiusb::Device<umiusb::Stm32FsHal, decltype(usb_audio)> usb_device(
     usb_hal, usb_audio,
     {
         .vendor_id = 0x1209,
-        .product_id = 0x0001,
+        .product_id = 0x0005,  // Changed to avoid macOS caching old descriptor
         .device_version = 0x0100,
         .manufacturer_idx = 1,
         .product_idx = 2,
@@ -128,13 +129,41 @@ umiusb::Device<umiusb::Stm32FsHal, decltype(usb_audio)> usb_device(
 PdmMic pdm_mic;
 DmaPdm dma_pdm;
 CicDecimator cic_decimator;
-Resampler32to48 resampler;
+Resampler16to48 resampler;  // 16kHz (from 64x CIC) -> 48kHz (USB Audio)
 
 // Synth engine
 umi::synth::PolySynth synth;
 
 // LED state (for activity indication)
 volatile uint32_t led_counter = 0;
+
+// Debug counters for PDM microphone
+volatile uint32_t dbg_pdm_dma_count = 0;      // DMA interrupt count
+volatile uint32_t dbg_pdm_pcm_count = 0;      // PCM samples from CIC
+volatile uint32_t dbg_pdm_resampled_count = 0; // Resampled samples
+volatile int16_t dbg_pdm_max_sample = 0;      // Max PCM sample value
+volatile uint16_t dbg_pdm_raw0 = 0;           // First raw PDM word
+volatile uint16_t dbg_pdm_raw1 = 0;           // Second raw PDM word
+
+// Debug counters for USB Audio IN
+volatile uint32_t dbg_usb_in_write_count = 0;   // write_audio_in() call count
+volatile uint32_t dbg_usb_in_streaming = 0;     // is_audio_in_streaming() state
+volatile uint32_t dbg_usb_in_written = 0;       // Frames actually written to ring buffer
+volatile int16_t dbg_usb_in_first_sample = 0;   // First sample being sent
+
+// Persistent debug counters (survives soft reset) - placed in .noinit section
+__attribute__((section(".noinit")))
+volatile uint32_t dbg_persist_set_interface_count;  // SetInterface count since power-on
+__attribute__((section(".noinit")))
+volatile uint32_t dbg_persist_audio_in_alt1_count;  // Audio IN Alt=1 count
+__attribute__((section(".noinit")))
+volatile uint32_t dbg_persist_sof_count;            // SOF count
+__attribute__((section(".noinit")))
+volatile uint32_t dbg_persist_send_audio_in_count;  // send_audio_in() call count
+__attribute__((section(".noinit")))
+volatile uint32_t dbg_persist_ep3_write_count;      // EP3 write count
+__attribute__((section(".noinit")))
+volatile uint32_t dbg_persist_magic;                // Magic value to detect fresh boot (0xDEADBEEF)
 
 // PLLI2S configuration for I2S clock
 void init_plli2s() {
@@ -203,10 +232,12 @@ void init_gpio() {
     gpio_c.config_af(12, GPIO::AF6, GPIO::SPEED_HIGH);  // SD
     gpio_a.config_af(4, GPIO::AF6, GPIO::SPEED_HIGH);   // WS
 
-    // I2S2 (PDM Microphone): PB10 (CLK), PC3 (DOUT)
+    // I2S2 (PDM Microphone): PB10 (CLK), PC3 (SD)
     // STM32F4-Discovery: MP45DT02 MEMS microphone
+    // PC3 = I2S2_SD (AF5) - NOT I2S2ext_SD!
+    // I2S2 in Master RX mode receives data on SD pin
     gpio_b.config_af(10, GPIO::AF5, GPIO::SPEED_HIGH);  // I2S2_CK - Clock to mic
-    gpio_c.config_af(3, GPIO::AF5, GPIO::SPEED_HIGH);   // I2S2_SD - PDM data from mic
+    gpio_c.config_af(3, GPIO::AF5, GPIO::SPEED_HIGH);   // I2S2_SD - PDM data from mic (AF5)
 
     // USB OTG FS: PA11 (DM), PA12 (DP)
     gpio_a.config_af(11, GPIO::AF10, GPIO::SPEED_HIGH);
@@ -296,6 +327,7 @@ void init_usb() {
     usb_audio.on_audio_in_change = [](bool streaming) {
         if (streaming) {
             gpio_d.set(13);   // Orange LED ON when mic streaming starts
+            dbg_persist_audio_in_alt1_count = dbg_persist_audio_in_alt1_count + 1;  // Track SetInterface(Alt=1)
         } else {
             gpio_d.reset(13); // Orange LED OFF when mic streaming stops
         }
@@ -388,25 +420,67 @@ extern "C" void DMA1_Stream3_IRQHandler() {
     // PDM microphone DMA transfer complete
     if (dma_pdm.transfer_complete()) {
         dma_pdm.clear_tc();
+        dbg_pdm_dma_count = dbg_pdm_dma_count + 1;
 
         // Get the buffer that just completed (not the one currently being filled)
         uint16_t* pdm_data = (dma_pdm.current_buffer() == 0) ? pdm_buf1 : pdm_buf0;
 
-        // Decimate PDM to PCM (2.048MHz -> 32kHz)
-        uint32_t pcm_count = cic_decimator.process_buffer(pdm_data, PDM_BUF_SIZE, pcm_buf, PCM_BUF_SIZE);
+        // Debug: capture raw PDM data
+        dbg_pdm_raw0 = pdm_data[0];
+        dbg_pdm_raw1 = pdm_data[1];
 
-        // Resample 32kHz -> 48kHz
+        // Decimate PDM to PCM (1.024MHz PDM -> 16kHz PCM via 64x CIC)
+        uint32_t pcm_count = cic_decimator.process_buffer(pdm_data, PDM_BUF_SIZE, pcm_buf, PCM_BUF_SIZE);
+        dbg_pdm_pcm_count = pcm_count;
+
+        // Debug: find max sample value
+        for (uint32_t i = 0; i < pcm_count; ++i) {
+            int16_t abs_val = pcm_buf[i] < 0 ? -pcm_buf[i] : pcm_buf[i];
+            if (abs_val > dbg_pdm_max_sample) {
+                dbg_pdm_max_sample = abs_val;
+            }
+        }
+
+        // Resample 16kHz -> 48kHz (3x)
         if (pcm_count > 0) {
             uint32_t resampled_count = resampler.process(pcm_buf, pcm_count, resampled_buf);
+            dbg_pdm_resampled_count = resampled_count;
+
+            // Debug: track streaming state
+            dbg_usb_in_streaming = usb_audio.is_audio_in_streaming() ? 1 : 0;
 
             // Convert mono to stereo and send to USB Audio IN buffer
             if (resampled_count > 0 && usb_audio.is_audio_in_streaming()) {
+                dbg_usb_in_write_count = dbg_usb_in_write_count + 1;
                 int16_t stereo_buf[RESAMPLED_BUF_SIZE * 2];
+#if 1  // Test tone: 1kHz sine wave to debug USB Audio IN path
+                static uint32_t test_phase = 0;
+                constexpr uint32_t PHASE_INC = (1000 * 65536) / 48000;  // 1kHz at 48kHz
+                for (uint32_t i = 0; i < resampled_count; ++i) {
+                    // Simple sine approximation using phase
+                    int32_t phase_12bit = (test_phase >> 4) & 0xFFF;
+                    int16_t sample;
+                    if (phase_12bit < 1024) {
+                        sample = static_cast<int16_t>(phase_12bit * 32);  // 0 to 32767
+                    } else if (phase_12bit < 2048) {
+                        sample = static_cast<int16_t>((2048 - phase_12bit) * 32);  // 32767 to 0
+                    } else if (phase_12bit < 3072) {
+                        sample = static_cast<int16_t>((phase_12bit - 2048) * -32);  // 0 to -32768
+                    } else {
+                        sample = static_cast<int16_t>((4096 - phase_12bit) * -32);  // -32768 to 0
+                    }
+                    stereo_buf[i * 2] = sample;
+                    stereo_buf[i * 2 + 1] = sample;
+                    test_phase += PHASE_INC;
+                }
+#else  // Real microphone input
                 for (uint32_t i = 0; i < resampled_count; ++i) {
                     stereo_buf[i * 2] = resampled_buf[i];
                     stereo_buf[i * 2 + 1] = resampled_buf[i];
                 }
-                usb_audio.write_audio_in(stereo_buf, resampled_count);
+#endif
+                dbg_usb_in_first_sample = stereo_buf[0];
+                dbg_usb_in_written = usb_audio.write_audio_in(stereo_buf, resampled_count);
             }
         }
     }
@@ -457,6 +531,16 @@ extern "C" [[noreturn]] void Reset_Handler() {
     // Zero .bss
     for (uint32_t* p = &_sbss; p < &_ebss;) {
         *p++ = 0;
+    }
+
+    // Initialize persistent debug counters on fresh power-on (not soft reset)
+    if (dbg_persist_magic != 0xDEADBEEF) {
+        dbg_persist_magic = 0xDEADBEEF;
+        dbg_persist_set_interface_count = 0;
+        dbg_persist_audio_in_alt1_count = 0;
+        dbg_persist_sof_count = 0;
+        dbg_persist_send_audio_in_count = 0;
+        dbg_persist_ep3_write_count = 0;
     }
 
     // Enable FPU

@@ -108,6 +108,15 @@ SECTIONS
         __bss_end__ = _ebss;
     } > SRAM
 
+    /* Noinit section - survives soft reset (not zeroed at startup) */
+    .noinit (NOLOAD) :
+    {
+        . = ALIGN(4);
+        *(.noinit)
+        *(.noinit*)
+        . = ALIGN(4);
+    } > SRAM
+
     /* Kernel data (32KB) */
     .kernel_ram (NOLOAD) :
     {

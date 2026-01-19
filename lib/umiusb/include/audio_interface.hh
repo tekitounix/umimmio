@@ -620,22 +620,21 @@ private:
                     w(1);
                     w24(AudioIn::SAMPLE_RATE);
 
-                    // Audio Endpoint (IN) - Use Synchronous mode for Full Duplex
-                    // Synch to Audio OUT endpoint (share same clock source)
-                    // bmAttributes: Isochronous (01), Synchronous (11 << 2) = 0x0D
+                    // Audio Endpoint (IN) - Asynchronous mode (TinyUSB compatible)
+                    // bmAttributes: Isochronous (01), Asynchronous (01 << 2) = 0x05
                     w(9, bDescriptorType::Endpoint);
                     w(0x80 | EP_AUDIO_IN);
-                    w(0x0D);  // bmAttributes: Isochronous, Synchronous
+                    w(0x05);  // bmAttributes: Isochronous, Asynchronous
                     w16(AudioIn::PACKET_SIZE);
-                    w(1);
-                    w(0);
-                    w(EP_AUDIO_OUT);  // bSynchAddress: synch to Audio OUT
+                    w(1);     // bInterval
+                    w(0);     // bRefresh (unused for data EP)
+                    w(0);     // bSynchAddress: 0 (no sync EP for async IN)
 
                     // CS Audio Endpoint
                     w(7, bDescriptorType::CsEndpoint, uac::as::GENERAL);
-                    w(0x00);
-                    w(0);
-                    w16(0);
+                    w(0x01);  // bmAttributes: Sampling Frequency control
+                    w(0x01);  // bLockDelayUnits: milliseconds
+                    w16(1);   // wLockDelay: 1ms
                 }
             }
         }
@@ -801,6 +800,7 @@ private:
     AudioRingBuffer<256, HAS_AUDIO_IN ? AudioIn::CHANNELS : 2> in_ring_buffer_;
     FeedbackCalculator<Version> feedback_calc_;
     PllRateController pll_controller_;
+    PllRateController in_pll_controller_;  // ASRC for Audio IN
     MidiProcessor midi_processor_;
 
     // Interface numbers (runtime, matches descriptor)
@@ -817,6 +817,7 @@ public:
             feedback_calc_.reset(AudioOut::SAMPLE_RATE);
         }
         pll_controller_.reset();
+        in_pll_controller_.reset();
     }
 
     void reset() {
@@ -828,6 +829,7 @@ public:
             in_ring_buffer_.reset();
         }
         pll_controller_.reset();
+        in_pll_controller_.reset();
         audio_out_streaming_ = false;
         audio_in_streaming_ = false;
         midi_configured_ = false;
@@ -867,6 +869,10 @@ public:
 
     template<typename HalT>
     void set_interface(HalT& hal, uint8_t interface, uint8_t alt_setting) {
+        ++dbg_set_interface_count_;
+        dbg_last_set_iface_ = interface;
+        dbg_last_set_alt_ = alt_setting;
+
         // Audio OUT streaming interface
         if constexpr (HAS_AUDIO_OUT) {
             if (interface == audio_out_iface_num_) {
@@ -907,7 +913,8 @@ public:
                                      TransferType::Isochronous, AudioIn::PACKET_SIZE});
                     audio_in_streaming_ = true;
                     audio_in_pending_ = true;  // Ready to send first packet
-                    in_ring_buffer_.reset();
+                    in_ring_buffer_.reset();  // Use prebuffer to avoid initial underruns
+                    in_pll_controller_.reset();  // Reset ASRC controller
                 } else {
                     audio_in_streaming_ = false;
                     audio_in_pending_ = false;
@@ -1171,29 +1178,36 @@ public:
                 }
             }
         }
-        // Audio IN: Send synchronized with SOF
-        // Now using Synchronous mode - synched to Audio OUT clock
+        // Audio IN: First packet sent from SOF, subsequent packets sent from XFRC
+        // (TinyUSB-style: chain transfers from xfer_complete callback)
         if constexpr (HAS_AUDIO_IN) {
+            ++dbg_sof_count_;
             if (audio_in_streaming_ && audio_in_pending_) {
-                send_audio_in(hal);
+                ++dbg_sof_streaming_count_;
+                // Send first packet on SOF (only when pending is set by set_interface)
                 audio_in_pending_ = false;
+                send_test_audio_in(hal);
             }
         }
         (void)hal;
     }
 
     /// Called when TX completes on an endpoint
-    void on_tx_complete(uint8_t ep) {
+    template<typename HalT>
+    void on_tx_complete(HalT& hal, uint8_t ep) {
         if constexpr (HAS_AUDIO_OUT) {
             if (ep == EP_FEEDBACK) {
                 feedback_pending_ = true;  // Ready for next transmission
             }
         }
         if constexpr (HAS_AUDIO_IN) {
-            if (ep == EP_AUDIO_IN) {
-                audio_in_pending_ = true;  // Ready for next Audio IN packet
+            if (ep == EP_AUDIO_IN && audio_in_streaming_) {
+                // TinyUSB-style: immediately schedule next transfer on XFRC
+                // Don't wait for SOF - send directly from ISR
+                send_test_audio_in(hal);
             }
         }
+        (void)hal;
         (void)ep;
     }
 
@@ -1202,6 +1216,43 @@ public:
             feedback_calc_.add_consumed_samples(frame_count);
         }
         (void)frame_count;
+    }
+
+    /// DEBUG: Send test audio pattern for Audio IN
+    // Test tone phase index (persistent across calls)
+    mutable uint32_t test_phase_idx_ = 0;
+
+    template<typename HalT>
+    void send_test_audio_in(HalT& hal) {
+        if constexpr (!HAS_AUDIO_IN) {
+            (void)hal;
+            return;
+        } else {
+            // Use pre-computed sine table for faster ISR execution
+            // 1kHz at 48kHz = 48 samples per cycle
+            // Table covers one full cycle at max amplitude
+            static constexpr int16_t kSineTable[48] = {
+                0, 4277, 8481, 12539, 16384, 19947, 23170, 25996,
+                28377, 30273, 31650, 32487, 32767, 32487, 31650, 30273,
+                28377, 25996, 23170, 19947, 16384, 12539, 8481, 4277,
+                0, -4277, -8481, -12539, -16384, -19947, -23170, -25996,
+                -28377, -30273, -31650, -32487, -32767, -32487, -31650, -30273,
+                -28377, -25996, -23170, -19947, -16384, -12539, -8481, -4277
+            };
+
+            constexpr uint32_t kSamplesPerPacket = (AudioIn::SAMPLE_RATE / 1000) + 1;  // 49
+            std::array<int16_t, kSamplesPerPacket * AudioIn::CHANNELS> test_buf{};
+
+            for (uint32_t i = 0; i < kSamplesPerPacket; ++i) {
+                int16_t sample = kSineTable[test_phase_idx_];
+                test_buf[i * 2] = sample;      // Left
+                test_buf[i * 2 + 1] = sample;  // Right
+                test_phase_idx_ = (test_phase_idx_ + 1) % 48;
+            }
+
+            hal.ep_write(EP_AUDIO_IN, reinterpret_cast<const uint8_t*>(test_buf.data()),
+                         AudioIn::PACKET_SIZE);
+        }
     }
 
     // ========================================================================
@@ -1291,9 +1342,12 @@ public:
         } else {
             if (!audio_in_streaming_) return;
 
+            ++dbg_send_audio_in_count_;  // Debug: track calls
+
             constexpr uint32_t frames_per_packet = AudioIn::SAMPLE_RATE / 1000;
             int16_t buf[frames_per_packet * AudioIn::CHANNELS];
 
+            // Simple read without ASRC for now - debug the basic flow first
             uint32_t read = in_ring_buffer_.read(buf, frames_per_packet);
 
             // For isochronous IN, we must send data every frame even if buffer is empty
@@ -1411,6 +1465,29 @@ public:
     [[nodiscard]] int16_t volume_db256() const { return fu_out_volume_; }
 
     [[nodiscard]] static constexpr AudioSyncMode sync_mode() { return AudioSyncMode::Async; }
+
+    // Audio IN debug accessors
+    [[nodiscard]] bool is_audio_in_pending() const { return audio_in_pending_; }
+    [[nodiscard]] bool is_in_muted() const { return fu_in_mute_; }
+    [[nodiscard]] int16_t in_volume_db256() const { return fu_in_volume_; }
+    [[nodiscard]] uint32_t in_buffered_frames() const {
+        if constexpr (HAS_AUDIO_IN) return in_ring_buffer_.buffered_frames();
+        return 0;
+    }
+    [[nodiscard]] bool is_in_playback_started() const {
+        if constexpr (HAS_AUDIO_IN) return in_ring_buffer_.is_playback_started();
+        return false;
+    }
+
+    // Debug counters for Audio IN diagnostics
+    mutable uint32_t dbg_send_audio_in_count_ = 0;  // send_audio_in() calls
+    mutable uint32_t dbg_sof_count_ = 0;            // SOF interrupts (with HAS_AUDIO_IN)
+    mutable uint32_t dbg_sof_streaming_count_ = 0;  // SOF with audio_in_streaming_ true
+    mutable uint32_t dbg_in_buffered_ = 0;          // Last seen buffered frames
+    mutable uint32_t dbg_set_interface_count_ = 0;  // set_interface() calls
+    mutable uint8_t dbg_last_set_iface_ = 0;        // Last interface number
+    mutable uint8_t dbg_last_set_alt_ = 0;          // Last alt setting
+    mutable uint32_t dbg_force_streaming_count_ = 0; // Force streaming attempts
 };
 
 // ============================================================================
