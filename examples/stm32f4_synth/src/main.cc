@@ -53,10 +53,10 @@ __attribute__((section(".dma_buffer")))
 int16_t audio_buf1[BUFFER_SIZE * 2];
 
 // PDM microphone DMA buffers
-// I2S2 clock = ~1.024MHz (from 86MHz PLLI2S / prescaler 42 * 2)
-// PDM: 128 x 16-bit words = 2048 bits at 1.024MHz = 2ms of PDM data
-// After 64x CIC decimation: 2048/64 = 32 PCM samples at 16kHz
-// Smaller buffer = more frequent interrupts = smoother data flow to USB
+// I2S2 clock = ~2.048MHz (from 86MHz PLLI2S / prescaler 42)
+// PDM: 128 x 16-bit words = 2048 bits at 2.048MHz = ~1ms of PDM data
+// After 64x CIC decimation: 2048/64 = 32 PCM samples at 32kHz
+// Then resample 32kHz -> 48kHz (3:2) for USB Audio
 constexpr uint32_t PDM_BUF_SIZE = 128;
 
 __attribute__((section(".dma_buffer")))
@@ -66,14 +66,19 @@ __attribute__((section(".dma_buffer")))
 uint16_t pdm_buf1[PDM_BUF_SIZE];
 
 // PCM buffer for decimated audio (from PDM)
-// 128 PDM words * 16 bits = 2048 PDM bits / 64 decimation = 32 PCM samples at 16kHz
+// 128 PDM words * 16 bits = 2048 PDM bits / 64 decimation = 32 PCM samples at 32kHz
 constexpr uint32_t PCM_BUF_SIZE = 64;  // Extra headroom
 int16_t pcm_buf[PCM_BUF_SIZE];
 
-// Resampled buffer (16kHz -> 48kHz)
-// 3:1 ratio means 32 * 3 = 96 max
-constexpr uint32_t RESAMPLED_BUF_SIZE = 128;
+// Resampled buffer (32kHz -> 48kHz)
+// 3:2 ratio means 32 * 1.5 = 48 max, use 64 for safety
+constexpr uint32_t RESAMPLED_BUF_SIZE = 64;
 int16_t resampled_buf[RESAMPLED_BUF_SIZE];
+
+// Stereo buffer for USB Audio IN (mono to stereo conversion)
+// resampled_count samples * 2 channels = up to 96 stereo samples
+constexpr uint32_t STEREO_BUF_SIZE = 128;
+int16_t stereo_buf[STEREO_BUF_SIZE];
 
 // ============================================================================
 // USB Descriptors
@@ -129,7 +134,7 @@ umiusb::Device<umiusb::Stm32FsHal, decltype(usb_audio)> usb_device(
 PdmMic pdm_mic;
 DmaPdm dma_pdm;
 CicDecimator cic_decimator;
-Resampler16to48 resampler;  // 16kHz (from 64x CIC) -> 48kHz (USB Audio)
+Resampler32to48 resampler;  // 32kHz (from 2.048MHz/64 CIC) -> 48kHz (USB Audio)
 
 // Synth engine
 umi::synth::PolySynth synth;
@@ -140,10 +145,20 @@ volatile uint32_t led_counter = 0;
 // Debug counters for PDM microphone
 volatile uint32_t dbg_pdm_dma_count = 0;      // DMA interrupt count
 volatile uint32_t dbg_pdm_pcm_count = 0;      // PCM samples from CIC
-volatile uint32_t dbg_pdm_resampled_count = 0; // Resampled samples
+volatile uint32_t dbg_pdm_resampled_count = 0; // Resampled samples (48kHz)
 volatile int16_t dbg_pdm_max_sample = 0;      // Max PCM sample value
 volatile uint16_t dbg_pdm_raw0 = 0;           // First raw PDM word
 volatile uint16_t dbg_pdm_raw1 = 0;           // Second raw PDM word
+volatile uint32_t dbg_pdm_ones_count = 0;     // Count of 1-bits in PDM data
+volatile uint32_t dbg_pdm_total_bits = 0;     // Total PDM bits processed
+volatile int16_t dbg_pdm_min_sample = 0;      // Min PCM sample value (for DC offset check)
+
+// Debug: I2S2 register values (for clock verification)
+volatile uint32_t dbg_i2s2_i2scfgr = 0;       // I2SCFGR register
+volatile uint32_t dbg_i2s2_i2spr = 0;         // I2SPR register
+volatile uint32_t dbg_rcc_cfgr = 0;           // RCC_CFGR (I2SSRC bit)
+volatile uint32_t dbg_rcc_cr = 0;             // RCC_CR (PLLI2SRDY bit)
+volatile uint32_t dbg_rcc_plli2scfgr = 0;     // PLLI2SCFGR register
 
 // Debug counters for USB Audio IN
 volatile uint32_t dbg_usb_in_write_count = 0;   // write_audio_in() call count
@@ -290,6 +305,15 @@ void init_pdm_mic() {
     // Initialize PDM microphone (I2S2)
     pdm_mic.init();
 
+    // Debug: capture I2S2 and RCC register values for clock verification
+    constexpr uint32_t SPI2_BASE = 0x40003800;
+    constexpr uint32_t RCC_BASE = 0x40023800;
+    dbg_i2s2_i2scfgr = *reinterpret_cast<volatile uint32_t*>(SPI2_BASE + 0x1C);  // I2SCFGR
+    dbg_i2s2_i2spr = *reinterpret_cast<volatile uint32_t*>(SPI2_BASE + 0x20);    // I2SPR
+    dbg_rcc_cfgr = *reinterpret_cast<volatile uint32_t*>(RCC_BASE + 0x08);       // CFGR
+    dbg_rcc_cr = *reinterpret_cast<volatile uint32_t*>(RCC_BASE + 0x00);         // CR
+    dbg_rcc_plli2scfgr = *reinterpret_cast<volatile uint32_t*>(RCC_BASE + 0x84); // PLLI2SCFGR
+
     // Initialize CIC decimator and resampler
     cic_decimator.reset();
     resampler.reset();
@@ -425,63 +449,58 @@ extern "C" void DMA1_Stream3_IRQHandler() {
         // Get the buffer that just completed (not the one currently being filled)
         uint16_t* pdm_data = (dma_pdm.current_buffer() == 0) ? pdm_buf1 : pdm_buf0;
 
-        // Debug: capture raw PDM data
+        // Debug: capture raw PDM data and bit density
         dbg_pdm_raw0 = pdm_data[0];
         dbg_pdm_raw1 = pdm_data[1];
 
-        // Decimate PDM to PCM (1.024MHz PDM -> 16kHz PCM via 64x CIC)
+        // Count 1-bits in PDM data (should be ~50% for silence/DC)
+        uint32_t ones = 0;
+        for (uint32_t i = 0; i < PDM_BUF_SIZE; ++i) {
+            ones += __builtin_popcount(pdm_data[i]);
+        }
+        dbg_pdm_ones_count = ones;
+        dbg_pdm_total_bits = PDM_BUF_SIZE * 16;
+
+        // Decimate PDM to PCM (2.048MHz PDM -> 32kHz PCM via 64x CIC)
         uint32_t pcm_count = cic_decimator.process_buffer(pdm_data, PDM_BUF_SIZE, pcm_buf, PCM_BUF_SIZE);
         dbg_pdm_pcm_count = pcm_count;
 
-        // Debug: find max sample value
+        // Debug: find min/max sample value
         for (uint32_t i = 0; i < pcm_count; ++i) {
-            int16_t abs_val = pcm_buf[i] < 0 ? -pcm_buf[i] : pcm_buf[i];
-            if (abs_val > dbg_pdm_max_sample) {
-                dbg_pdm_max_sample = abs_val;
+            if (pcm_buf[i] > dbg_pdm_max_sample) {
+                dbg_pdm_max_sample = pcm_buf[i];
+            }
+            if (pcm_buf[i] < dbg_pdm_min_sample) {
+                dbg_pdm_min_sample = pcm_buf[i];
             }
         }
 
-        // Resample 16kHz -> 48kHz (3x)
-        if (pcm_count > 0) {
-            uint32_t resampled_count = resampler.process(pcm_buf, pcm_count, resampled_buf);
-            dbg_pdm_resampled_count = resampled_count;
+        // Resample 32kHz -> 48kHz (3:2 ratio)
+        // Use global resampled_buf to avoid stack usage in IRQ
+        uint32_t resampled_count = resampler.process(pcm_buf, pcm_count, resampled_buf);
+        dbg_pdm_resampled_count = resampled_count;
 
-            // Debug: track streaming state
-            dbg_usb_in_streaming = usb_audio.is_audio_in_streaming() ? 1 : 0;
+        // DEBUG: Reset min/max periodically for current sample values
+        static uint32_t reset_counter = 0;
+        if (++reset_counter >= 100) {  // Reset every 100 DMA transfers (~100ms)
+            reset_counter = 0;
+            dbg_pdm_max_sample = -32768;
+            dbg_pdm_min_sample = 32767;
+        }
 
-            // Convert mono to stereo and send to USB Audio IN buffer
-            if (resampled_count > 0 && usb_audio.is_audio_in_streaming()) {
-                dbg_usb_in_write_count = dbg_usb_in_write_count + 1;
-                int16_t stereo_buf[RESAMPLED_BUF_SIZE * 2];
-#if 1  // Test tone: 1kHz sine wave to debug USB Audio IN path
-                static uint32_t test_phase = 0;
-                constexpr uint32_t PHASE_INC = (1000 * 65536) / 48000;  // 1kHz at 48kHz
-                for (uint32_t i = 0; i < resampled_count; ++i) {
-                    // Simple sine approximation using phase
-                    int32_t phase_12bit = (test_phase >> 4) & 0xFFF;
-                    int16_t sample;
-                    if (phase_12bit < 1024) {
-                        sample = static_cast<int16_t>(phase_12bit * 32);  // 0 to 32767
-                    } else if (phase_12bit < 2048) {
-                        sample = static_cast<int16_t>((2048 - phase_12bit) * 32);  // 32767 to 0
-                    } else if (phase_12bit < 3072) {
-                        sample = static_cast<int16_t>((phase_12bit - 2048) * -32);  // 0 to -32768
-                    } else {
-                        sample = static_cast<int16_t>((4096 - phase_12bit) * -32);  // -32768 to 0
-                    }
-                    stereo_buf[i * 2] = sample;
-                    stereo_buf[i * 2 + 1] = sample;
-                    test_phase += PHASE_INC;
-                }
-#else  // Real microphone input
-                for (uint32_t i = 0; i < resampled_count; ++i) {
-                    stereo_buf[i * 2] = resampled_buf[i];
-                    stereo_buf[i * 2 + 1] = resampled_buf[i];
-                }
-#endif
-                dbg_usb_in_first_sample = stereo_buf[0];
-                dbg_usb_in_written = usb_audio.write_audio_in(stereo_buf, resampled_count);
+        // Debug: track streaming state
+        dbg_usb_in_streaming = usb_audio.is_audio_in_streaming() ? 1 : 0;
+
+        // Convert mono to stereo and send to USB Audio IN buffer
+        // Use global stereo_buf to avoid stack usage in IRQ
+        if (resampled_count > 0 && usb_audio.is_audio_in_streaming()) {
+            dbg_usb_in_write_count = dbg_usb_in_write_count + 1;
+            for (uint32_t i = 0; i < resampled_count; ++i) {
+                stereo_buf[i * 2] = resampled_buf[i];
+                stereo_buf[i * 2 + 1] = resampled_buf[i];
             }
+            dbg_usb_in_first_sample = stereo_buf[0];
+            dbg_usb_in_written = usb_audio.write_audio_in(stereo_buf, resampled_count);
         }
     }
 }

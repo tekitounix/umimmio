@@ -170,6 +170,12 @@ public:
         overrun_count_ = 0;
     }
 
+    /// Reset and immediately enable reading (for Audio IN - no prebuffer needed)
+    void reset_and_start() {
+        reset();
+        playback_started_ = true;
+    }
+
     /// Write frames from USB callback (producer)
     uint32_t write(const int16_t* samples, uint32_t frame_count) {
         uint32_t write = write_pos_;
@@ -353,6 +359,7 @@ public:
     }
 
     [[nodiscard]] bool is_playback_started() const { return playback_started_; }
+    void start_playback() { playback_started_ = true; }
     [[nodiscard]] uint32_t buffered_frames() const {
         return (write_pos_ - read_pos_) & MASK;
     }
