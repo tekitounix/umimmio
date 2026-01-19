@@ -913,7 +913,9 @@ public:
                                      TransferType::Isochronous, AudioIn::PACKET_SIZE});
                     audio_in_streaming_ = true;
                     audio_in_pending_ = true;  // Ready to send first packet
-                    in_ring_buffer_.reset();  // Use prebuffer to avoid initial underruns
+                    // Audio IN: immediately enable reading to avoid buffer overrun
+                    // (Unlike Audio OUT which needs prebuffer for smooth playback)
+                    in_ring_buffer_.reset_and_start();
                     in_pll_controller_.reset();  // Reset ASRC controller
                 } else {
                     audio_in_streaming_ = false;
@@ -1186,7 +1188,7 @@ public:
                 ++dbg_sof_streaming_count_;
                 // Send first packet on SOF (only when pending is set by set_interface)
                 audio_in_pending_ = false;
-                send_test_audio_in(hal);
+                send_audio_in(hal);  // Use ring buffer data from PDM mic
             }
         }
         (void)hal;
@@ -1204,7 +1206,7 @@ public:
             if (ep == EP_AUDIO_IN && audio_in_streaming_) {
                 // TinyUSB-style: immediately schedule next transfer on XFRC
                 // Don't wait for SOF - send directly from ISR
-                send_test_audio_in(hal);
+                send_audio_in(hal);  // Use ring buffer data from PDM mic
             }
         }
         (void)hal;
