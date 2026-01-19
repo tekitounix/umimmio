@@ -116,7 +116,8 @@ public:
             dev->class_.on_sof(dev->hal_);
         };
         hal_.callbacks.on_tx_complete = [](void* ctx, uint8_t ep) {
-            static_cast<Device*>(ctx)->class_.on_tx_complete(ep);
+            auto* dev = static_cast<Device*>(ctx);
+            dev->class_.on_tx_complete(dev->hal_, ep);
         };
 
         hal_.init();
@@ -329,9 +330,18 @@ private:
         send_zlp();
     }
 
+    // Debug counters for SET_INTERFACE
+    uint32_t dbg_set_iface_count_ = 0;
+    uint8_t dbg_last_set_iface_ = 0;
+    uint8_t dbg_last_set_alt_ = 0;
+
     void handle_set_interface(const SetupPacket& setup) {
         uint8_t interface = setup.wIndex & 0xFF;
         uint8_t alt_setting = setup.wValue & 0xFF;
+
+        ++dbg_set_iface_count_;
+        dbg_last_set_iface_ = interface;
+        dbg_last_set_alt_ = alt_setting;
 
         if (interface < alt_settings_.size()) {
             alt_settings_[interface] = alt_setting;
