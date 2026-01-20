@@ -129,8 +129,8 @@ umi::TaskId g_main_task_id;
 namespace Event {
     constexpr uint32_t PdmReady  = 1 << 0;  // PDM DMA complete
     constexpr uint32_t I2sReady  = 1 << 1;  // I2S DMA complete
-    constexpr uint32_t UsbReady  = 1 << 2;  // USB interrupt
-    constexpr uint32_t MidiReady = 1 << 3;  // MIDI data available
+    constexpr uint32_t UsbIrq    = 1 << 2;  // USB interrupt (IRQ occurred)
+    constexpr uint32_t MidiReady = 1 << 4;  // MIDI data available
 }
 
 // MIDI queue (ISR -> Audio task)
@@ -335,6 +335,9 @@ int16_t stereo_buf[STEREO_BUF_SIZE];
 // Ring buffers for async timing between I2S DMA (~1.33ms/64samples) and USB SOF (1ms/48samples)
 // Size: 512 samples = ~10.6ms buffer at 48kHz
 constexpr uint32_t AUDIO_RING_SIZE = 512;
+constexpr uint32_t AUDIO_RING_TARGET = 256;  // Target level (middle)
+constexpr uint32_t AUDIO_RING_HIGH = 384;    // Above this: skip samples
+constexpr uint32_t AUDIO_RING_LOW = 128;     // Below this: duplicate samples
 
 // Mic ring buffer
 int16_t mic_ring_buf[AUDIO_RING_SIZE];
@@ -342,6 +345,8 @@ volatile uint32_t mic_ring_write = 0;
 volatile uint32_t mic_ring_read = 0;
 int16_t mic_last_sample = 0;
 volatile uint32_t mic_underrun_count = 0;
+volatile uint32_t mic_skip_count = 0;    // Drift correction: samples skipped
+volatile uint32_t mic_dup_count = 0;     // Drift correction: samples duplicated
 
 // Synth ring buffer
 int16_t synth_ring_buf[AUDIO_RING_SIZE];
@@ -349,6 +354,8 @@ volatile uint32_t synth_ring_write = 0;
 volatile uint32_t synth_ring_read = 0;
 int16_t synth_last_sample = 0;
 volatile uint32_t synth_underrun_count = 0;
+volatile uint32_t synth_skip_count = 0;  // Drift correction: samples skipped
+volatile uint32_t synth_dup_count = 0;   // Drift correction: samples duplicated
 
 // ============================================================================
 // USB Descriptors
@@ -523,16 +530,15 @@ void init_pdm_mic() {
     cic_decimator.reset();
     resampler_mic.reset();
 
-    // Pre-fill ring buffers with silence to handle initial timing jitter
-    // ~3ms prebuffer = 144 samples at 48kHz
-    constexpr uint32_t PREBUFFER = 144;
-    for (uint32_t i = 0; i < PREBUFFER; ++i) {
+    // Pre-fill ring buffers to target level for drift correction headroom
+    // Target = 256 samples (~5.3ms at 48kHz)
+    for (uint32_t i = 0; i < AUDIO_RING_TARGET; ++i) {
         mic_ring_buf[i] = 0;
         synth_ring_buf[i] = 0;
     }
-    mic_ring_write = PREBUFFER;
+    mic_ring_write = AUDIO_RING_TARGET;
     mic_ring_read = 0;
-    synth_ring_write = PREBUFFER;
+    synth_ring_write = AUDIO_RING_TARGET;
     synth_ring_read = 0;
 
     dma_pdm.init(pdm_buf0, pdm_buf1, PDM_BUF_SIZE, pdm_mic.dr_addr());
@@ -545,6 +551,13 @@ void init_pdm_mic() {
     pdm_mic.enable();
     dma_pdm.enable();
 }
+
+}  // namespace
+
+// Forward declaration for USB SOF callback (outside anonymous namespace)
+void send_audio_in_from_rings();
+
+namespace {
 
 void init_usb() {
     for (int i = 0; i < 10000; ++i) { asm volatile(""); }
@@ -571,6 +584,12 @@ void init_usb() {
             cnt = 0;
             gpio_d.toggle(12);
         }
+    };
+    
+    // USB SOF callback (1ms) - supply Audio IN data synchronized with USB timing
+    // This is the correct place for Audio IN, not SysTick
+    usb_audio.on_sof_app = []() {
+        send_audio_in_from_rings();
     };
 
     // USB MIDI -> MIDI queue (ISR context)
@@ -651,6 +670,32 @@ void send_audio_in_from_rings() {
         return;
     }
     
+    // Calculate ring buffer levels
+    uint32_t mic_level = (mic_ring_write >= mic_ring_read)
+        ? (mic_ring_write - mic_ring_read)
+        : (AUDIO_RING_SIZE - mic_ring_read + mic_ring_write);
+    uint32_t synth_level = (synth_ring_write >= synth_ring_read)
+        ? (synth_ring_write - synth_ring_read)
+        : (AUDIO_RING_SIZE - synth_ring_read + synth_ring_write);
+    
+    // Adaptive drift correction:
+    // If buffer is filling up (producer faster), skip extra samples
+    // If buffer is draining (consumer faster), duplicate samples
+    
+    // Mic drift correction
+    if (mic_level > AUDIO_RING_HIGH && mic_ring_read != mic_ring_write) {
+        // Skip one sample to reduce level
+        mic_ring_read = (mic_ring_read + 1) % AUDIO_RING_SIZE;
+        mic_skip_count = mic_skip_count + 1;
+    }
+    
+    // Synth drift correction
+    if (synth_level > AUDIO_RING_HIGH && synth_ring_read != synth_ring_write) {
+        // Skip one sample to reduce level
+        synth_ring_read = (synth_ring_read + 1) % AUDIO_RING_SIZE;
+        synth_skip_count = synth_skip_count + 1;
+    }
+    
     // USB Audio IN expects ~48 samples per 1ms SOF
     constexpr uint32_t USB_FRAME_SIZE = 48;
     
@@ -660,6 +705,7 @@ void send_audio_in_from_rings() {
             mic_last_sample = mic_ring_buf[mic_ring_read];
             mic_ring_read = (mic_ring_read + 1) % AUDIO_RING_SIZE;
         } else {
+            // Underrun: keep last sample (already duplicating)
             mic_underrun_count = mic_underrun_count + 1;
         }
         
@@ -668,11 +714,21 @@ void send_audio_in_from_rings() {
             synth_last_sample = synth_ring_buf[synth_ring_read];
             synth_ring_read = (synth_ring_read + 1) % AUDIO_RING_SIZE;
         } else {
+            // Underrun: keep last sample (already duplicating)
             synth_underrun_count = synth_underrun_count + 1;
         }
         
         stereo_buf[i * 2] = mic_last_sample;       // L = mic
         stereo_buf[i * 2 + 1] = synth_last_sample; // R = synth
+    }
+    
+    // Low buffer level: duplicate last sample (done implicitly by keeping last_sample)
+    // This happens naturally when underrun occurs
+    if (mic_level < AUDIO_RING_LOW) {
+        mic_dup_count = mic_dup_count + 1;
+    }
+    if (synth_level < AUDIO_RING_LOW) {
+        synth_dup_count = synth_dup_count + 1;
     }
     
     usb_audio.write_audio_in(stereo_buf, USB_FRAME_SIZE);
@@ -719,11 +775,14 @@ void audio_task_entry(void*) {
     }
 }
 
-/// USB task: Server priority, handles USB events
+/// USB task: Server priority, handles USB notifications
+/// Most USB work happens in IRQ (poll) and SysTick (audio IN)
 void usb_task_entry(void*) {
     while (true) {
-        g_kernel.wait_block(g_usb_task_id, Event::UsbReady);
-        usb_device.poll();
+        // Wait for USB events
+        g_kernel.wait_block(g_usb_task_id, Event::UsbIrq);
+        // Currently nothing to do here - poll() is in ISR
+        // This task exists for future USB work that needs task context
     }
 }
 
@@ -818,19 +877,18 @@ extern "C" void DMA1_Stream5_IRQHandler() {
 }
 
 extern "C" void OTG_FS_IRQHandler() {
-    // USB interrupt: handle immediately in ISR context
-    // USB OTG requires immediate handling to clear interrupt flags
+    // USB interrupt: poll MUST be called here to clear interrupt flags
+    // Otherwise the interrupt will fire again immediately
     usb_device.poll();
-    // Also notify USB task for any deferred processing
-    g_kernel.notify(g_usb_task_id, Event::UsbReady);
+    
+    // Notify USB task for additional processing if needed
+    g_kernel.notify(g_usb_task_id, Event::UsbIrq);
 }
 
 extern "C" void SysTick_Handler() {
-    // Kernel tick (1ms)
+    // Kernel tick (1ms) - OS scheduling only
+    // Audio is handled by USB SOF callback (on_sof_app)
     g_kernel.tick(1000);  // 1ms = 1000us
-    
-    // Send audio IN at 1ms intervals (matches USB SOF timing)
-    send_audio_in_from_rings();
 }
 
 // ============================================================================
