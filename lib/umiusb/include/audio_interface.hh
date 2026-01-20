@@ -122,6 +122,7 @@ public:
     StatusCallback on_audio_in_change = nullptr;   // Audio IN streaming state
     void (*on_audio_rx)(void) = nullptr;           // Called on each Audio OUT packet
     void (*on_feedback_sent)(void) = nullptr;      // Called when feedback EP transmits
+    void (*on_sof_app)(void) = nullptr;            // Called on USB SOF (1ms) - for app to supply Audio IN data
 
     void set_midi_callback(MidiCallback cb) { midi_processor_.on_midi = cb; }
     void set_sysex_callback(SysExCallback cb) { midi_processor_.on_sysex = cb; }
@@ -1193,6 +1194,13 @@ public:
         // (TinyUSB-style: chain transfers from xfer_complete callback)
         if constexpr (HAS_AUDIO_IN) {
             ++dbg_sof_count_;
+            
+            // App callback for supplying Audio IN data (1ms timing)
+            // Called BEFORE send_audio_in so app can write to ring buffer
+            if (on_sof_app != nullptr) {
+                on_sof_app();
+            }
+            
             if (audio_in_streaming_ && audio_in_pending_) {
                 ++dbg_sof_streaming_count_;
                 // Send first packet on SOF (only when pending is set by set_interface)
