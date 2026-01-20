@@ -868,18 +868,27 @@ void process(AudioContext& ctx) {
 実際の処理は高優先度のオーディオタスクで行う。
 
 ```cpp
-// カーネル内: オーディオDMA IRQハンドラ
-void DMA_I2S_IRQHandler() {
-    // IRQ内ではタスク通知のみ
-    // → オーディオタスクを起床させる
-    notify_audio_task_from_isr();
+// カーネル初期化時: 動的IRQ登録
+void setup_audio_irq() {
+    namespace irqn = umi::stm32f4::irq;
+    
+    // I2S DMA完了IRQ
+    umi::irq::set_handler(irqn::DMA1_Stream5, +[]() {
+        if (dma_i2s.transfer_complete()) {
+            dma_i2s.clear_tc();
+            g_audio_ctx.i2s_buf = (dma_i2s.current_buffer() == 0) 
+                                  ? audio_buf1 : audio_buf0;
+            // タスク通知のみ - 処理はタスクで行う
+            g_kernel.notify(g_audio_task_id, Event::I2sReady);
+        }
+    });
 }
 
 // オーディオタスク（最高優先度）
 void audio_task() {
     while (true) {
         // IRQからの通知を待つ
-        wait_for_notification();
+        auto event = g_kernel.wait(Event::I2sReady | Event::PdmReady);
         
         // タスクコンテキストでアプリのprocess()を呼び出し
         // MPUはコンテキストスイッチ時に設定済み
