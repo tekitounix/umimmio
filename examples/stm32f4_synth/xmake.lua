@@ -12,6 +12,7 @@ target("stm32f4_synth")
 
     -- umios kernel
     add_includedirs("$(projectdir)/lib/umios/kernel")
+    add_includedirs("$(projectdir)/lib/umios/kernel/port")
 
     -- Platform includes (Cortex-M backend)
     add_includedirs("$(projectdir)/lib/umios/backend/cm")
@@ -29,8 +30,11 @@ target("stm32f4_synth")
 
     add_defines("STM32F4", "STM32F407xx", "BOARD_STM32F4_DISCOVERY")
     add_defines("HSE_VALUE=8000000")  -- 8MHz crystal
+    add_defines("UMI_CM_NUM_IRQS=82") -- STM32F4 has 82 IRQs
 
     add_files("$(projectdir)/examples/stm32f4_synth/src/*.cc")
+    add_files("$(projectdir)/lib/umios/kernel/port/cm4/*.cc")
+    add_files("$(projectdir)/lib/umios/backend/cm/common/*.cc")
 target_end()
 
 -- Flash task
