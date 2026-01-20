@@ -121,6 +121,7 @@ public:
     StatusCallback on_streaming_change = nullptr;  // Audio OUT streaming state
     StatusCallback on_audio_in_change = nullptr;   // Audio IN streaming state
     void (*on_audio_rx)(void) = nullptr;           // Called on each Audio OUT packet
+    void (*on_feedback_sent)(void) = nullptr;      // Called when feedback EP transmits
 
     void set_midi_callback(MidiCallback cb) { midi_processor_.on_midi = cb; }
     void set_sysex_callback(SysExCallback cb) { midi_processor_.on_sysex = cb; }
@@ -523,14 +524,14 @@ private:
                     w(1);  // bSamFreqType
                     w24(AudioOut::SAMPLE_RATE);
 
-                    // Audio Endpoint
+                    // Audio Endpoint - Async mode with feedback
                     w(9, bDescriptorType::Endpoint);
                     w(EP_AUDIO_OUT);
                     w(static_cast<uint8_t>(AudioSyncMode::Async));
                     w16(AudioOut::PACKET_SIZE);
-                    w(1);
-                    w(0);
-                    w(0x80 | EP_FEEDBACK);  // bSynchAddress
+                    w(1);     // bInterval
+                    w(0);     // bRefresh
+                    w(0x80 | EP_FEEDBACK);  // bSynchAddress = feedback EP
 
                     // CS Audio Endpoint
                     w(7, bDescriptorType::CsEndpoint, uac::as::GENERAL);
@@ -538,14 +539,14 @@ private:
                     w(0);
                     w16(0);
 
-                    // Feedback Endpoint
+                    // Feedback Endpoint (Async mode)
                     w(9, bDescriptorType::Endpoint);
-                    w(0x80 | EP_FEEDBACK);
-                    w(0x11);  // Iso, Feedback
-                    w16(3);   // 3 bytes for UAC1 FS
-                    w(1);
-                    w(4);     // bRefresh = 16ms
-                    w(0);
+                    w(0x80 | EP_FEEDBACK);  // IN endpoint
+                    w(0x01);  // bmAttributes: Isochronous (TinyUSB uses 0x01, not 0x11)
+                    w16(3);   // wMaxPacketSize: 3 bytes for UAC1 (10.14 format)
+                    w(1);     // bInterval
+                    w(4);     // bRefresh = 2^4 = 16 SOF frames (16ms)
+                    w(0);     // bSynchAddress
                 }
             }
 
@@ -779,8 +780,8 @@ private:
     bool audio_out_streaming_ = false;
     bool audio_in_streaming_ = false;
     bool midi_configured_ = false;
-    bool feedback_pending_ = false;
     bool audio_in_pending_ = false;  // Ready to send next Audio IN packet
+    uint32_t sof_count_ = 0;         // SOF frame counter for feedback interval
 
     // Feature Unit state (UAC1) - Audio OUT
     bool fu_out_mute_ = false;
@@ -833,7 +834,7 @@ public:
         audio_out_streaming_ = false;
         audio_in_streaming_ = false;
         midi_configured_ = false;
-        feedback_pending_ = false;
+        sof_count_ = 0;
     }
 
     // ========================================================================
@@ -849,7 +850,7 @@ public:
             audio_out_streaming_ = false;
             audio_in_streaming_ = false;
             midi_configured_ = false;
-            feedback_pending_ = false;
+            sof_count_ = 0;
             audio_in_pending_ = false;
             if (on_streaming_change) on_streaming_change(false);
             if (on_audio_in_change) on_audio_in_change(false);
@@ -882,18 +883,19 @@ public:
                     hal.ep_configure({EP_AUDIO_OUT, Direction::Out,
                                      TransferType::Isochronous, AudioOut::PACKET_SIZE});
 
+                    // Async mode: configure feedback endpoint
                     constexpr uint16_t fb_size = IS_UAC2 ? 4 : 3;
                     hal.ep_configure({EP_FEEDBACK, Direction::In,
                                      TransferType::Isochronous, fb_size});
-                    feedback_pending_ = true;
 
                     audio_out_streaming_ = true;
                     out_ring_buffer_.reset();
                     feedback_calc_.reset(AudioOut::SAMPLE_RATE);
+                    // Set actual I2S rate (47,991 Hz due to PLLI2S limitations)
+                    feedback_calc_.set_actual_rate(47991);
                     pll_controller_.reset();
                 } else {
                     audio_out_streaming_ = false;
-                    feedback_pending_ = false;
                 }
 
                 if (was_streaming != audio_out_streaming_ && on_streaming_change) {
@@ -1150,6 +1152,12 @@ public:
             if (ep == EP_AUDIO_OUT && audio_out_streaming_) {
                 uint16_t frame_count = data.size() / AudioOut::BYTES_PER_FRAME;
                 out_ring_buffer_.write(reinterpret_cast<const int16_t*>(data.data()), frame_count);
+
+                // TEMPORARY: Disable FIFO-based feedback for debugging
+                // Use fixed feedback based on actual I2S clock rate (set in set_interface)
+                // The feedback value is set by set_actual_rate(47991) and remains constant
+                // This helps isolate whether the issue is in feedback calculation vs transmission
+
                 if (on_audio_rx) on_audio_rx();
             }
         }
@@ -1169,17 +1177,18 @@ public:
 
     template<typename HalT>
     void on_sof(HalT& hal) {
+        // Async mode: Send feedback every SOF when streaming
+        // cbb4b78 style: don't use feedback_pending_, just send every SOF
+        // This works because the host polls at its own rate
         if constexpr (HAS_AUDIO_OUT) {
             if (audio_out_streaming_) {
                 feedback_calc_.on_sof();
-                // Send feedback if ready
-                if (feedback_pending_) {
-                    auto fb = feedback_calc_.get_feedback_bytes();
-                    hal.ep_write(EP_FEEDBACK, fb.data(), static_cast<uint16_t>(fb.size()));
-                    feedback_pending_ = false;
-                }
+                auto fb = feedback_calc_.get_feedback_bytes();
+                hal.ep_write(EP_FEEDBACK, fb.data(), static_cast<uint16_t>(fb.size()));
+                if (on_feedback_sent) on_feedback_sent();
             }
         }
+
         // Audio IN: First packet sent from SOF, subsequent packets sent from XFRC
         // (TinyUSB-style: chain transfers from xfer_complete callback)
         if constexpr (HAS_AUDIO_IN) {
@@ -1198,9 +1207,9 @@ public:
     template<typename HalT>
     void on_tx_complete(HalT& hal, uint8_t ep) {
         if constexpr (HAS_AUDIO_OUT) {
-            if (ep == EP_FEEDBACK) {
-                feedback_pending_ = true;  // Ready for next transmission
-            }
+            // Feedback EP: No action needed on XFRC
+            // (feedback is sent at bRefresh interval from on_sof, not based on XFRC)
+            (void)ep;
         }
         if constexpr (HAS_AUDIO_IN) {
             if (ep == EP_AUDIO_IN && audio_in_streaming_) {
@@ -1282,7 +1291,8 @@ public:
             uint32_t rate = AudioRingBuffer<256, AudioOut::CHANNELS>::ppm_to_rate_q16(ppm);
 
             uint32_t read = out_ring_buffer_.read_interpolated(dest, frame_count, rate);
-            feedback_calc_.add_consumed_samples(read);
+            // Don't report samples here - use fixed feedback instead
+            // The feedback value is set to nominal rate in reset()
             apply_volume_out(dest, read);
             return read;
         }
@@ -1490,6 +1500,7 @@ public:
     mutable uint8_t dbg_last_set_iface_ = 0;        // Last interface number
     mutable uint8_t dbg_last_set_alt_ = 0;          // Last alt setting
     mutable uint32_t dbg_force_streaming_count_ = 0; // Force streaming attempts
+
 };
 
 // ============================================================================
