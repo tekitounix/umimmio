@@ -55,8 +55,8 @@ int main() {
     auto& shared = umi::get_shared();
     
     // UI初期化（共有メモリ参照を渡す）
-    umi::ui::View view(shared);
-    umi::ui::Controls controls(shared);
+    umi::ui::Input input(shared);
+    umi::ui::Output output(shared);
     
     // Processor登録
     static Synth synth;
@@ -67,14 +67,15 @@ int main() {
         auto ev = umi::wait_event();
         if (ev.type == umi::EventType::Shutdown) break;
         
-        // 入力読み取り（共有メモリから）
-        float volume = controls.knob(0);  // 0.0-1.0
-        synth.gain = volume;
+        // 入力読み取り（インデックスのみ、デバイス種別は問わない）
+        synth.gain = input[0];           // 0.0-1.0
+        synth.cutoff = input[1];         // 0.0-1.0
+        bool trigger = input.triggered(2); // 閾値を超えた瞬間
         
-        // 出力更新（共有メモリへ）
-        view.led(0).set(volume > 0.5f);
-        view.meter(0).set(volume);
-        view.text(0).set("Vol: %.0f%%", volume * 100);
+        // 出力更新（インデックスのみ、デバイス種別は問わない）
+        output[0] = synth.gain > 0.5f;   // bool → 0.0/1.0
+        output[1] = synth.get_level();   // 0.0-1.0
+        output[2] = {1.0f, 0.0f, 0.0f};  // RGB
     }
     
     return 0;
@@ -355,8 +356,9 @@ if (result) {
 
 ## UI API (入出力抽象化)
 
-`umi::ui` はハードウェア非依存の統一インターフェースを提供します。
-アプリは共有メモリを読み書きするだけで、HW依存処理はドライバー/サーバータスクが吸収します。
+`umi::ui` は**完全にハードウェア非依存**の統一インターフェースを提供します。
+物理デバイスの種類（ノブ/スライダー/ボタン、LED/メーター/ディスプレイ）は区別しません。
+全ては「値 + 変更イベント」に統一されます。
 
 ```cpp
 #include <umi/ui.hh>
@@ -364,68 +366,69 @@ if (result) {
 
 ### 設計思想
 
+**物理デバイスの違いはアプリから見えない**
+
+| 物理デバイス | 抽象化 |
+|--------------|--------|
+| ポテンショメータ、スライダー、エンコーダ | `input[i]` → float (0.0-1.0) |
+| ボタン、タクトスイッチ | `input[i]` → float (0.0 or 1.0) |
+| XYパッド | `input[i]`, `input[i+1]` → float × 2 |
+| LED、メーター、7セグ | `output[i]` ← float |
+| RGB LED | `output[i]` ← float × 3 |
+| ディスプレイ | `canvas` ← バッファ |
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Application Layer                                                  │
-│  ┌────────────────┐  ┌────────────────┐                             │
-│  │ umi::ui::View  │  │umi::ui::Controls│  ← 統一API                 │
-│  │  .led(i)       │  │  .knob(i)      │                             │
-│  │  .rgb(i)       │  │  .slider(i)    │                             │
-│  │  .meter(i)     │  │  .button(i)    │                             │
-│  │  .text(i)      │  │  .encoder(i)   │                             │
-│  │  .canvas()     │  │  .xy_pad(i)    │                             │
-│  └───────┬────────┘  └───────┬────────┘                             │
-│          │ write              │ read                                │
-└──────────┼────────────────────┼─────────────────────────────────────┘
-           v                    v
+│  Application                                                        │
+│                                                                     │
+│    float v = input[0];      // 値を読む                             │
+│    bool c = input.changed(0); // 変化を検出                         │
+│    output[0] = 0.8f;        // 値を書く                             │
+│                                                                     │
+└──────────────────────┬──────────────────────┬───────────────────────┘
+                       │                      │
+                       v                      v
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Shared Memory (umi::SharedRegion)                                  │
-│  ┌──────────────────┐  ┌──────────────────┐                         │
-│  │ outputs[]        │  │ inputs[]         │                         │
-│  │  .value (float)  │  │  .value (float)  │                         │
-│  │  .dirty (bool)   │  │  .changed (bool) │                         │
-│  └──────────────────┘  └──────────────────┘                         │
-└──────────┬────────────────────┬─────────────────────────────────────┘
-           │ read               │ write
-           v                    v
+│  Shared Memory                                                      │
+│  ┌────────────────────────┐  ┌────────────────────────┐             │
+│  │ inputs[N]              │  │ outputs[M]             │             │
+│  │  float value           │  │  float value[4]        │             │
+│  │  bool  changed         │  │  bool  dirty           │             │
+│  └────────────────────────┘  └────────────────────────┘             │
+└──────────────────────┬──────────────────────┬───────────────────────┘
+                       │                      │
+                       v                      v
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Kernel / Driver Layer (Server Tasks)                               │
-│  - ノイズ除去、正規化、デバウンス                                    │
-│  - 更新レート制御、DMA転送                                           │
-│  - HW固有処理を完全に隠蔽                                            │
+│  Kernel / Driver (BSPで物理デバイスにマッピング)                     │
+│  - ADC → 正規化 → inputs[0]                                         │
+│  - outputs[0] → PWM → LED                                           │
+│  - outputs[1] → I2C → 7seg                                          │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Controls (入力)
+### Input (入力)
 
-全ての入力デバイスを統一的に扱います。
+全ての入力は統一された `Input` クラスでアクセス。
 
 ```cpp
-class Controls {
+class Input {
 public:
-    explicit Controls(SharedRegion& shared);
+    explicit Input(SharedRegion& shared);
     
-    // 連続値入力（0.0-1.0 正規化済み）
-    float knob(uint8_t id) const;      // ポテンショメータ
-    float slider(uint8_t id) const;    // リニアフェーダー
-    float encoder(uint8_t id) const;   // エンコーダ累積値（0.0-1.0にクランプ）
-    
-    // 相対値入力
-    int encoder_delta(uint8_t id);     // エンコーダ増分（読むとリセット）
-    
-    // 2値入力
-    bool button(uint8_t id) const;     // ボタン状態
-    bool button_pressed(uint8_t id);   // 押された瞬間（読むとリセット）
-    bool button_released(uint8_t id);  // 離された瞬間（読むとリセット）
-    
-    // 2次元入力（0.0-1.0, 0.0-1.0）
-    std::pair<float, float> xy_pad(uint8_t id) const;
+    // 値の読み取り（常に 0.0-1.0 に正規化済み）
+    float operator[](uint8_t id) const;
+    float get(uint8_t id) const;
     
     // 変化検出
-    bool changed(uint8_t id) const;    // 前回読み取りから変化したか
+    bool changed(uint8_t id) const;      // 前回から変化した
+    bool triggered(uint8_t id) const;    // 0→1 に変化した瞬間
+    bool released(uint8_t id) const;     // 1→0 に変化した瞬間
     
-    // 一括読み取り
-    void poll();                       // 全入力の変化フラグを更新
+    // 相対値（エンコーダ等、読むとリセット）
+    int delta(uint8_t id);
+    
+    // 入力数
+    uint8_t count() const;
 };
 ```
 
@@ -434,7 +437,8 @@ public:
 ```cpp
 int main() {
     auto& shared = umi::get_shared();
-    umi::ui::Controls ctrl(shared);
+    umi::ui::Input input(shared);
+    umi::ui::Output output(shared);
     
     static Synth synth;
     umi::register_processor(synth);
@@ -443,217 +447,166 @@ int main() {
         auto ev = umi::wait_event();
         if (ev.type == umi::EventType::Shutdown) break;
         
-        // 連続値（すでに正規化・ノイズ除去済み）
-        synth.volume = ctrl.knob(0);
-        synth.cutoff = ctrl.knob(1);
-        synth.resonance = ctrl.knob(2);
+        // 連続値（ノブでもスライダーでも同じ）
+        synth.volume = input[0];
+        synth.cutoff = input[1];
+        synth.resonance = input[2];
         
-        // ボタン
-        if (ctrl.button_pressed(0)) {
+        // 2値（ボタンでもフットスイッチでも同じ）
+        if (input.triggered(3)) {
             synth.toggle_mode();
         }
         
-        // エンコーダ（相対値）
-        int delta = ctrl.encoder_delta(0);
-        if (delta != 0) {
-            synth.adjust_preset(delta);
+        // 相対値（エンコーダでもホイールでも同じ）
+        int d = input.delta(4);
+        if (d != 0) {
+            synth.adjust_preset(d);
         }
+        
+        // 出力
+        output[0] = synth.volume;
+        output[1] = synth.get_level();
     }
 }
 ```
 
-### View (出力)
+### Output (出力)
 
-全ての出力デバイスを統一的に扱います。
+全ての出力は統一された `Output` クラスでアクセス。
 
 ```cpp
-class View {
+class Output {
 public:
-    explicit View(SharedRegion& shared);
+    explicit Output(SharedRegion& shared);
     
-    // 単一値出力
-    Led led(uint8_t id);           // 単色LED
-    Rgb rgb(uint8_t id);           // RGB LED
-    Meter meter(uint8_t id);       // レベルメーター/VU
-    Numeric numeric(uint8_t id);   // 数値表示（7セグ等）
-    Text text(uint8_t id);         // テキスト表示
+    // 単一値出力（0.0-1.0）
+    OutputRef operator[](uint8_t id);
+    void set(uint8_t id, float value);
     
-    // 2次元出力
-    Canvas canvas();               // フレームバッファ（OLED/LCD）
+    // 複数値出力（RGB等）
+    void set(uint8_t id, float v0, float v1, float v2);
+    void set(uint8_t id, std::span<const float> values);
     
     // 一括更新
-    void flush();                  // dirty出力をカーネルに通知
+    void flush();
+    
+    // 出力数
+    uint8_t count() const;
 };
-```
 
-#### Led / Rgb
-
-```cpp
-class Led {
+// 代入演算子対応のプロキシ
+class OutputRef {
 public:
-    void set(bool on);
-    void set(float brightness);    // 0.0-1.0（PWM対応時）
-    void toggle();
-    bool get() const;
-};
-
-class Rgb {
-public:
-    void set(float r, float g, float b);  // 各0.0-1.0
-    void set(uint32_t rgb24);             // 0xRRGGBB
-    void set_hsv(float h, float s, float v);
-    void set_brightness(float b);         // 全体の明るさ
+    OutputRef& operator=(float value);
+    OutputRef& operator=(bool value);
+    OutputRef& operator=(std::initializer_list<float> rgb);
+    operator float() const;
 };
 ```
 
-```cpp
-// 使用例
-view.led(0).set(true);
-view.led(1).set(0.5f);  // 50%明るさ
-
-view.rgb(0).set(1.0f, 0.0f, 0.0f);  // 赤
-view.rgb(0).set(0xFF0000);          // 赤
-view.rgb(0).set_hsv(0.66f, 1.0f, 1.0f);  // 青
-```
-
-#### Meter / Numeric
+#### 使用例
 
 ```cpp
-class Meter {
-public:
-    void set(float value);         // 0.0-1.0
-    void set_peak(float value);    // ピークホールド
-    void set_range(float min_db, float max_db);  // dBスケール設定
-};
+// 単一値（LED、メーター、7セグ、全て同じ）
+output[0] = 0.8f;          // 80%
+output[1] = level;         // メーター
+output[2] = is_active;     // bool → 0.0 or 1.0
 
-class Numeric {
-public:
-    void set(int value);
-    void set(float value, int decimals = 1);
-    void set_format(const char* fmt);  // printf形式
-};
+// 複数値（RGB等）
+output[3] = {1.0f, 0.0f, 0.0f};  // 赤
+output.set(3, r, g, b);          // 同等
+
+// 配列出力（LEDストリップ等）
+float strip[16];
+output.set_array(STRIP_ID, strip);
+
+// 更新を反映
+output.flush();
 ```
 
-```cpp
-// 使用例
-view.meter(0).set(peak_level);
-view.meter(0).set_range(-60.0f, 0.0f);
+### Canvas (2次元出力)
 
-view.numeric(0).set(440);          // "440"
-view.numeric(1).set(3.14f, 2);     // "3.14"
-```
-
-#### Text
-
-```cpp
-class Text {
-public:
-    void set(const char* str);
-    void set(const char* fmt, ...);  // printf形式
-    void clear();
-};
-```
-
-```cpp
-// 使用例
-view.text(0).set("Volume");
-view.text(1).set("Freq: %d Hz", 440);
-```
-
-#### Canvas (フレームバッファ)
+ディスプレイ用のフレームバッファ。これも本質的には「大きな出力配列」。
 
 ```cpp
 class Canvas {
 public:
+    explicit Canvas(SharedRegion& shared);
+    
     int width() const;
     int height() const;
     
-    // 基本描画
-    void clear();
-    void pixel(int x, int y, float brightness);
-    void pixel(int x, int y, float r, float g, float b);
+    // ピクセル単位（最も基本的な操作）
+    void set(int x, int y, float brightness);
+    void set(int x, int y, float r, float g, float b);
     
-    // 図形
+    // ユーティリティ（描画ヘルパー）
+    void clear();
+    void fill(float brightness);
     void line(int x0, int y0, int x1, int y1, float brightness);
     void rect(int x, int y, int w, int h, float brightness);
-    void fill_rect(int x, int y, int w, int h, float brightness);
-    void circle(int cx, int cy, int r, float brightness);
+    void text(int x, int y, const char* str);
     
-    // テキスト
-    void text(int x, int y, const char* str, FontSize size = FontSize::Small);
+    // バッファ直接アクセス
+    std::span<uint8_t> buffer();
     
-    // ビットマップ
-    void bitmap(int x, int y, const uint8_t* data, int w, int h);
-    
-    // 波形/グラフ
-    void waveform(int x, int y, int w, int h, std::span<const float> samples);
-    void bar_graph(int x, int y, int w, int h, std::span<const float> values);
+    // 更新通知
+    void flush();
 };
 ```
 
-```cpp
-// 使用例
-auto& canvas = view.canvas();
-canvas.clear();
-canvas.text(0, 0, "UMI Synth", FontSize::Large);
-canvas.text(0, 16, "Vol: 80%");
-canvas.meter_bar(0, 32, 128, 8, volume);
-canvas.waveform(0, 48, 128, 16, waveform_data);
-view.flush();
-```
-
-### RGB Strip (配列出力)
+### イベントベース vs ポーリング
 
 ```cpp
-class RgbStrip {
-public:
-    explicit RgbStrip(SharedRegion& shared, uint8_t strip_id);
+// イベントベース（推奨）
+while (true) {
+    auto ev = umi::wait_event();
+    if (ev.type == umi::EventType::InputChanged) {
+        // ev.input.id で変化した入力を特定
+        handle_input(ev.input.id, input[ev.input.id]);
+    }
+}
+
+// ポーリング（低レイテンシ用）
+while (true) {
+    umi::wait_event(1000);  // 1ms タイムアウト
     
-    int size() const;
-    
-    void set(int index, float r, float g, float b);
-    void set(int index, uint32_t rgb24);
-    void fill(float r, float g, float b);
-    void fill(uint32_t rgb24);
-    
-    // エフェクト
-    void gradient(uint32_t start_color, uint32_t end_color);
-    void shift(int amount);  // 全体をシフト
-};
+    for (int i = 0; i < input.count(); ++i) {
+        if (input.changed(i)) {
+            handle_input(i, input[i]);
+        }
+    }
+}
 ```
 
 ### コルーチンでの使用
 
 ```cpp
-umi::Task<void> ui_task(umi::ui::View& view, umi::ui::Controls& ctrl, Synth& synth) {
+umi::Task<void> ui_task(umi::ui::Input& input, umi::ui::Output& output, Synth& synth) {
     while (true) {
         co_await umi::sleep(16ms);  // 60fps
         
-        // 入力
-        synth.volume = ctrl.knob(0);
-        synth.cutoff = ctrl.knob(1);
+        // 全入力を読む
+        synth.volume = input[0];
+        synth.cutoff = input[1];
         
-        // 出力
-        view.meter(0).set(synth.get_level());
-        view.led(0).set(synth.is_playing());
-        
-        auto& canvas = view.canvas();
-        canvas.clear();
-        draw_ui(canvas, synth);
-        view.flush();
+        // 全出力を更新
+        output[0] = synth.get_level();
+        output[1] = synth.is_playing();
+        output.flush();
     }
 }
 
 int main() {
     auto& shared = umi::get_shared();
-    umi::ui::View view(shared);
-    umi::ui::Controls ctrl(shared);
+    umi::ui::Input input(shared);
+    umi::ui::Output output(shared);
     
     static Synth synth;
     umi::register_processor(synth);
     
     umi::Scheduler<2> sched;
-    sched.spawn(ui_task(view, ctrl, synth));
+    sched.spawn(ui_task(input, output, synth));
     sched.run();
     
     return 0;
@@ -670,36 +623,25 @@ int main() {
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         Shared Memory                               │
 ├─────────────────────────────────────────────────────────────────────┤
-│  inputs[] ─────────────────────────────────────────────────────────│
-│  │ [0] knob0   : { value: 0.75, changed: true  }                   │
-│  │ [1] knob1   : { value: 0.50, changed: false }                   │
-│  │ [2] button0 : { value: 1.00, changed: true, pressed: true }     │
-│  │ ...                                                              │
+│  inputs[N] ────────────────────────────────────────────────────────│
+│  │ [0] : { value: 0.75, changed: true,  delta: 0 }                 │
+│  │ [1] : { value: 0.50, changed: false, delta: 0 }                 │
+│  │ [2] : { value: 1.00, changed: true,  delta: 0 }  ← ボタン       │
+│  │ [3] : { value: 0.30, changed: true,  delta: 2 }  ← エンコーダ   │
 │  └──────────────────────────────────────────────────────────────── │
 │                                                                     │
-│  outputs[] ────────────────────────────────────────────────────────│
-│  │ [0] led0    : { value: 1.0, dirty: true  }                      │
-│  │ [1] rgb0    : { r: 1.0, g: 0.0, b: 0.0, dirty: true }           │
-│  │ [2] meter0  : { value: 0.8, dirty: false }                      │
-│  │ ...                                                              │
+│  outputs[M] ───────────────────────────────────────────────────────│
+│  │ [0] : { value: [0.8, 0, 0, 0], dirty: true  }   ← 単一値        │
+│  │ [1] : { value: [1.0, 0, 0, 0], dirty: true  }   ← LED           │
+│  │ [2] : { value: [1.0, 0.5, 0, 0], dirty: true }  ← RGB           │
 │  └──────────────────────────────────────────────────────────────── │
 │                                                                     │
-│  canvas[] ─────────────────────────────────────────────────────────│
-│  │ framebuffer[width * height]                                     │
-│  │ dirty_rect: { x, y, w, h }                                      │
+│  canvas ───────────────────────────────────────────────────────────│
+│  │ buffer[width * height * bpp]                                    │
+│  │ dirty: true                                                     │
 │  └──────────────────────────────────────────────────────────────── │
 │                                                                     │
-│  audio ────────────────────────────────────────────────────────────│
-│  │ output[ch][frames], input[ch][frames]                           │
-│  └──────────────────────────────────────────────────────────────── │
-│                                                                     │
-│  events ───────────────────────────────────────────────────────────│
-│  │ SpscQueue<Event, 64>                                            │
-│  └──────────────────────────────────────────────────────────────── │
-│                                                                     │
-│  params ───────────────────────────────────────────────────────────│
-│  │ atomic<float> values[MAX_PARAMS]                                │
-│  └──────────────────────────────────────────────────────────────── │
+│  audio, events, params (既存)                                       │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -708,28 +650,28 @@ int main() {
 ```cpp
 struct SharedRegion {
     // === 入力（カーネル→アプリ、読み取り専用） ===
-    struct Input {
+    struct InputSlot {
         float value;              // 正規化値 (0.0-1.0)
-        uint8_t flags;            // changed, pressed, released等
+        int16_t delta;            // 相対値（エンコーダ等）
+        uint8_t flags;            // changed, triggered, released
     };
-    Input inputs[MAX_INPUTS];
+    InputSlot inputs[MAX_INPUTS];
     
     // === 出力（アプリ→カーネル） ===
-    struct Output {
-        float value;              // 主値
-        float aux[3];             // 補助値（RGB等）
+    struct OutputSlot {
+        float value[4];           // 最大4値（単一, RGB, RGBW等）
         uint8_t dirty;            // 更新フラグ
     };
-    Output outputs[MAX_OUTPUTS];
+    OutputSlot outputs[MAX_OUTPUTS];
     
     // === キャンバス ===
-    struct Canvas {
+    struct CanvasSlot {
         uint8_t buffer[MAX_CANVAS_SIZE];
         uint16_t width, height;
-        uint8_t bpp;              // 1, 8, 16, 24
-        uint32_t dirty_rect;      // パックされた領域
+        uint8_t bpp;
+        uint8_t dirty;
     };
-    Canvas canvas;
+    CanvasSlot canvas;
     
     // === オーディオ ===
     struct Audio {
@@ -743,9 +685,6 @@ struct SharedRegion {
     
     // === パラメータ（Processor用） ===
     std::atomic<float> params[MAX_PARAMS];
-    
-    // === Processor → Control Task ===
-    SpscQueue<Event, 32> proc_to_ctrl;
 };
 ```
 
@@ -753,111 +692,42 @@ struct SharedRegion {
 
 | データ | Writer | Reader | 方式 |
 |--------|--------|--------|------|
-| `inputs[]` | Kernel | App | 単一writer、コピー不要 |
-| `outputs[]` | App | Kernel | dirty flag |
-| `canvas` | App | Kernel | dirty_rect + flush |
+| `inputs[]` | Kernel | App | 単一writer、flag通知 |
+| `outputs[]` | App | Kernel | dirty flag + flush |
+| `canvas` | App | Kernel | dirty + flush |
 | `audio` | App (process) | Kernel (DMA) | ダブルバッファ |
 | `events` | Kernel | App | SpscQueue |
 | `params` | App (main) | App (process) | atomic relaxed |
 
-### 入力の更新フロー
-
-```
-Hardware          Kernel Driver         Shared Memory        Application
-   │                    │                     │                    │
-   │ ADC IRQ            │                     │                    │
-   │───────────────────>│                     │                    │
-   │                    │ ノイズ除去          │                    │
-   │                    │ 正規化 (0-4095→0.0-1.0)                  │
-   │                    │ 閾値判定            │                    │
-   │                    │                     │                    │
-   │                    │ inputs[i].value = normalized            │
-   │                    │ inputs[i].changed = true                 │
-   │                    │────────────────────>│                    │
-   │                    │                     │                    │
-   │                    │ event.push(InputChanged)                 │
-   │                    │────────────────────>│                    │
-   │                    │                     │                    │
-   │                    │                     │ wait_event() 返る  │
-   │                    │                     │───────────────────>│
-   │                    │                     │                    │
-   │                    │                     │ ctrl.knob(i)       │
-   │                    │                     │<───────────────────│
-   │                    │                     │ return value       │
-   │                    │                     │───────────────────>│
-```
-
-### 出力の更新フロー
-
-```
-Application          Shared Memory        Kernel Driver         Hardware
-   │                      │                    │                    │
-   │ view.led(0).set(true)│                    │                    │
-   │─────────────────────>│                    │                    │
-   │ outputs[0].value = 1.0                    │                    │
-   │ outputs[0].dirty = true                   │                    │
-   │                      │                    │                    │
-   │ view.flush()         │                    │                    │
-   │─────────────────────>│                    │                    │
-   │ syscall(FLUSH)       │                    │                    │
-   │──────────────────────────────────────────>│                    │
-   │                      │ dirty出力をスキャン│                    │
-   │                      │<───────────────────│                    │
-   │                      │                    │ GPIO/PWM/DMA操作   │
-   │                      │                    │───────────────────>│
-   │                      │ dirty = false      │                    │
-   │                      │<───────────────────│                    │
-   │<─────────────────────────────────────────│                    │
-```
-
-### process() での制約
-
-```cpp
-void MyProcessor::process(umi::ProcessContext& ctx) {
-    // ✅ OK: オーディオバッファ（共有メモリ直接アクセス）
-    auto* out = ctx.output(0);
-    
-    // ✅ OK: パラメータ（atomic読み取り）
-    float cutoff = ctx.param(PARAM_CUTOFF);
-    
-    // ✅ OK: Control Taskへイベント送信（ロックフリーキュー）
-    ctx.send_to_control(Event::meter(0, peak));
-    
-    // ❌ NG: UI操作（syscall必要）
-    // view.led(0).set(true);  // 禁止！
-    
-    // ❌ NG: 入力読み取り（変化フラグ操作）
-    // ctrl.knob(0);  // 禁止！
-}
-```
-
 ### BSPによるマッピング
 
-BSPが論理ID→物理デバイスのマッピングを定義:
+BSPが論理インデックス→物理デバイスのマッピングを定義:
 
 ```cpp
-// lib/bsp/my_board/ui_mapping.hh
+// lib/bsp/my_board/io_mapping.hh
 
-namespace bsp::ui {
+namespace bsp::io {
 
-// 入力マッピング
+// 入力マッピング（アプリからは単なるインデックス）
 constexpr InputMapping inputs[] = {
-    { .id = 0, .type = InputType::Adc,     .hw_id = 0 },  // knob0 → ADC CH0
-    { .id = 1, .type = InputType::Adc,     .hw_id = 1 },  // knob1 → ADC CH1
-    { .id = 2, .type = InputType::Encoder, .hw_id = 0 },  // encoder0 → TIM2
-    { .id = 3, .type = InputType::Button,  .hw_id = 0 },  // button0 → PA0
+    { .id = 0, .hw_type = HwType::Adc,     .hw_id = 0, .curve = Curve::Linear },
+    { .id = 1, .hw_type = HwType::Adc,     .hw_id = 1, .curve = Curve::Log },
+    { .id = 2, .hw_type = HwType::Gpio,    .hw_id = 0, .threshold = 0.5f },  // ボタン
+    { .id = 3, .hw_type = HwType::Encoder, .hw_id = 0, .scale = 0.01f },
 };
 
-// 出力マッピング
+// 出力マッピング（アプリからは単なるインデックス）
 constexpr OutputMapping outputs[] = {
-    { .id = 0, .type = OutputType::Led,    .hw_id = 0 },  // led0 → PA5
-    { .id = 1, .type = OutputType::Rgb,    .hw_id = 0 },  // rgb0 → TIM3 CH1-3
-    { .id = 2, .type = OutputType::Meter,  .hw_id = 0 },  // meter0 → 7seg
+    { .id = 0, .hw_type = HwType::Pwm,     .hw_id = 0 },  // LED (明るさ)
+    { .id = 1, .hw_type = HwType::Gpio,    .hw_id = 1 },  // LED (ON/OFF)
+    { .id = 2, .hw_type = HwType::PwmRgb,  .hw_id = 0 },  // RGB LED
+    { .id = 3, .hw_type = HwType::I2c7Seg, .hw_id = 0 },  // 7セグ
 };
 
 // キャンバス設定
 constexpr CanvasConfig canvas = {
-    .type = CanvasType::Oled,
+    .hw_type = HwType::SpiOled,
+    .hw_id = 0,
     .width = 128,
     .height = 64,
     .bpp = 1,
@@ -866,16 +736,79 @@ constexpr CanvasConfig canvas = {
 }
 ```
 
+### 入力の更新フロー
+
+```
+Hardware          Kernel Driver         Shared Memory        Application
+   │                    │                     │                    │
+   │ ADC/GPIO/TIM IRQ   │                     │                    │
+   │───────────────────>│                     │                    │
+   │                    │ BSPマッピング参照    │                    │
+   │                    │ ノイズ除去、正規化   │                    │
+   │                    │ カーブ適用          │                    │
+   │                    │                     │                    │
+   │                    │ inputs[i].value = v │                    │
+   │                    │ inputs[i].flags |= CHANGED               │
+   │                    │────────────────────>│                    │
+   │                    │                     │                    │
+   │                    │ events.push(InputChanged, i)             │
+   │                    │────────────────────>│                    │
+   │                    │                     │                    │
+   │                    │                     │ wait_event()       │
+   │                    │                     │───────────────────>│
+   │                    │                     │ input[i]           │
+   │                    │                     │<───────────────────│
+```
+
+### 出力の更新フロー
+
+```
+Application          Shared Memory        Kernel Driver         Hardware
+   │                      │                    │                    │
+   │ output[0] = 0.8f     │                    │                    │
+   │─────────────────────>│                    │                    │
+   │ outputs[0].value[0]=0.8                   │                    │
+   │ outputs[0].dirty=true│                    │                    │
+   │                      │                    │                    │
+   │ output.flush()       │                    │                    │
+   │─────────────────────>│                    │                    │
+   │                      │ BSPマッピング参照  │                    │
+   │                      │<───────────────────│                    │
+   │                      │ outputs[0]→PWM CH0 │                    │
+   │                      │ outputs[2]→RGB PWM │                    │
+   │                      │                    │───────────────────>│
+   │                      │ dirty = false      │                    │
+```
+
 ### プラットフォーム統一
 
 | 操作 | 組込み | Web | Desktop |
 |------|--------|-----|---------|
-| `ctrl.knob(i)` | 共有メモリ読み取り | JS→WASM | MIDI CC |
-| `view.led(i).set()` | 共有メモリ書き込み | Canvas/CSS | Log |
-| `view.canvas().pixel()` | 共有メモリ書き込み | Canvas | Window |
-| `view.flush()` | syscall→DMA | requestAnimationFrame | Render |
+| `input[i]` | 共有メモリ | JS→WASM | MIDI CC / GUI |
+| `output[i] = v` | 共有メモリ | Canvas/CSS | Log / GUI |
+| `canvas.set()` | 共有メモリ | Canvas | Window |
+| `flush()` | syscall→DMA | requestAnimationFrame | Render |
 
-アプリコードは**完全に同一**で、プラットフォーム差はBSP/ランタイムが吸収。
+アプリコードは**完全に同一**。BSP/ランタイムがプラットフォーム差を吸収。
+
+### process() での制約
+
+```cpp
+void MyProcessor::process(umi::ProcessContext& ctx) {
+    // ✅ OK: オーディオバッファ
+    auto* out = ctx.output(0);
+    
+    // ✅ OK: パラメータ（atomic読み取り）
+    float cutoff = ctx.param(PARAM_CUTOFF);
+    
+    // ✅ OK: Control Taskへイベント送信
+    ctx.send_to_control(Event::meter(0, peak));
+    
+    // ❌ NG: input/output操作（syscall/flag操作が必要）
+    // float v = input[0];   // 禁止
+    // output[0] = level;    // 禁止
+}
+```
 
 ---
 
