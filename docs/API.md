@@ -338,7 +338,7 @@ if (result) {
 
 ```
 +------------------+     +------------------+     +------------------+
-|  Hardware        |     |  Kernel          |     |  Application     |
+|  Hardware        |     |  Kernel + BSP    |     |  Application     |
 |  (ADC, GPIO,     | --> |  (IRQ handlers,  | --> |  (main, process) |
 |   Encoder, I2S)  |     |   DMA, drivers)  |     |                  |
 +------------------+     +------------------+     +------------------+
@@ -350,7 +350,90 @@ if (result) {
                     |  - EventQueue    |
                     |  - ParamBlock    |
                     |  - HardwareState |
+                    |  - DisplayBuffer |
                     +------------------+
+```
+
+### 共有メモリの実装
+
+#### メモリ配置とハードウェア構成
+
+共有メモリの物理配置はBSPが担当。APIは共通。
+
+| ハードウェア構成 | 共有メモリ配置 | 注意点 |
+|------------------|----------------|--------|
+| 内蔵SRAMのみ | `.shared` セクション | サイズ制約 |
+| 内蔵 + SDRAM | オーディオはSDRAM | キャッシュ設定 |
+| CCM + SRAM | 高速データはCCM | DMA不可 |
+
+#### BSPによる抽象化
+
+```cpp
+// lib/bsp/<board>/shared_memory.hh
+
+// BSPがボード固有の配置を定義
+namespace bsp {
+
+// リンカスクリプトと連携
+extern SharedRegion __shared_region __attribute__((section(".shared")));
+
+// 初期化（キャッシュ、MPU設定含む）
+void init_shared_memory() {
+    // SDRAM初期化（必要なら）
+    init_sdram();
+    
+    // MPU設定: 共有領域をnon-cacheable or write-through
+    mpu::configure_region(MPU_REGION_SHARED, {
+        .base = &__shared_region,
+        .size = sizeof(SharedRegion),
+        .access = mpu::RW_RW,
+        .attributes = mpu::SHARED_DEVICE,  // キャッシュ無効
+    });
+}
+
+}
+```
+
+#### リンカスクリプト例（SDRAM使用時）
+
+```ld
+/* boards/my_board/linker.ld */
+MEMORY {
+    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 1M
+    SRAM (rwx)  : ORIGIN = 0x20000000, LENGTH = 128K
+    SDRAM (rwx) : ORIGIN = 0xD0000000, LENGTH = 8M
+}
+
+SECTIONS {
+    /* オーディオバッファはSDRAMに配置 */
+    .shared_audio (NOLOAD) : {
+        . = ALIGN(32);  /* キャッシュライン境界 */
+        *(.shared_audio)
+    } > SDRAM
+    
+    /* イベント/パラメータは高速SRAMに配置 */
+    .shared_fast (NOLOAD) : {
+        *(.shared_fast)
+    } > SRAM
+}
+```
+
+#### DMAとの整合性
+
+```cpp
+// オーディオバッファはDMAと共有
+// キャッシュコヒーレンシを保証
+
+// 方法1: Non-cacheable領域（推奨）
+// → MPUでSHARED_DEVICEに設定
+
+// 方法2: 手動キャッシュ操作（パフォーマンス重視）
+void before_dma_read() {
+    SCB_InvalidateDCache_by_Addr(audio_buf, size);
+}
+void after_dma_write() {
+    SCB_CleanDCache_by_Addr(audio_buf, size);
+}
 ```
 
 ### 共有メモリ構造
@@ -372,82 +455,395 @@ struct SharedRegion {
     
     // パラメータ（get_param/set_paramでアクセス）
     struct {
-        float values[MAX_PARAMS];
+        std::atomic<float> values[MAX_PARAMS];
     } params;
     
-    // ハードウェア状態（カーネルが更新）
+    // ハードウェア状態（カーネルが更新、アプリは読み取り専用）
     struct {
         uint16_t adc[8];        // ADC値 (0-4095)
         int16_t encoders[4];    // エンコーダ累積値
         uint32_t buttons;       // ボタン状態ビットマップ
+        uint32_t timestamp_us;  // 最終更新時刻
     } hw_state;
+    
+    // ディスプレイバッファ（アプリが書き込み、カーネルが転送）
+    struct {
+        uint8_t oled[128 * 64 / 8];  // 1bpp
+        uint16_t lcd[320 * 240];     // RGB565
+        uint32_t dirty;              // 更新フラグ
+    } display;
 };
 ```
 
-### ハードウェア入力の取得方法
+---
 
-**方法1: イベント経由（推奨）**
+## ハードウェア入力
 
-カーネルがハードウェア変化をイベントとして通知:
+### 入力デバイスの種類
+
+| デバイス | データ型 | 更新方式 | 典型的な用途 |
+|----------|----------|----------|--------------|
+| ADC (ポット) | 0-4095 | ポーリング/閾値 | ノブ、スライダー |
+| エンコーダ | 相対値 (delta) | IRQ | 無限回転ノブ |
+| ボタン | ON/OFF | IRQ | スイッチ、タクト |
+| タッチパッド | x, y, pressure | ポーリング | XY pad |
+| ジャイロ/加速度 | 3軸 float | ポーリング | モーションコントロール |
+| 距離センサ | mm | ポーリング | 非接触コントロール |
+
+### 入力取得方法
+
+#### 方法1: イベント駆動（推奨）
+
+カーネルがハードウェア変化を検出してイベント通知。
+**低CPU負荷、応答性良好。**
 
 ```cpp
 int main() {
-    // ...
+    static Synth synth;
+    umi::register_processor(synth);
+    
     while (true) {
         auto ev = umi::wait_event();
         
         switch (ev.type) {
+        case umi::EventType::Shutdown:
+            return 0;
+            
+        // エンコーダ（相対値）
         case umi::EventType::EncoderRotate:
-            // エンコーダが回転した
-            handle_encoder(ev.encoder.id, ev.encoder.delta);
+            // id: エンコーダ番号, delta: 回転量（正=時計回り）
+            adjust_param(ev.encoder.id, ev.encoder.delta);
             break;
             
+        // ボタン
         case umi::EventType::ButtonPress:
-            // ボタンが押された
-            handle_button(ev.button.id);
+            handle_button_down(ev.button.id);
+            break;
+        case umi::EventType::ButtonRelease:
+            handle_button_up(ev.button.id);
             break;
             
-        case umi::EventType::AdcUpdate:
-            // ADC値が閾値を超えて変化した
-            handle_adc(ev.adc.channel, ev.adc.value);
+        // ADC（閾値を超えて変化した場合のみ通知）
+        case umi::EventType::AdcChange:
+            // channel: ADCチャンネル, value: 0.0-1.0 正規化値
+            set_param_from_knob(ev.adc.channel, ev.adc.value);
+            break;
+            
+        // タッチ
+        case umi::EventType::TouchBegin:
+        case umi::EventType::TouchMove:
+        case umi::EventType::TouchEnd:
+            handle_touch(ev.touch.x, ev.touch.y, ev.touch.pressure);
             break;
         }
     }
 }
 ```
 
-**方法2: ポーリング（低レイテンシ用）**
+#### 方法2: ポーリング（高精度用）
+
+連続的な値の変化を高精度で追跡する場合。
+**CPU負荷高め、レイテンシ制御可能。**
 
 ```cpp
-// Control Task でポーリング
 int main() {
+    static Synth synth;
+    umi::register_processor(synth);
+    
+    // 前回値を保持
+    std::array<uint16_t, 8> prev_adc{};
+    
     while (true) {
-        // 現在のハードウェア状態を取得
+        // タイムアウト付きイベント待機（1ms）
+        auto ev = umi::wait_event(1000);  // 1000μs = 1ms
+        
+        if (ev.type != umi::EventType::Timeout) {
+            // イベント処理
+            handle_event(ev);
+        }
+        
+        // 1msごとにADCをポーリング
         auto hw = umi::get_hw_state();
-        
-        uint16_t knob1 = hw.adc[0];      // ADCチャンネル0
-        int16_t enc1 = hw.encoders[0];   // エンコーダ0
-        bool btn1 = hw.buttons & (1 << 0); // ボタン0
-        
-        // ... 処理 ...
-        
-        umi::sleep(1ms);  // ポーリング間隔
+        for (int i = 0; i < 8; ++i) {
+            int16_t diff = hw.adc[i] - prev_adc[i];
+            if (std::abs(diff) > 8) {  // ノイズ除去
+                float normalized = hw.adc[i] / 4095.0f;
+                apply_adc_value(i, normalized);
+                prev_adc[i] = hw.adc[i];
+            }
+        }
     }
 }
 ```
 
-### ハードウェア出力の制御
+#### 方法3: コルーチンで分離（推奨）
+
+イベント処理とポーリングを別タスクに分離。
 
 ```cpp
-// LED制御
-umi::set_led(LED_STATUS, true);   // ON
-umi::set_led(LED_STATUS, false);  // OFF
+// イベント処理タスク
+umi::Task<void> event_task(Synth& synth) {
+    while (true) {
+        auto ev = co_await umi::wait_event_async();
+        if (ev.type == umi::EventType::Shutdown) co_return;
+        synth.handle_event(ev);
+    }
+}
 
-// 7セグ/ディスプレイ
-umi::display_value(channel, value);
+// 高速ADCポーリングタスク（モジュレーション用）
+umi::Task<void> modulation_task(Synth& synth) {
+    while (true) {
+        co_await umi::sleep(500us);  // 2kHz
+        auto hw = umi::get_hw_state();
+        synth.apply_modwheel(hw.adc[MOD_WHEEL_CH] / 4095.0f);
+    }
+}
 
-// GPIO（許可されたピンのみ）
-umi::set_gpio(PIN_OUT1, true);
+// ディスプレイ更新タスク
+umi::Task<void> display_task(Synth& synth) {
+    while (true) {
+        co_await umi::sleep(33ms);  // 30fps
+        update_display(synth);
+    }
+}
+
+int main() {
+    static Synth synth;
+    umi::register_processor(synth);
+    
+    umi::Scheduler<4> sched;
+    sched.spawn(event_task(synth));
+    sched.spawn(modulation_task(synth));
+    sched.spawn(display_task(synth));
+    sched.run();
+    
+    return 0;
+}
+```
+
+### ADC値の処理
+
+```cpp
+// 正規化（0.0-1.0）
+float normalize_adc(uint16_t raw) {
+    return raw / 4095.0f;
+}
+
+// 対数スケール（周波数パラメータ用）
+float adc_to_freq(uint16_t raw, float min_hz, float max_hz) {
+    float norm = raw / 4095.0f;
+    return min_hz * std::pow(max_hz / min_hz, norm);
+}
+
+// デッドゾーン付き（ピッチベンド用）
+float adc_with_deadzone(uint16_t raw, float deadzone = 0.02f) {
+    float norm = (raw / 4095.0f) * 2.0f - 1.0f;  // -1.0 to 1.0
+    if (std::abs(norm) < deadzone) return 0.0f;
+    return norm;
+}
+
+// ヒステリシス（チャタリング防止）
+class AdcWithHysteresis {
+    uint16_t value_ = 0;
+    uint16_t threshold_ = 16;
+public:
+    bool update(uint16_t raw) {
+        if (std::abs(raw - value_) > threshold_) {
+            value_ = raw;
+            return true;  // 変化あり
+        }
+        return false;
+    }
+    uint16_t value() const { return value_; }
+};
+```
+
+---
+
+## ハードウェア出力
+
+### 出力デバイスの種類
+
+| デバイス | インターフェース | 更新方式 | API |
+|----------|------------------|----------|-----|
+| 単色LED | GPIO | 即時 | `set_led()` |
+| RGB LED | PWM / WS2812 | 即時 | `set_rgb()` |
+| 7セグメント | GPIO/SPI | 即時 | `set_7seg()` |
+| OLED (SSD1306等) | I2C/SPI | バッファ | `draw_*()` + `flush()` |
+| LCD (ILI9341等) | SPI/Parallel | バッファ | `draw_*()` + `flush()` |
+| モーター/サーボ | PWM | 即時 | `set_pwm()` |
+
+### LED制御
+
+```cpp
+// 単色LED
+umi::set_led(LED_POWER, true);    // ON
+umi::set_led(LED_MIDI, false);    // OFF
+umi::toggle_led(LED_STATUS);      // トグル
+
+// LED点滅（コルーチン）
+umi::Task<void> blink_task() {
+    while (true) {
+        umi::toggle_led(LED_STATUS);
+        co_await umi::sleep(500ms);
+    }
+}
+```
+
+### RGB LED
+
+```cpp
+// 単一RGB LED
+umi::set_rgb(LED_MAIN, 255, 0, 0);     // 赤
+umi::set_rgb(LED_MAIN, 0, 255, 0);     // 緑
+umi::set_rgb(LED_MAIN, 0, 0, 255);     // 青
+
+// HSV指定
+umi::set_hsv(LED_MAIN, 120, 255, 128); // 緑、彩度MAX、明るさ50%
+
+// WS2812ストリップ（複数LED）
+umi::RgbStrip strip(NUM_LEDS);
+strip.set(0, {255, 0, 0});
+strip.set(1, {0, 255, 0});
+strip.fill({0, 0, 255});  // 全LED同色
+strip.show();             // DMA転送開始
+
+// エフェクト
+umi::Task<void> rainbow_task(umi::RgbStrip& strip) {
+    uint8_t hue = 0;
+    while (true) {
+        for (int i = 0; i < strip.size(); ++i) {
+            strip.set_hsv(i, (hue + i * 10) % 256, 255, 128);
+        }
+        strip.show();
+        hue += 2;
+        co_await umi::sleep(20ms);
+    }
+}
+```
+
+### 7セグメント/数値表示
+
+```cpp
+// 数値表示
+umi::display_number(channel, 440);     // "440"
+umi::display_number(channel, 3.14f);   // "3.14"
+umi::display_number(channel, -12);     // "-12"
+
+// 文字表示（限定的）
+umi::display_text(channel, "LOAD");    // "LoAd"
+
+// フォーマット指定
+umi::display_number(channel, 127, {
+    .digits = 3,
+    .leading_zeros = true,   // "127"
+    .decimal_point = 0,      // なし
+});
+```
+
+### OLED/LCDディスプレイ
+
+```cpp
+// ディスプレイコンテキスト取得
+auto& disp = umi::get_display();
+
+// 基本描画（バッファに描画）
+disp.clear();
+disp.fill(umi::Color::Black);
+
+// テキスト
+disp.set_font(umi::Font::Small);  // 6x8
+disp.draw_text(0, 0, "UMI Synth");
+disp.set_font(umi::Font::Large);  // 12x16
+disp.draw_text(0, 16, "440 Hz");
+
+// 図形
+disp.draw_rect(10, 10, 50, 30, umi::Color::White);
+disp.fill_rect(12, 12, 46, 26, umi::Color::Gray);
+disp.draw_line(0, 0, 127, 63, umi::Color::White);
+disp.draw_circle(64, 32, 20, umi::Color::White);
+
+// ビットマップ
+disp.draw_bitmap(0, 0, logo_data, 32, 32);
+
+// バッファをハードウェアに転送
+disp.flush();  // 非同期DMA転送
+```
+
+### LCDグラフィックス（カラー）
+
+```cpp
+auto& lcd = umi::get_lcd();  // RGB565
+
+// 色指定
+constexpr auto RED   = umi::rgb565(255, 0, 0);
+constexpr auto GREEN = umi::rgb565(0, 255, 0);
+constexpr auto BLUE  = umi::rgb565(0, 0, 255);
+
+// 描画
+lcd.fill(umi::Color::Black);
+lcd.fill_rect(10, 10, 100, 50, RED);
+lcd.draw_text(20, 20, "Hello", umi::Font::Large, GREEN);
+
+// 波形表示
+void draw_waveform(std::span<const float> samples) {
+    auto& lcd = umi::get_lcd();
+    int w = lcd.width();
+    int h = lcd.height();
+    int mid = h / 2;
+    
+    lcd.fill_rect(0, 0, w, h, umi::Color::Black);
+    
+    for (int x = 0; x < w && x < samples.size(); ++x) {
+        int y = mid - static_cast<int>(samples[x] * mid);
+        lcd.draw_pixel(x, y, GREEN);
+    }
+    lcd.flush();
+}
+
+// 部分更新（高速化）
+lcd.set_window(0, 0, 100, 50);  // 更新領域を限定
+lcd.fill(RED);
+lcd.flush_window();
+```
+
+### ディスプレイ更新の最適化
+
+```cpp
+// ダブルバッファリング
+auto& disp = umi::get_display();
+disp.enable_double_buffer(true);
+
+// フレームレート制御
+umi::Task<void> display_task(Synth& synth) {
+    while (true) {
+        // 30fps
+        co_await umi::sleep(33ms);
+        
+        auto& disp = umi::get_display();
+        disp.clear();
+        draw_ui(synth, disp);
+        disp.swap();  // バッファ切り替え + DMA転送
+    }
+}
+
+// ダーティ領域のみ更新
+disp.mark_dirty(0, 0, 64, 16);   // 変更領域をマーク
+disp.flush_dirty();              // マーク領域のみ転送
+```
+
+### PWM出力
+
+```cpp
+// 汎用PWM（0.0-1.0）
+umi::set_pwm(PWM_CH0, 0.5f);  // 50%デューティ
+
+// サーボモーター（角度指定）
+umi::set_servo(SERVO_CH0, 90.0f);  // 90度
+
+// モーター速度（-1.0 to 1.0）
+umi::set_motor(MOTOR_CH0, 0.75f);   // 正転75%
+umi::set_motor(MOTOR_CH0, -0.5f);   // 逆転50%
 ```
 
 ### process() 内でのハードウェアアクセス
@@ -464,20 +860,28 @@ void MyProcessor::process(umi::ProcessContext& ctx) {
     
     // ❌ NG: syscallは使えない
     // auto hw = umi::get_hw_state();  // 禁止！
+    // umi::set_led(0, true);          // 禁止！
     
     // ✅ OK: パラメータはアトミックに読み取り可
     float cutoff = ctx.param(PARAM_CUTOFF);
+    
+    // ✅ OK: Control Taskにイベント送信（メーター等）
+    if (frame_count % 1024 == 0) {
+        ctx.send_to_control(umi::Event::meter(0, peak_level));
+    }
 }
 ```
 
 ### プラットフォーム対応
 
-| API | 組込み | Web (WASM) |
-|-----|--------|------------|
-| `wait_event()` | syscall → ブロック | Asyncify |
-| `get_hw_state()` | 共有メモリ読み取り | JS経由で取得 |
-| `set_led()` | GPIO操作 | UI更新 |
-| `ctx.output()` | DMAバッファ | AudioWorklet |
+| API | 組込み | Web (WASM) | Desktop |
+|-----|--------|------------|---------|
+| `wait_event()` | syscall | Asyncify | std::thread |
+| `get_hw_state()` | 共有メモリ | JS経由 | MIDI/OSC |
+| `set_led()` | GPIO | CSS/Canvas | なし |
+| `set_rgb()` | PWM/WS2812 | CSS | なし |
+| `get_display()` | SPI/I2C | Canvas | Window |
+| `ctx.output()` | DMAバッファ | AudioWorklet | PortAudio |
 
 ---
 
