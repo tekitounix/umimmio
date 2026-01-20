@@ -14,6 +14,7 @@ UMI プロジェクトのコーディングスタイルは `.clang-format`、`.c
 | Standard | Latest | 最新C++標準 |
 | IndentWidth | 4 | インデント幅 |
 | ColumnLimit | 120 | 1行の最大文字数 |
+| MaxEmptyLinesToKeep | 1 | 連続空行は最大1行 |
 
 ### ポインタ・参照
 
@@ -27,21 +28,23 @@ int *ptr;
 const std::string &ref;
 ```
 
-### 関数引数
+### 関数引数・パラメータ
 
 ```cpp
-// BinPackArguments: false - 引数が多い場合は1行1引数
+// BinPackArguments: false, BinPackParameters: false
+// 引数・パラメータが多い場合は1行1引数
 void long_function(
     int first_arg,
     int second_arg,
     int third_arg
 );
 
+// AllowShortFunctionsOnASingleLine: Inline
 // 短い関数はインライン可
 int get() const { return value_; }
 ```
 
-### テンプレート
+### テンプレート・Concepts
 
 ```cpp
 // AlwaysBreakTemplateDeclarations: Yes
@@ -50,26 +53,36 @@ class MyClass {
     // ...
 };
 
-// requires節は独立行
+// RequiresClausePosition: OwnLine
+// IndentRequiresClause: true
 template<typename T>
-requires std::integral<T>
+    requires std::integral<T>
 void func(T value);
+```
+
+### ラムダ式
+
+```cpp
+// LambdaBodyIndentation: Signature
+auto callback = [this](int value) {
+    process(value);  // ラムダのシグネチャに合わせてインデント
+};
 ```
 
 ### インクルード順序
 
-自動ソート（CaseSensitive）、カテゴリ順：
+自動ソート・再グループ化（IncludeBlocks: Regroup, SortIncludes: CaseSensitive）：
 
 ```cpp
-// 1. C標準ヘッダ
+// Priority 1: C標準ヘッダ (^<.*\.h>)
 #include <stdint.h>
 #include <string.h>
 
-// 2. C++標準ヘッダ
+// Priority 2: C++標準ヘッダ (^<.*>)
 #include <algorithm>
 #include <vector>
 
-// 3. プロジェクトヘッダ
+// Priority 3: プロジェクトヘッダ (^".*")
 #include "my_header.hh"
 #include "umidsp/oscillator.hh"
 ```
@@ -87,7 +100,14 @@ void func(T value);
 #endif
 ```
 
-### マクロ整列
+### アライメント設定
+
+| 設定 | 値 | 説明 |
+|------|-----|------|
+| `AlignConsecutiveMacros` | `AcrossEmptyLines` | マクロ定義を空行を越えて整列 |
+| `AlignOperands` | `Align` | 演算子オペランドを整列 |
+| `AlignEscapedNewlines` | `Left` | エスケープ改行を左揃え |
+| `AlignTrailingComments` | `true` | 行末コメントを整列 |
 
 ```cpp
 // AlignConsecutiveMacros: AcrossEmptyLines
@@ -96,6 +116,15 @@ void func(T value);
 #define VERY_LONG   3
 
 #define ANOTHER     4  // 空行を超えて整列
+
+// AlignOperands: Align
+int result = very_long_variable_name
+           + another_long_variable
+           - some_other_value;
+
+// AlignTrailingComments: true
+int x = 1;    // x の説明
+int width = 10;    // 幅
 ```
 
 ### アクセス修飾子
@@ -121,10 +150,16 @@ private:            // EmptyLineBeforeAccessModifier: LogicalBlock
 | 関数・メソッド | `lower_case` | `process_audio()`, `get_value()` |
 | 変数・パラメータ | `lower_case` | `sample_rate`, `buffer_size` |
 | メンバ変数 | `lower_case` | `gain_`, `cutoff` |
+| グローバル変数 | `lower_case` | `g_instance` |
+| 静的変数 | `lower_case` | `s_counter` |
 | 定数 (constexpr) | `lower_case` | `max_voices`, `default_gain` |
 | 型・クラス・構造体 | `CamelCase` | `AudioProcessor`, `MidiEvent` |
+| 型テンプレート | `CamelCase` | `template<typename T>` |
+| 型エイリアス | `CamelCase` | `using SampleType = float;` |
+| コンセプト | `CamelCase` | `concept Numeric` |
 | 列挙型 | `CamelCase` | `EventType`, `Priority` |
 | 列挙値 | `UPPER_CASE` | `NOTE_ON`, `CONTROL_CHANGE` |
+| スコープ付き列挙値 | `UPPER_CASE` | `WaveType::SINE` |
 | 名前空間 | `lower_case` | `umi::dsp`, `umi::kernel` |
 
 ### コード例
@@ -224,9 +259,11 @@ bool operator==(const Event& other) const;
 ```yaml
 CompileFlags:
   CompilationDatabase: .build/
+  Add:
+    - "--query-driver=/Applications/ArmGNUToolchain/.../arm-none-eabi-g++"
 ```
 
-xmake が生成する `compile_commands.json` を参照。
+xmake が生成する `compile_commands.json` を参照。`--query-driver` でARM GCCの組み込みヘッダパスを解決。
 
 ### ARM クロスコンパイル対応
 
@@ -249,6 +286,32 @@ Remove:
 Diagnostics:
   Suppress:
     - pp_file_not_found  # クロスコンパイル環境でのヘッダ不足
+```
+
+### clang-tidy 連携
+
+clangd 内で clang-tidy を有効化：
+
+```yaml
+Diagnostics:
+  ClangTidy:
+    Add:
+      - bugprone-*
+      - clang-analyzer-*
+      - performance-*
+      - modernize-*
+      - readability-*
+      - misc-*
+    Remove:
+      - bugprone-dynamic-static-initializers
+      - bugprone-easily-swappable-parameters
+      - modernize-use-trailing-return-type
+      - readability-magic-numbers
+    CheckOptions:
+      readability-identifier-naming.FunctionCase: lower_case
+      readability-identifier-naming.VariableCase: lower_case
+      readability-identifier-naming.TypeCase: CamelCase
+      # ... 他の命名規則
 ```
 
 ---
@@ -294,5 +357,5 @@ clang-tidy -p .build src/main.cc
 
 ## 関連ドキュメント
 
-- [API.md](API.md) - API リファレンス
-- [ARCHITECTURE.md](ARCHITECTURE.md) - アーキテクチャ概要
+- [API リファレンス](../reference/) - API ドキュメント群
+- [ARCHITECTURE.md](../specs/ARCHITECTURE.md) - アーキテクチャ概要
