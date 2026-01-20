@@ -295,68 +295,341 @@ xmake build
 
 ### 4.1 既存UMI仕様との関係
 
-| 仕様 | 役割 | 組込みでの扱い |
-|------|------|----------------|
-| **UMIP** | DSP処理（Processor） | **そのまま使う**（ネイティブ） |
-| **UMIC** | UIロジック（Controller） | 組込み用に実装 |
-| **UMIM** | WASM形式 | **Web向け**（組込みでは使わない） |
+| 仕様 | 役割 | 組込み | Web |
+|------|------|--------|-----|
+| **UMIP** | DSP処理（Processor） | ネイティブ | WASM |
+| **UMIC** | UIロジック（Controller） | ネイティブ | WASM |
+| **UMIM** | バイナリ形式 | ELF（独自） | WASM |
 
-組込みでは**WASMを使わない**。UMIPのネイティブコードをそのまま使用する。
+**アプリコードは共通**。プラットフォーム差異はSDKの実装で吸収する。
 
 ```
-Web環境:
-┌─────────────────────────────────────┐
-│  UMIP + UMIC → UMIM (WASM)         │
-│  → ブラウザ / Node.js              │
-└─────────────────────────────────────┘
-
-組込み環境:
-┌─────────────────────────────────────┐
-│  UMIP (Processor) ← そのまま使う    │
-│  UMIC (Controller) ← 組込み用に実装 │
-│  → MPU + カーネルでサンドボックス   │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    Application Code (共通)                  │
+│                                                             │
+│   int main() {                                              │
+│       umi::register_processor(synth);                       │
+│       while (umi::wait_event()) { ... }                     │
+│   }                                                         │
+├───────────────────────┬─────────────────────────────────────┤
+│   Embedded (Native)   │           Web (WASM)                │
+│   syscall ABI         │           WASM imports              │
+│   Kernel + MPU        │           AudioWorklet + Asyncify   │
+└───────────────────────┴─────────────────────────────────────┘
 ```
 
-### 4.2 アプリケーション（UMIP準拠）
+### 4.2 アプリケーションバイナリ形式
 
-ユーザーアプリは `ProcessorLike` コンセプトを満たすネイティブコード。
+#### タスク構成
+
+アプリケーションは2つの論理タスクで構成される:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Kernel (特権)                          │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐           │
+│  │ Scheduler   │ │ Audio Task  │ │ USB/MIDI    │           │
+│  └─────────────┘ └─────────────┘ └─────────────┘           │
+│                        │                                    │
+│  ┌─────────────────────┴───────────────────────┐           │
+│  │           Shared Memory Region              │           │
+│  │  AudioBuffer / EventQueue / ParamBlock      │           │
+│  └─────────────────────────────────────────────┘           │
+│                        │                                    │
+├────────────────────────┼────────────────────────────────────┤
+│                  Application (非特権)                       │
+│                        │                                    │
+│  ┌─────────────────────┴───────────────────┐               │
+│  │            Processor Task               │ 最高優先度    │
+│  │  process() - カーネルから直接呼び出し     │               │
+│  └─────────────────────────────────────────┘               │
+│                                                             │
+│  ┌─────────────────────────────────────────┐               │
+│  │            Control Task (main)          │ 低優先度      │
+│  │  イベント処理、UI、パラメータ管理         │               │
+│  └─────────────────────────────────────────┘               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| タスク | 優先度 | 役割 | syscall |
+|--------|--------|------|---------|
+| Processor Task | 最高 | DSP処理 | **使わない**（共有メモリ） |
+| Control Task | 低 | UI/イベント処理 | 使う（ブロッキング可） |
+
+#### エントリポイント
 
 ```cpp
-// ユーザーが書くアプリ: my_synth.hh
+// lib/umi_app/crt0.cc
+
+extern "C" {
+
+// グローバルコンストラクタ/デストラクタ
+extern void (*__init_array_start[])(void);
+extern void (*__init_array_end[])(void);
+extern void (*__fini_array_start[])(void);
+extern void (*__fini_array_end[])(void);
+
+// アプリエントリポイント（カーネルが呼び出す）
+void _start() {
+    // 1. グローバルコンストラクタ
+    for (auto fn = __init_array_start; fn < __init_array_end; ++fn) {
+        (*fn)();
+    }
+    
+    // 2. main() 実行
+    extern int main();
+    int ret = main();
+    
+    // 3. グローバルデストラクタ
+    for (auto fn = __fini_array_end; fn > __fini_array_start;) {
+        (*--fn)();
+    }
+    
+    // 4. カーネルに終了通知
+    umi::syscall::exit(ret);
+}
+
+} // extern "C"
+```
+
+#### ユーザーが書くコード
+
+```cpp
+// my_app/main.cc
+
+#include <umi/app.hh>
+#include "my_synth.hh"
+#include "my_controller.hh"
+
+int main() {
+    // Processor を登録（カーネルのオーディオタスクから呼ばれる）
+    static MySynth synth;
+    umi::register_processor(synth);
+    
+    // main() 自身が Control Task として動作
+    MyController controller(synth);
+    
+    while (true) {
+        // イベント待ち（syscall、ブロッキング）
+        umi::Event ev = umi::wait_event();
+        
+        if (ev.type == umi::EventType::Shutdown) {
+            break;  // 終了要求
+        }
+        
+        switch (ev.type) {
+        case umi::EventType::Midi:
+            controller.on_midi(ev.midi);
+            break;
+        case umi::EventType::Encoder:
+            controller.on_encoder(ev.encoder);
+            break;
+        case umi::EventType::Button:
+            controller.on_button(ev.button);
+            break;
+        }
+    }
+    
+    return 0;
+}
+```
+
+#### Processor（DSP処理）
+
+```cpp
+// my_app/my_synth.hh
 
 class MySynth {
 public:
-    // ProcessorLike interface (必須)
-    void process(umi::AudioContext& ctx) {
-        // MIDI入力処理
-        for (const auto& ev : ctx.input_events) {
-            if (ev.type == umi::EventType::Midi) {
-                handle_midi(ev.midi);
+    // カーネルのオーディオタスクから呼ばれる（syscall不要）
+    void process(umi::ProcessContext& ctx) {
+        // 共有メモリ経由でイベント取得
+        for (const auto& ev : ctx.events()) {
+            if (ev.type == umi::EventType::NoteOn) {
+                note_on(ev.note.number, ev.note.velocity);
             }
         }
         
-        // オーディオ生成
-        auto* out = ctx.output(0);
-        for (uint32_t i = 0; i < ctx.buffer_size; ++i) {
-            out[i] = generate_sample();
+        // オーディオ生成（共有メモリに直接書き込み）
+        auto out = ctx.output(0);
+        for (uint32_t i = 0; i < ctx.frames(); ++i) {
+            out[i] = generate();
         }
     }
     
-    // HasParams interface (オプション)
-    static std::span<const umi::ParamDescriptor> params() {
-        return kParamDescriptors;
+    // Controller から呼ばれる（パラメータ変更）
+    void set_cutoff(float value) {
+        cutoff_.store(value, std::memory_order_relaxed);
     }
-    
-    void set_param(uint32_t id, float value);
-    float get_param(uint32_t id) const;
+
+private:
+    std::atomic<float> cutoff_{1000.0f};
 };
 ```
 
-**カーネルによる実行**:
+#### syscall ABI
+
+```cpp
+// lib/umi_app/include/umi/syscall.hh
+
+namespace umi::syscall {
+
+enum class Nr : uint32_t {
+    Exit            = 0,   // プロセス終了
+    RegisterProc    = 1,   // Processor登録
+    WaitEvent       = 2,   // イベント待ち（ブロッキング）
+    SendEvent       = 3,   // イベント送信
+    Log             = 10,  // デバッグログ
+    GetTime         = 11,  // 時刻取得
+};
+
+inline int32_t call(Nr nr, uint32_t a0 = 0, uint32_t a1 = 0, 
+                    uint32_t a2 = 0, uint32_t a3 = 0) {
+    register uint32_t r0 __asm__("r0") = static_cast<uint32_t>(nr);
+    register uint32_t r1 __asm__("r1") = a0;
+    register uint32_t r2 __asm__("r2") = a1;
+    register uint32_t r3 __asm__("r3") = a2;
+    register uint32_t r4 __asm__("r4") = a3;
+    
+    __asm__ volatile("svc #0" : "+r"(r0) 
+                     : "r"(r1), "r"(r2), "r"(r3), "r"(r4) : "memory");
+    return static_cast<int32_t>(r0);
+}
+
+inline void exit(int code) { call(Nr::Exit, code); }
+
+} // namespace umi::syscall
+```
+
+#### アプリSDK API
+
+```cpp
+// lib/umi_app/include/umi/app.hh
+
+namespace umi {
+
+// Processor登録
+template<typename T>
+void register_processor(T& processor) {
+    auto fn = [](void* p, ProcessContext& ctx) {
+        static_cast<T*>(p)->process(ctx);
+    };
+    syscall::call(syscall::Nr::RegisterProc,
+                  reinterpret_cast<uint32_t>(&processor),
+                  reinterpret_cast<uint32_t>(fn));
+}
+
+// イベント待ち（Control Task用、ブロッキング）
+inline Event wait_event(uint32_t timeout_ms = UINT32_MAX) {
+    Event ev;
+    syscall::call(syscall::Nr::WaitEvent,
+                  reinterpret_cast<uint32_t>(&ev), timeout_ms);
+    return ev;
+}
+
+// ログ出力
+inline void log(const char* msg) {
+    syscall::call(syscall::Nr::Log, reinterpret_cast<uint32_t>(msg));
+}
+
+} // namespace umi
+```
+
+#### 共有メモリ構造
+
+```cpp
+// カーネルとアプリで共有
+struct SharedRegion {
+    // オーディオバッファ
+    struct {
+        float output[2][BUFFER_SIZE];
+        float input[2][BUFFER_SIZE];
+        std::atomic<uint32_t> ready;
+    } audio;
+    
+    // イベントキュー（ロックフリー）
+    struct {
+        Event buffer[64];
+        std::atomic<uint32_t> head;
+        std::atomic<uint32_t> tail;
+    } events;
+    
+    // パラメータ
+    struct {
+        float values[MAX_PARAMS];
+        std::atomic<uint32_t> dirty;
+    } params;
+};
+```
+
+#### カーネルによる実行
+
+- カーネルは `_start` を Control Task として起動
+- `register_processor()` で登録された関数をオーディオタスクから呼び出し
 - MPUでアプリのメモリ領域を分離
-- AudioContextの共有バッファ経由でデータ受け渡し
-- アプリはハードウェアに直接アクセスできない
+- 共有メモリ経由でゼロコピーデータ受け渡し
+
+#### Web版（WASM）での実装
+
+Web版も同じ `main()` パターン。プラットフォーム差異はSDKで吸収。
+
+```cpp
+// lib/umi_app/wasm/runtime.cc（Web版SDK実装）
+
+#include <emscripten.h>
+
+namespace umi {
+namespace {
+    void* g_processor = nullptr;
+    void (*g_process_fn)(void*, ProcessContext&) = nullptr;
+    bool g_has_event = false;
+    Event g_pending_event;
+}
+
+void register_processor_impl(void* proc, void (*fn)(void*, ProcessContext&)) {
+    g_processor = proc;
+    g_process_fn = fn;
+}
+
+Event wait_event(uint32_t timeout_ms) {
+    while (!g_has_event) {
+        emscripten_sleep(1);  // Asyncify
+    }
+    g_has_event = false;
+    return g_pending_event;
+}
+
+} // namespace umi
+
+// WASM エクスポート
+extern "C" {
+
+EMSCRIPTEN_KEEPALIVE void umi_init() {
+    extern int main();
+    main();
+}
+
+EMSCRIPTEN_KEEPALIVE void umi_process(float* in, float* out, uint32_t frames) {
+    if (umi::g_process_fn) {
+        ProcessContext ctx{in, out, frames};
+        umi::g_process_fn(umi::g_processor, ctx);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void umi_push_event(uint32_t type, const uint8_t* data, uint32_t size) {
+    umi::g_pending_event = Event::from_bytes(type, data, size);
+    umi::g_has_event = true;
+}
+
+}
+```
+
+| 項目 | 組込み | Web (WASM) |
+|------|--------|------------|
+| エントリポイント | `_start` → `main()` | `umi_init` → `main()` |
+| Processor呼び出し | カーネルタスク | AudioWorklet |
+| イベント待ち | syscall（ブロック） | Asyncify（yield） |
+| ビルド | arm-none-eabi-gcc | emscripten |
 
 ### 4.3 ドライバ（開発版のみ）
 
