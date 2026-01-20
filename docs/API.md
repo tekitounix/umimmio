@@ -329,9 +329,162 @@ if (result) {
 
 ---
 
+## 共有メモリとハードウェアI/O
+
+アプリケーションはカーネルと**共有メモリ**経由で通信します。
+直接ハードウェアにアクセスすることはできません（MPUで保護）。
+
+### アーキテクチャ
+
+```
++------------------+     +------------------+     +------------------+
+|  Hardware        |     |  Kernel          |     |  Application     |
+|  (ADC, GPIO,     | --> |  (IRQ handlers,  | --> |  (main, process) |
+|   Encoder, I2S)  |     |   DMA, drivers)  |     |                  |
++------------------+     +------------------+     +------------------+
+                              |
+                              v
+                    +------------------+
+                    |  Shared Memory   |
+                    |  - AudioBuffer   |
+                    |  - EventQueue    |
+                    |  - ParamBlock    |
+                    |  - HardwareState |
+                    +------------------+
+```
+
+### 共有メモリ構造
+
+```cpp
+// カーネルが管理、アプリからはAPIでアクセス
+struct SharedRegion {
+    // オーディオバッファ（process()で直接アクセス）
+    struct {
+        float output[2][BUFFER_SIZE];
+        float input[2][BUFFER_SIZE];
+    } audio;
+    
+    // イベントキュー（wait_event()で取得）
+    struct {
+        Event buffer[64];
+        std::atomic<uint32_t> head, tail;
+    } events;
+    
+    // パラメータ（get_param/set_paramでアクセス）
+    struct {
+        float values[MAX_PARAMS];
+    } params;
+    
+    // ハードウェア状態（カーネルが更新）
+    struct {
+        uint16_t adc[8];        // ADC値 (0-4095)
+        int16_t encoders[4];    // エンコーダ累積値
+        uint32_t buttons;       // ボタン状態ビットマップ
+    } hw_state;
+};
+```
+
+### ハードウェア入力の取得方法
+
+**方法1: イベント経由（推奨）**
+
+カーネルがハードウェア変化をイベントとして通知:
+
+```cpp
+int main() {
+    // ...
+    while (true) {
+        auto ev = umi::wait_event();
+        
+        switch (ev.type) {
+        case umi::EventType::EncoderRotate:
+            // エンコーダが回転した
+            handle_encoder(ev.encoder.id, ev.encoder.delta);
+            break;
+            
+        case umi::EventType::ButtonPress:
+            // ボタンが押された
+            handle_button(ev.button.id);
+            break;
+            
+        case umi::EventType::AdcUpdate:
+            // ADC値が閾値を超えて変化した
+            handle_adc(ev.adc.channel, ev.adc.value);
+            break;
+        }
+    }
+}
+```
+
+**方法2: ポーリング（低レイテンシ用）**
+
+```cpp
+// Control Task でポーリング
+int main() {
+    while (true) {
+        // 現在のハードウェア状態を取得
+        auto hw = umi::get_hw_state();
+        
+        uint16_t knob1 = hw.adc[0];      // ADCチャンネル0
+        int16_t enc1 = hw.encoders[0];   // エンコーダ0
+        bool btn1 = hw.buttons & (1 << 0); // ボタン0
+        
+        // ... 処理 ...
+        
+        umi::sleep(1ms);  // ポーリング間隔
+    }
+}
+```
+
+### ハードウェア出力の制御
+
+```cpp
+// LED制御
+umi::set_led(LED_STATUS, true);   // ON
+umi::set_led(LED_STATUS, false);  // OFF
+
+// 7セグ/ディスプレイ
+umi::display_value(channel, value);
+
+// GPIO（許可されたピンのみ）
+umi::set_gpio(PIN_OUT1, true);
+```
+
+### process() 内でのハードウェアアクセス
+
+**禁止**: process() 内でsyscallは使用できません。
+
+代わりにProcessContextに渡されるデータを使用:
+
+```cpp
+void MyProcessor::process(umi::ProcessContext& ctx) {
+    // ✅ OK: ctx経由でオーディオ/MIDIにアクセス
+    auto* out = ctx.output(0);
+    for (const auto& ev : ctx.events()) { ... }
+    
+    // ❌ NG: syscallは使えない
+    // auto hw = umi::get_hw_state();  // 禁止！
+    
+    // ✅ OK: パラメータはアトミックに読み取り可
+    float cutoff = ctx.param(PARAM_CUTOFF);
+}
+```
+
+### プラットフォーム対応
+
+| API | 組込み | Web (WASM) |
+|-----|--------|------------|
+| `wait_event()` | syscall → ブロック | Asyncify |
+| `get_hw_state()` | 共有メモリ読み取り | JS経由で取得 |
+| `set_led()` | GPIO操作 | UI更新 |
+| `ctx.output()` | DMAバッファ | AudioWorklet |
+
+---
+
 ## 関連ドキュメント
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - アーキテクチャ概要
 - [UMIP_SPEC.md](UMIP_SPEC.md) - Processor仕様
 - [UMIC_SPEC.md](UMIC_SPEC.md) - Controller仕様
 - [UMIM_SPEC.md](UMIM_SPEC.md) - バイナリ形式
+- [SECURITY_ANALYSIS.md](SECURITY_ANALYSIS.md) - セキュリティとメモリ保護
