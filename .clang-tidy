@@ -1,7 +1,8 @@
 # bugprone-dynamic-static-initializers: false positive with static constexpr
+# bugprone-easily-swappable-parameters: too noisy for DSP/embedded (e.g., set_adsr, lerp)
 Checks: >
   -*,
-  bugprone-*,-bugprone-dynamic-static-initializers,
+  bugprone-*,-bugprone-dynamic-static-initializers,-bugprone-easily-swappable-parameters,
   clang-analyzer-*,
   performance-*,
   modernize-*,-modernize-use-trailing-return-type,
