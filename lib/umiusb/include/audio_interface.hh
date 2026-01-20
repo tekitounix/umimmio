@@ -1526,6 +1526,11 @@ using MidiInterfaceV2 = AudioInterface<UacVersion::Uac2, NoAudioPort, NoAudioPor
 using AudioFullDuplex48k = AudioInterface<UacVersion::Uac1, AudioStereo48k, AudioPort<2, 16, 48000, 3>, NoMidiPort, NoMidiPort, 2>;
 using AudioFullDuplex48kV2 = AudioInterface<UacVersion::Uac2, AudioStereo48k, AudioPort<2, 16, 48000, 3>, NoMidiPort, NoMidiPort, 2>;
 
+// Audio IN/OUT + MIDI (full duplex with MIDI)
+// STM32 OTG FS has EP0-3, with IN and OUT being independent:
+// EP1 OUT=Audio OUT, EP1 IN=MIDI IN, EP2 IN=Feedback, EP3 OUT=MIDI OUT, EP3 IN=Audio IN
+using AudioFullDuplexMidi48k = AudioInterface<UacVersion::Uac1, AudioStereo48k, AudioPort<2, 16, 48000, 3>, MidiPort<1, 3>, MidiPort<1, 1>, 2>;
+
 // Audio IN only (microphone)
 using AudioInOnly48k = AudioInterface<UacVersion::Uac1, NoAudioPort, AudioPort<2, 16, 48000, 1>, NoMidiPort, NoMidiPort, 0>;
 
