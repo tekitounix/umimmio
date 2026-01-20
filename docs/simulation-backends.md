@@ -1,6 +1,6 @@
-# UMI-OS Simulation Backends
+# UMI Simulation Backends
 
-UMI-OSは複数のシミュレーションバックエンドをサポートし、用途に応じて使い分けられます。
+UMIは複数のシミュレーションバックエンドをサポートし、用途に応じて使い分けられます。
 
 ## バックエンド比較
 
@@ -162,7 +162,7 @@ http://localhost:8088/workbench/synth_sim.html?backend=renode
 ## ファイル構成
 
 ```
-renode/
+tools/renode/
 ├── stm32f4.repl              # 基本プラットフォーム定義
 ├── stm32f4_audio.repl        # オーディオペリフェラル追加版
 ├── synth.resc                # 基本起動スクリプト
