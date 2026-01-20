@@ -42,7 +42,7 @@ float w = cutoff * dt;
 float w = cutoff / sr;
 ```
 
-`dt` は `ProcessContext::dt()` から取得（`1.0f / sample_rate` を事前計算済み）。
+`dt` は `AudioContext::dt` から取得（`1.0f / sample_rate` を事前計算済み）。
 
 ---
 

@@ -29,9 +29,9 @@
 struct Synth {
     float gain = 1.0f;
     
-    void process(umi::ProcessContext& ctx) {
+    void process(umi::AudioContext& ctx) {
         auto* out = ctx.output(0);
-        for (uint32_t i = 0; i < ctx.frames(); ++i) {
+        for (uint32_t i = 0; i < ctx.buffer_size; ++i) {
             out[i] = generate() * gain;
         }
     }
@@ -71,29 +71,52 @@ int main() {
 
 ---
 
-## ProcessContext
+## AudioContext
 
 オーディオ処理コールバック `process()` に渡されるコンテキスト。
 
 ```cpp
-struct ProcessContext {
-    uint32_t frames();              // バッファサイズ
-    uint32_t sample_rate();         // サンプルレート
-    float* output(uint32_t ch);     // 出力バッファ
-    const float* input(uint32_t ch); // 入力バッファ
+struct AudioContext {
+    // === バッファアクセス ===
+    std::span<const sample_t* const> inputs;   // 入力チャンネル配列
+    std::span<sample_t* const> outputs;        // 出力チャンネル配列
     
-    // イベント
-    auto events();                  // MIDIイベント等のイテレータ
-    void send_to_control(Event e);  // Control Taskへイベント送信
+    // === タイミング ===
+    uint32_t sample_rate;       // サンプルレート (Hz)
+    uint32_t buffer_size;       // バッファサイズ (samples)
+    float dt;                   // 1.0 / sample_rate（事前計算済み）
+    uint64_t sample_position;   // 累積サンプル位置（DAW同期、LFO位相管理）
+    
+    // === イベント ===
+    std::span<const Event> events;  // 入力イベント（MIDI等）
+    
+    // === メソッド ===
+    const sample_t* input(size_t ch) const;   // 入力バッファ取得
+    sample_t* output(size_t ch) const;        // 出力バッファ取得
+    void emit(const Event& e);                // イベント出力
+    
+    // === ヘルパー ===
+    size_t frames() const { return buffer_size; }  // エイリアス
+    void clear_outputs();                          // 出力をゼロクリア
 };
 ```
+
+### メンバ詳細
+
+| メンバ | 型 | 説明 |
+|--------|-----|------|
+| `sample_rate` | `uint32_t` | サンプルレート（48000等） |
+| `buffer_size` | `uint32_t` | バッファサイズ（256等） |
+| `dt` | `float` | `1.0f / sample_rate`（DSPモジュールに渡す） |
+| `sample_position` | `uint64_t` | ストリーム開始からの累積サンプル数 |
+| `events` | `span<const Event>` | 入力イベント（サンプル位置でソート済み） |
 
 ### 使用例
 
 ```cpp
-void MyProcessor::process(umi::ProcessContext& ctx) {
+void MyProcessor::process(umi::AudioContext& ctx) {
     // MIDIイベント処理
-    for (const auto& ev : ctx.events()) {
+    for (const auto& ev : ctx.events) {
         if (ev.is_note_on()) {
             note_on(ev.note(), ev.velocity());
         }
@@ -101,28 +124,31 @@ void MyProcessor::process(umi::ProcessContext& ctx) {
     
     // オーディオ生成
     auto* out = ctx.output(0);
-    for (uint32_t i = 0; i < ctx.frames(); ++i) {
+    for (uint32_t i = 0; i < ctx.buffer_size; ++i) {
         out[i] = generate_sample();
     }
+    
+    // Control Task へイベント送信
+    ctx.emit(Event::meter(0, peak_level));
 }
 ```
 
 ### process() での制約
 
 ```cpp
-void MyProcessor::process(umi::ProcessContext& ctx) {
+void MyProcessor::process(umi::AudioContext& ctx) {
     // ✅ OK: オーディオバッファ
     auto* out = ctx.output(0);
     
-    // ✅ OK: パラメータ（atomic読み取り）
-    float cutoff = ctx.param(PARAM_CUTOFF);
+    // ✅ OK: dt を使ったDSP係数計算
+    filter.set_params(cutoff, resonance, ctx.dt);
     
-    // ✅ OK: Control Taskへイベント送信
-    ctx.send_to_control(Event::meter(0, peak));
+    // ✅ OK: イベント出力
+    ctx.emit(Event::meter(0, peak));
     
-    // ❌ NG: input/output操作（syscall/flag操作が必要）
-    // float v = input[0];   // 禁止
-    // output[0] = level;    // 禁止
+    // ❌ NG: UI input/output操作（syscall/flag操作が必要）
+    // float v = ui_input[0];   // 禁止
+    // ui_output[0] = level;    // 禁止
 }
 ```
 
