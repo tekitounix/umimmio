@@ -38,7 +38,6 @@ using namespace umi::port::arm;
 // Configuration
 // ============================================================================
 
-constexpr uint32_t SAMPLE_RATE = 48000;
 constexpr uint32_t BUFFER_SIZE = 64;  // Samples per channel per buffer
 
 // ============================================================================
@@ -70,10 +69,15 @@ uint16_t pdm_buf1[PDM_BUF_SIZE];
 constexpr uint32_t PCM_BUF_SIZE = 64;  // Extra headroom
 int16_t pcm_buf[PCM_BUF_SIZE];
 
-// Resampled buffer (32kHz -> 48kHz)
+
+// Synth buffer at 32kHz (same rate as PDM decimation)
+int16_t synth_buf[PCM_BUF_SIZE];
+
+// Resampled buffers (32kHz -> 48kHz)
 // 3:2 ratio means 32 * 1.5 = 48 max, use 64 for safety
 constexpr uint32_t RESAMPLED_BUF_SIZE = 64;
-int16_t resampled_buf[RESAMPLED_BUF_SIZE];
+int16_t resampled_mic_buf[RESAMPLED_BUF_SIZE];
+int16_t resampled_synth_buf[RESAMPLED_BUF_SIZE];
 
 // Stereo buffer for USB Audio IN (mono to stereo conversion)
 // resampled_count samples * 2 channels = up to 96 stereo samples
@@ -116,9 +120,9 @@ CS43L22 codec(i2c1);
 
 // USB stack instances (umiusb) - using AudioInterface class
 umiusb::Stm32FsHal usb_hal;
-// UAC1, 48kHz stereo Full Duplex (Audio OUT to DAC + Audio IN from PDM mic)
-// EP1=Audio OUT, EP2=Feedback, EP3=Audio IN
-umiusb::AudioFullDuplex48k usb_audio;
+// UAC1, 48kHz stereo Full Duplex + MIDI
+// EP1 OUT=Audio OUT, EP1 IN=MIDI IN, EP2 IN=Feedback, EP3 OUT=MIDI OUT, EP3 IN=Audio IN
+umiusb::AudioFullDuplexMidi48k usb_audio;
 umiusb::Device<umiusb::Stm32FsHal, decltype(usb_audio)> usb_device(
     usb_hal, usb_audio,
     {
@@ -135,9 +139,10 @@ umiusb::Device<umiusb::Stm32FsHal, decltype(usb_audio)> usb_device(
 PdmMic pdm_mic;
 DmaPdm dma_pdm;
 CicDecimator cic_decimator;
-Resampler32to48 resampler;  // 32kHz (from 2.048MHz/64 CIC) -> 48kHz (USB Audio)
+Resampler32to48 resampler_mic;    // 32kHz mic -> 48kHz
+Resampler32to48 resampler_synth;  // 32kHz synth -> 48kHz
 
-// Synth engine
+// Synth engine (initialized at 32kHz, processed in PDM IRQ)
 umi::synth::PolySynth synth;
 
 // LED state (for activity indication)
@@ -317,9 +322,10 @@ void init_pdm_mic() {
     dbg_rcc_cr = *reinterpret_cast<volatile uint32_t*>(RCC_BASE + 0x00);         // CR
     dbg_rcc_plli2scfgr = *reinterpret_cast<volatile uint32_t*>(RCC_BASE + 0x84); // PLLI2SCFGR
 
-    // Initialize CIC decimator and resampler
+    // Initialize CIC decimator and resamplers
     cic_decimator.reset();
-    resampler.reset();
+    resampler_mic.reset();
+    resampler_synth.reset();
 
     // Initialize DMA for PDM input (double-buffered)
     dma_pdm.init(pdm_buf0, pdm_buf1, PDM_BUF_SIZE, pdm_mic.dr_addr());
@@ -373,6 +379,11 @@ void init_usb() {
     usb_audio.on_feedback_sent = []() {
         dbg_persist_feedback_tx_count = dbg_persist_feedback_tx_count + 1;
     };
+
+    // USB MIDI -> Synth: Connect MIDI callback to synth engine
+    usb_audio.set_midi_callback([](uint8_t /*cable*/, const uint8_t* data, uint8_t len) {
+        synth.handle_midi(data, len);
+    });
 
     // Set string descriptors
     usb_device.set_strings(usb_config::string_table);
@@ -483,10 +494,19 @@ extern "C" void DMA1_Stream3_IRQHandler() {
             }
         }
 
-        // Resample 32kHz -> 48kHz (3:2 ratio)
-        // Use global resampled_buf to avoid stack usage in IRQ
-        uint32_t resampled_count = resampler.process(pcm_buf, pcm_count, resampled_buf);
-        dbg_pdm_resampled_count = resampled_count;
+        // Process synth at 32kHz (same rate as PDM decimation)
+        for (uint32_t i = 0; i < pcm_count; ++i) {
+            float synth_sample = synth.process_sample();
+            int32_t synth_s16 = static_cast<int32_t>(synth_sample * 32767.0f);
+            if (synth_s16 > 32767) synth_s16 = 32767;
+            if (synth_s16 < -32768) synth_s16 = -32768;
+            synth_buf[i] = static_cast<int16_t>(synth_s16);
+        }
+
+        // Resample both mic and synth: 32kHz -> 48kHz (3:2 ratio)
+        uint32_t resampled_mic_count = resampler_mic.process(pcm_buf, pcm_count, resampled_mic_buf);
+        uint32_t resampled_synth_count = resampler_synth.process(synth_buf, pcm_count, resampled_synth_buf);
+        dbg_pdm_resampled_count = resampled_mic_count;
 
         // DEBUG: Reset min/max periodically for current sample values
         static uint32_t reset_counter = 0;
@@ -499,16 +519,18 @@ extern "C" void DMA1_Stream3_IRQHandler() {
         // Debug: track streaming state
         dbg_usb_in_streaming = usb_audio.is_audio_in_streaming() ? 1 : 0;
 
-        // Convert mono to stereo and send to USB Audio IN buffer
-        // Use global stereo_buf to avoid stack usage in IRQ
-        if (resampled_count > 0 && usb_audio.is_audio_in_streaming()) {
+        // Build stereo buffer: ch1 = mic (PDM), ch2 = synth (both resampled to 48kHz)
+        // Use the smaller count to avoid buffer overrun
+        uint32_t stereo_count = (resampled_mic_count < resampled_synth_count)
+                               ? resampled_mic_count : resampled_synth_count;
+        if (stereo_count > 0 && usb_audio.is_audio_in_streaming()) {
             dbg_usb_in_write_count = dbg_usb_in_write_count + 1;
-            for (uint32_t i = 0; i < resampled_count; ++i) {
-                stereo_buf[i * 2] = resampled_buf[i];
-                stereo_buf[i * 2 + 1] = resampled_buf[i];
+            for (uint32_t i = 0; i < stereo_count; ++i) {
+                stereo_buf[i * 2] = resampled_mic_buf[i];      // ch1 (left) = mic
+                stereo_buf[i * 2 + 1] = resampled_synth_buf[i]; // ch2 (right) = synth
             }
             dbg_usb_in_first_sample = stereo_buf[0];
-            dbg_usb_in_written = usb_audio.write_audio_in(stereo_buf, resampled_count);
+            dbg_usb_in_written = usb_audio.write_audio_in(stereo_buf, stereo_count);
         }
     }
 }
@@ -517,7 +539,7 @@ extern "C" void DMA1_Stream5_IRQHandler() {
     if (dma_i2s.transfer_complete()) {
         dma_i2s.clear_tc();
 
-        // Fill the buffer that just finished
+        // Fill the buffer that just finished (USB Audio OUT -> I2S)
         // current_buffer() returns which buffer DMA is currently using
         // We fill the OTHER one
         int16_t* buf = (dma_i2s.current_buffer() == 0) ? audio_buf1 : audio_buf0;
@@ -589,8 +611,9 @@ extern "C" [[noreturn]] void Reset_Handler() {
     // Green LED on during init
     gpio_d.set(12);
 
-    // Initialize synth
-    synth.init(static_cast<float>(SAMPLE_RATE));
+    // Initialize synth at 32kHz (PDM decimation rate, will be resampled to 48kHz)
+    constexpr float SYNTH_RATE = 32000.0f;
+    synth.init(SYNTH_RATE);
 
     // Initialize audio subsystem (Audio OUT to CS43L22 DAC)
     init_audio();
