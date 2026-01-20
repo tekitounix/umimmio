@@ -8,7 +8,7 @@ UMI の主要な API を解説します。
 
 | ファイル | 内容 |
 |----------|------|
-| [API_APPLICATION.md](API_APPLICATION.md) | アプリケーションAPI（main, ProcessContext, Event, コルーチン） |
+| [API_APPLICATION.md](API_APPLICATION.md) | アプリケーションAPI（main, AudioContext, Event, コルーチン） |
 | [API_UI.md](API_UI.md) | UI API（Input/Output抽象化、属性、共有メモリ） |
 | [API_DSP.md](API_DSP.md) | DSPモジュール（オシレータ、フィルタ、エンベロープ） |
 | [API_KERNEL.md](API_KERNEL.md) | Kernel API（syscall, IRQ, 優先度、キュー） |
@@ -26,9 +26,9 @@ UMI の主要な API を解説します。
 struct Synth {
     float gain = 1.0f;
     
-    void process(umi::ProcessContext& ctx) {
+    void process(umi::AudioContext& ctx) {
         auto* out = ctx.output(0);
-        for (uint32_t i = 0; i < ctx.frames(); ++i) {
+        for (uint32_t i = 0; i < ctx.buffer_size; ++i) {
             out[i] = generate() * gain;
         }
     }
