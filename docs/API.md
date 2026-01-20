@@ -472,7 +472,390 @@ struct SharedRegion {
         uint16_t lcd[320 * 240];     // RGB565
         uint32_t dirty;              // 更新フラグ
     } display;
+    
+    // Processor → Control Task メッセージ
+    struct {
+        umi::SpscQueue<Event, 32> queue;
+    } proc_to_ctrl;
 };
+```
+
+### カーネルによる共有メモリ更新
+
+アプリは共有メモリを直接操作しません。カーネルがハードウェアイベントを検出し、共有メモリを更新します。
+
+#### 更新フロー
+
+```
+Hardware IRQ
+    │
+    v
+┌─────────────────────────────────────────────────────────┐
+│  Kernel IRQ Handler                                     │
+│  ┌─────────────────┐                                    │
+│  │ 1. HW読み取り   │ ADC_DR, GPIO_IDR, TIM_CNT etc.    │
+│  └────────┬────────┘                                    │
+│           v                                             │
+│  ┌─────────────────┐                                    │
+│  │ 2. 共有メモリ   │ shared.hw_state.adc[ch] = value;  │
+│  │    更新         │ shared.hw_state.encoders[id] += d;│
+│  └────────┬────────┘                                    │
+│           v                                             │
+│  ┌─────────────────┐                                    │
+│  │ 3. イベント     │ shared.events.push(event);        │
+│  │    キュー追加   │                                    │
+│  └────────┬────────┘                                    │
+│           v                                             │
+│  ┌─────────────────┐                                    │
+│  │ 4. タスク通知   │ kernel.notify(ctrl_task, EVENT);  │
+│  └─────────────────┘                                    │
+└─────────────────────────────────────────────────────────┘
+    │
+    v
+Control Task wakes up (wait_event returns)
+```
+
+#### カーネル側実装例
+
+```cpp
+// lib/umios/kernel/hw_driver.cc
+
+// ADC変換完了IRQ
+void ADC_IRQHandler() {
+    uint16_t value = ADC1->DR;
+    uint8_t ch = current_channel;
+    
+    // 共有メモリ更新（アトミック不要、カーネルのみが書き込む）
+    g_shared.hw_state.adc[ch] = value;
+    g_shared.hw_state.timestamp_us = get_time_us();
+    
+    // 閾値を超えた変化があればイベント発行
+    int16_t diff = value - prev_adc[ch];
+    if (std::abs(diff) > ADC_THRESHOLD) {
+        prev_adc[ch] = value;
+        
+        Event ev{
+            .type = EventType::AdcChange,
+            .adc = { .channel = ch, .value = value / 4095.0f }
+        };
+        g_shared.events.push(ev);
+        g_kernel.notify(g_ctrl_task_id, EVENT_HW);
+    }
+    
+    // 次チャンネルへ
+    start_next_adc_channel();
+}
+
+// エンコーダ用タイマーIRQ
+void TIM_Encoder_IRQHandler() {
+    int id = get_encoder_id();
+    int16_t count = TIM->CNT;
+    int16_t delta = count - prev_count[id];
+    
+    if (delta != 0) {
+        // 共有メモリ更新
+        g_shared.hw_state.encoders[id] += delta;
+        prev_count[id] = count;
+        
+        // イベント発行
+        Event ev{
+            .type = EventType::EncoderRotate,
+            .encoder = { .id = id, .delta = delta }
+        };
+        g_shared.events.push(ev);
+        g_kernel.notify(g_ctrl_task_id, EVENT_HW);
+    }
+}
+
+// GPIO外部割り込み（ボタン）
+void EXTI_IRQHandler() {
+    uint32_t pin = get_exti_pin();
+    bool pressed = (GPIOA->IDR & pin) == 0;  // Active Low
+    int btn_id = pin_to_button_id(pin);
+    
+    // デバウンス（ソフトウェア）
+    if (get_time_us() - last_btn_time[btn_id] < DEBOUNCE_US) {
+        EXTI->PR = pin;
+        return;
+    }
+    last_btn_time[btn_id] = get_time_us();
+    
+    // 共有メモリ更新
+    if (pressed) {
+        g_shared.hw_state.buttons |= (1 << btn_id);
+    } else {
+        g_shared.hw_state.buttons &= ~(1 << btn_id);
+    }
+    
+    // イベント発行
+    Event ev{
+        .type = pressed ? EventType::ButtonPress : EventType::ButtonRelease,
+        .button = { .id = btn_id }
+    };
+    g_shared.events.push(ev);
+    g_kernel.notify(g_ctrl_task_id, EVENT_HW);
+    
+    EXTI->PR = pin;  // Clear pending
+}
+```
+
+### アプリからの共有メモリアクセス
+
+アプリはAPIを通じて共有メモリにアクセスします。
+
+#### 読み取り（イベント取得）
+
+```cpp
+// syscall経由でイベントキューから取得
+Event umi::wait_event() {
+    // SVC #2 → カーネルがevents.pop()してreturn
+    return syscall(SYS_WAIT_EVENT);
+}
+
+// タイムアウト付き
+Event umi::wait_event(uint32_t timeout_us) {
+    return syscall(SYS_WAIT_EVENT, timeout_us);
+}
+
+// 非ブロッキング
+std::optional<Event> umi::poll_event() {
+    return syscall(SYS_POLL_EVENT);
+}
+```
+
+#### 読み取り（ハードウェア状態）
+
+```cpp
+// 現在のハードウェア状態をスナップショット取得
+HwState umi::get_hw_state() {
+    // syscall経由で共有メモリをコピー
+    // → アトミックな一貫性を保証
+    return syscall(SYS_GET_HW_STATE);
+}
+
+// 使用例
+auto hw = umi::get_hw_state();
+float knob = hw.adc[0] / 4095.0f;
+int enc = hw.encoders[0];
+bool btn = hw.buttons & 0x01;
+```
+
+#### 書き込み（パラメータ）
+
+```cpp
+// Control Task → Processor へパラメータ送信
+void umi::set_param(uint32_t id, float value) {
+    // 共有メモリのatomic<float>に直接書き込み
+    // process()はこれをアトミックに読む
+    g_shared.params.values[id].store(value, std::memory_order_relaxed);
+}
+
+float umi::get_param(uint32_t id) {
+    return g_shared.params.values[id].load(std::memory_order_relaxed);
+}
+```
+
+#### 書き込み（ディスプレイ）
+
+```cpp
+// ディスプレイバッファに描画
+auto& disp = umi::get_display();
+disp.draw_text(0, 0, "Hello");
+
+// dirty フラグを立ててカーネルに転送を依頼
+disp.flush();
+// → g_shared.display.dirty |= DIRTY_OLED;
+// → syscall(SYS_DISPLAY_FLUSH);
+```
+
+### Processor ⇔ Control Task 間通信
+
+process()からControl Taskへデータを送る仕組み。
+
+#### ProcessContext経由のイベント送信
+
+```cpp
+void MyProcessor::process(umi::ProcessContext& ctx) {
+    // オーディオ処理
+    float peak = 0.0f;
+    for (uint32_t i = 0; i < ctx.frames(); ++i) {
+        float sample = generate();
+        ctx.output(0)[i] = sample;
+        peak = std::max(peak, std::abs(sample));
+    }
+    
+    // メーターをControl Taskに送信（syscallではない！）
+    // → proc_to_ctrl キューに直接push
+    ctx.send_to_control(Event::meter(0, peak));
+}
+```
+
+#### Control Task側での受信
+
+```cpp
+int main() {
+    static Synth synth;
+    umi::register_processor(synth);
+    
+    while (true) {
+        auto ev = umi::wait_event();
+        
+        switch (ev.type) {
+        case EventType::Meter:
+            // Processorからのメーター値
+            update_meter_display(ev.meter.channel, ev.meter.value);
+            break;
+            
+        case EventType::ProcessorMessage:
+            // Processorからの任意メッセージ
+            handle_processor_message(ev.message);
+            break;
+        // ...
+        }
+    }
+}
+```
+
+#### 実装詳細
+
+```cpp
+// ProcessContext::send_to_control() の実装
+void ProcessContext::send_to_control(const Event& ev) {
+    // ロックフリーキューにpush（ISRセーフ）
+    // process()はリアルタイムスレッドなのでsyscall不可
+    shared_->proc_to_ctrl.queue.try_push(ev);
+}
+
+// カーネルがproc_to_ctrl.queueを監視し、
+// Control Taskのイベントキューにマージする
+void Kernel::merge_processor_events() {
+    Event ev;
+    while (g_shared.proc_to_ctrl.queue.try_pop(ev)) {
+        g_shared.events.push(ev);
+    }
+}
+```
+
+### 同期とメモリオーダリング
+
+#### アクセスパターン別の同期方式
+
+| データ | Writer | Reader | 同期方式 |
+|--------|--------|--------|----------|
+| `hw_state` | Kernel (IRQ) | App (main) | 単一writer、コピー取得 |
+| `events` | Kernel | App | SpscQueue (lock-free) |
+| `params` | App (main) | App (process) | atomic relaxed |
+| `audio` | App (process) | Kernel (DMA) | ダブルバッファ |
+| `display` | App (main) | Kernel (DMA) | dirty flag + flush |
+| `proc_to_ctrl` | App (process) | Kernel | SpscQueue (lock-free) |
+
+#### パラメータのアトミック性
+
+```cpp
+// Control Task (main) で設定
+umi::set_param(PARAM_CUTOFF, new_cutoff);
+
+// Processor (process) で読み取り
+void MyProcessor::process(umi::ProcessContext& ctx) {
+    // relaxed で十分：順序保証不要、最新値が見えればOK
+    float cutoff = ctx.param(PARAM_CUTOFF);
+    filter_.set_cutoff(cutoff);
+}
+
+// 内部実装
+float ProcessContext::param(uint32_t id) const {
+    return shared_->params.values[id].load(std::memory_order_relaxed);
+}
+```
+
+#### オーディオバッファのダブルバッファリング
+
+```cpp
+// カーネルがダブルバッファを管理
+// DMAがバッファAを転送中 → アプリはバッファBに書き込み
+
+struct AudioDoubleBuffer {
+    float buf[2][2][BUFFER_SIZE];  // [ping/pong][ch][samples]
+    std::atomic<int> app_index{0};  // アプリが書き込むバッファ
+    std::atomic<int> dma_index{1};  // DMAが転送するバッファ
+    
+    float* app_output(int ch) {
+        return buf[app_index.load()][ch];
+    }
+    
+    void swap() {
+        int old = app_index.exchange(dma_index.load());
+        dma_index.store(old);
+    }
+};
+```
+
+### Web/Desktop プラットフォームでの実装
+
+組込みと同じAPIを提供するための各プラットフォーム実装。
+
+#### Web (WASM + Asyncify)
+
+```cpp
+// wasm/shared_memory_web.cc
+
+// 共有メモリはWebAssembly.Memoryの一部
+static SharedRegion* g_shared = reinterpret_cast<SharedRegion*>(0x10000);
+
+// JavaScriptからハードウェア状態を更新
+extern "C" void umi_update_hw_state(int type, int id, int value) {
+    switch (type) {
+    case HW_ADC:
+        g_shared->hw_state.adc[id] = value;
+        push_event({EventType::AdcChange, {.adc = {id, value / 4095.0f}}});
+        break;
+    case HW_ENCODER:
+        g_shared->hw_state.encoders[id] += value;
+        push_event({EventType::EncoderRotate, {.encoder = {id, value}}});
+        break;
+    case HW_BUTTON:
+        // ...
+    }
+}
+
+// JavaScript側
+class HardwareEmulator {
+    constructor(wasmInstance) {
+        this.update = wasmInstance.exports.umi_update_hw_state;
+    }
+    
+    onKnobChange(id, value) {
+        this.update(0 /*ADC*/, id, Math.floor(value * 4095));
+    }
+    
+    onEncoderRotate(id, delta) {
+        this.update(1 /*ENCODER*/, id, delta);
+    }
+}
+```
+
+#### Desktop (PortAudio + std::thread)
+
+```cpp
+// desktop/shared_memory_desktop.cc
+
+// 共有メモリは通常のヒープ
+static SharedRegion g_shared_storage;
+static SharedRegion* g_shared = &g_shared_storage;
+
+// MIDI入力スレッドがhw_stateを更新
+void midi_input_thread() {
+    while (running) {
+        auto msg = midi_in.receive();
+        if (msg.is_cc()) {
+            // MIDIコントローラ値 → 仮想ADC
+            g_shared->hw_state.adc[msg.cc_number()] = msg.cc_value() * 32;
+            Event ev{EventType::AdcChange, {.adc = {msg.cc_number(), msg.cc_value() / 127.0f}}};
+            g_shared->events.push(ev);
+            cv.notify_one();  // wait_event()を起こす
+        }
+    }
+}
 ```
 
 ---
