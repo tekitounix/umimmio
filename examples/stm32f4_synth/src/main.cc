@@ -116,13 +116,14 @@ CS43L22 codec(i2c1);
 
 // USB stack instances (umiusb) - using AudioInterface class
 umiusb::Stm32FsHal usb_hal;
-// UAC1, 48kHz stereo Audio IN Only (microphone)
-umiusb::AudioInOnly48k usb_audio;
+// UAC1, 48kHz stereo Full Duplex (Audio OUT to DAC + Audio IN from PDM mic)
+// EP1=Audio OUT, EP2=Feedback, EP3=Audio IN
+umiusb::AudioFullDuplex48k usb_audio;
 umiusb::Device<umiusb::Stm32FsHal, decltype(usb_audio)> usb_device(
     usb_hal, usb_audio,
     {
         .vendor_id = 0x1209,
-        .product_id = 0x0005,  // Changed to avoid macOS caching old descriptor
+        .product_id = 0x0006,  // Changed for Full Duplex to avoid macOS caching
         .device_version = 0x0100,
         .manufacturer_idx = 1,
         .product_idx = 2,
@@ -177,6 +178,8 @@ __attribute__((section(".noinit")))
 volatile uint32_t dbg_persist_send_audio_in_count;  // send_audio_in() call count
 __attribute__((section(".noinit")))
 volatile uint32_t dbg_persist_ep3_write_count;      // EP3 write count
+__attribute__((section(".noinit")))
+volatile uint32_t dbg_persist_feedback_tx_count;    // Feedback EP TX count
 __attribute__((section(".noinit")))
 volatile uint32_t dbg_persist_magic;                // Magic value to detect fresh boot (0xDEADBEEF)
 
@@ -364,6 +367,11 @@ void init_usb() {
             cnt = 0;
             gpio_d.toggle(12);
         }
+    };
+
+    // Debug: Count feedback EP transmissions
+    usb_audio.on_feedback_sent = []() {
+        dbg_persist_feedback_tx_count = dbg_persist_feedback_tx_count + 1;
     };
 
     // Set string descriptors
@@ -560,6 +568,7 @@ extern "C" [[noreturn]] void Reset_Handler() {
         dbg_persist_sof_count = 0;
         dbg_persist_send_audio_in_count = 0;
         dbg_persist_ep3_write_count = 0;
+        dbg_persist_feedback_tx_count = 0;
     }
 
     // Enable FPU
