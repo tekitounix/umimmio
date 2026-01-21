@@ -115,6 +115,16 @@ public:
         return value_;
     }
     
+    /// Generate next sample (primary API, uses default 48kHz)
+    [[nodiscard]] float operator()() noexcept {
+        return tick(1.0f / 48000.0f);
+    }
+    
+    /// Generate next sample with dt (primary API)
+    [[nodiscard]] float operator()(float dt) noexcept {
+        return tick(dt);
+    }
+    
     /// Legacy: tick without dt (uses default 48kHz)
     [[nodiscard]] float tick() noexcept {
         return tick(1.0f / 48000.0f);
@@ -160,6 +170,11 @@ public:
     void trigger() noexcept { attacking_ = true; }
     void release() noexcept { attacking_ = false; }
     void reset() noexcept { value_ = 0.0f; attacking_ = false; }
+    
+    /// Generate next sample (primary API)
+    [[nodiscard]] float operator()() noexcept {
+        return tick();
+    }
     
     [[nodiscard]] float tick() noexcept {
         if (attacking_) {
@@ -207,6 +222,11 @@ public:
         value_ = value;
         rate_ = 0.0f;
         samples_remaining_ = 0;
+    }
+    
+    /// Generate next sample (primary API)
+    [[nodiscard]] float operator()() noexcept {
+        return tick();
     }
     
     [[nodiscard]] float tick() noexcept {
