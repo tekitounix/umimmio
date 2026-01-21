@@ -278,7 +278,14 @@ struct SharedMemory {
     // Audio context info
     uint32_t sample_rate = 48000;
     uint32_t buffer_size = AUDIO_BUFFER_FRAMES;
+    float dt = 1.0f / 48000.0f;  ///< Delta time per sample (1.0 / sample_rate), pre-calculated
     uint64_t sample_position = 0;
+    
+    /// Update sample rate and recalculate dt
+    void set_sample_rate(uint32_t rate) noexcept {
+        sample_rate = rate;
+        dt = 1.0f / static_cast<float>(rate);
+    }
     
     // Event queue (kernel -> app)
     static constexpr size_t EVENT_QUEUE_SIZE = 64;

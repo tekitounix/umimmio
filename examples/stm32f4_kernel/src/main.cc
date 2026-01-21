@@ -106,8 +106,9 @@ CicDecimator cic_decimator;
 
 // USB stack instances (umiusb)
 umiusb::Stm32FsHal usb_hal;
-umiusb::AudioFullDuplexMidi48k usb_audio;
-umiusb::Device<umiusb::Stm32FsHal, decltype(usb_audio)> usb_device(
+using UsbAudioDevice = umiusb::AudioFullDuplexMidi96kMaxAdaptive;
+UsbAudioDevice usb_audio;
+umiusb::Device<umiusb::Stm32FsHal, UsbAudioDevice> usb_device(
     usb_hal, usb_audio,
     {
         .vendor_id = 0x1209,
@@ -208,6 +209,7 @@ uint32_t dbg_set_iface_val = 0;    // (iface << 8) | alt
 uint32_t dbg_out_iface_num = 0;    // Audio OUT interface number
 uint32_t dbg_playback_started = 0; // playback_started_ flag
 uint32_t dbg_muted = 0;            // fu_out_mute_ flag
+uint32_t dbg_actual_rate = 0;      // Actual rate passed to set_actual_rate
 int16_t dbg_volume = 0;            // fu_out_volume_ value
 int16_t dbg_ring_sample0 = 0;      // Raw ring buffer sample[0]
 int16_t dbg_ring_sample1 = 0;      // Raw ring buffer sample[1]
@@ -219,6 +221,13 @@ uint32_t dbg_audio_in_write = 0;   // Audio IN write count
 int32_t dbg_audio_in_level = 0;    // Audio IN ring buffer level
 uint32_t dbg_out_buf_level = 0;    // Audio OUT ring buffer level
 uint32_t dbg_in_buf_level = 0;     // Audio IN ring buffer level
+uint32_t dbg_sample_rate_change_count = 0;  // Sample rate change count
+uint32_t dbg_current_sample_rate = 48000;   // Current sample rate for debugging
+uint32_t dbg_sr_get_cur = 0;      // GET CUR sample rate requests
+uint32_t dbg_sr_set_cur = 0;      // SET CUR sample rate requests
+uint32_t dbg_sr_ep0_rx = 0;       // EP0 RX for sample rate
+uint32_t dbg_sr_last_req = 0;     // Last requested sample rate
+uint32_t dbg_sr_ep_req = 0;       // Endpoint sample rate requests
 
 // MIDI queue (ISR -> App)
 struct MidiMsg {
@@ -233,29 +242,98 @@ volatile uint32_t g_midi_read = 0;
 // Tick counter for GetTime syscall
 volatile uint32_t g_tick_us = 0;
 
+// Current sample rate (may be changed by USB host)
+volatile uint32_t g_current_sample_rate = SAMPLE_RATE;
+volatile bool g_sample_rate_change_pending = false;
+volatile uint32_t g_new_sample_rate = SAMPLE_RATE;
+
+// Debug: sample rate change progress (0=idle, 1=start, 2=dma_stop, 3=pll_done, 4=i2s_restart, 5=complete)
+volatile uint32_t dbg_sr_change_step = 0;
+
 // ============================================================================
-// PLLI2S Initialization (for 48kHz audio)
+// PLLI2S Configuration for Different Sample Rates
 // ============================================================================
 
-static void init_plli2s() {
+/// Configure PLLI2S for specified sample rate
+/// @param rate Target sample rate (44100, 48000, or 96000)
+/// @return Actual achieved sample rate
+static uint32_t configure_plli2s(uint32_t rate) {
     constexpr uint32_t RCC_PLLI2SCFGR = 0x40023884;
     constexpr uint32_t RCC_CR = 0x40023800;
 
     // Disable PLLI2S
     *reinterpret_cast<volatile uint32_t*>(RCC_CR) &= ~(1U << 26);
+    
+    // Wait for PLL to fully disable (with timeout)
+    for (int i = 0; i < 10000; ++i) {
+        if (!(*reinterpret_cast<volatile uint32_t*>(RCC_CR) & (1U << 27))) break;
+    }
 
-    // Configure: PLLI2SN=258, PLLI2SR=3
-    // PLLI2SCLK = 1MHz * 258 / 3 = 86 MHz
-    // Fs = 86MHz / [256 * 7] = 47,991 Hz (~48kHz)
+    // PLL configuration values (HSE = 8MHz, PLLM = 8, so PLL input = 1MHz)
+    // I2S uses PLLI2SCLK = 1MHz * PLLI2SN / PLLI2SR
+    // Fs = PLLI2SCLK / [256 × (2×I2SDIV + ODD)]
+    
+    uint32_t plli2sn, plli2sr;
+    uint32_t actual_rate;
+    uint8_t i2sdiv, odd;
+    
+    switch (rate) {
+        case 44100:
+            // Target: 44.1kHz
+            // PLLI2SCLK = 1MHz * 271 / 6 = 45.167 MHz
+            // Fs = 45.167MHz / [256 × (2×2 + 0)] = 45.167MHz / 1024 = 44,108 Hz
+            plli2sn = 271;
+            plli2sr = 6;
+            i2sdiv = 2;
+            odd = 0;
+            actual_rate = 44108;
+            break;
+            
+        case 96000:
+            // Target: 96kHz
+            // PLLI2SCLK = 1MHz * 295 / 3 = 98.333 MHz
+            // Fs = 98.333MHz / [256 × (2×2 + 0)] = 98.333MHz / 1024 = 96,028 Hz
+            plli2sn = 295;
+            plli2sr = 3;
+            i2sdiv = 2;
+            odd = 0;
+            actual_rate = 96028;
+            break;
+            
+        case 48000:
+        default:
+            // Target: 48kHz
+            // PLLI2SCLK = 1MHz * 258 / 3 = 86 MHz
+            // Fs = 86MHz / [256 × (2×3 + 1)] = 86MHz / 1792 = 47,991 Hz
+            plli2sn = 258;
+            plli2sr = 3;
+            i2sdiv = 3;
+            odd = 1;
+            actual_rate = 47991;
+            break;
+    }
+    
     *reinterpret_cast<volatile uint32_t*>(RCC_PLLI2SCFGR) =
-        (3U << 28) |   // PLLI2SR = 3
-        (258U << 6);   // PLLI2SN = 258
+        (plli2sr << 28) |   // PLLI2SR
+        (plli2sn << 6);     // PLLI2SN
 
     // Enable PLLI2S
     *reinterpret_cast<volatile uint32_t*>(RCC_CR) |= (1U << 26);
 
-    // Wait for lock
-    while (!(*reinterpret_cast<volatile uint32_t*>(RCC_CR) & (1U << 27))) {}
+    // Wait for lock (with timeout)
+    for (int i = 0; i < 100000; ++i) {
+        if (*reinterpret_cast<volatile uint32_t*>(RCC_CR) & (1U << 27)) break;
+    }
+    
+    // Update I2S divider - must be done while I2S is disabled
+    i2s3.init_with_divider(i2sdiv, odd);
+    
+    return actual_rate;
+}
+
+/// Initialize PLLI2S for default 48kHz
+static void init_plli2s() {
+    configure_plli2s(48000);
 }
 
 // ============================================================================
@@ -406,6 +484,16 @@ static void init_usb() {
                 g_midi_queue[g_midi_write].data[i] = data[i];
             }
             g_midi_write = next;
+        }
+    });
+    
+    // Sample rate change callback (from USB ISR context)
+    // Note: Actual hardware reconfiguration happens in main loop to avoid ISR complexity
+    // Only set pending if not already pending and rate is actually different
+    usb_audio.set_sample_rate_callback([](uint32_t new_rate) {
+        if (!g_sample_rate_change_pending && new_rate != g_current_sample_rate) {
+            g_new_sample_rate = new_rate;
+            g_sample_rate_change_pending = true;
         }
     });
 
@@ -587,7 +675,8 @@ uint32_t dbg_synth_called = 0;    // Synth process called count
 
 // Process audio (called from main loop)
 static void process_audio_frame(int16_t* buf) {
-    constexpr float dt = 1.0f / 48000.0f;
+    // Use dt from shared memory (updated when sample rate changes)
+    const float dt = g_shared.dt;
     
     // 1. Read USB Audio OUT into buffer (for I2S output only)
     usb_audio.read_audio_asrc(buf, BUFFER_SIZE);
@@ -635,6 +724,78 @@ static void process_audio_frame(int16_t* buf) {
 static void audio_loop() {
     // Main loop - process audio when buffer ready
     while (true) {
+        // Handle sample rate change request (from USB callback)
+        if (g_sample_rate_change_pending) {
+            g_sample_rate_change_pending = false;
+            uint32_t new_rate = g_new_sample_rate;
+            
+            // Only change if rate is different and valid
+            if (new_rate != g_current_sample_rate && 
+                (new_rate == 44100 || new_rate == 48000 || new_rate == 96000)) {
+                
+                dbg_sr_change_step = 1;  // Starting
+                
+                // Disable NVIC for DMA to prevent interrupts during reconfiguration
+                constexpr uint32_t NVIC_ICER0 = 0xE000E180;
+                *reinterpret_cast<volatile uint32_t*>(NVIC_ICER0) = (1U << 16);  // DMA1_Stream5
+                
+                // Stop audio DMA
+                dma_i2s.disable();
+                
+                // Wait for DMA to fully stop
+                for (int i = 0; i < 1000; ++i) {
+                    __asm__ volatile("nop");
+                }
+                
+                i2s3.disable();
+                
+                dbg_sr_change_step = 2;  // DMA/I2S stopped
+                
+                // Clear audio buffers to prevent glitches
+                for (uint32_t i = 0; i < BUFFER_SIZE * 2; ++i) {
+                    audio_buf0[i] = 0;
+                    audio_buf1[i] = 0;
+                }
+                
+                // Reconfigure PLL and I2S divider for new sample rate
+                // configure_plli2s() also reinitializes I2S with correct divider
+                uint32_t actual_rate = configure_plli2s(new_rate);
+                
+                dbg_sr_change_step = 3;  // PLL configured
+                
+                // Fully reinitialize DMA with clean state
+                dma_i2s.init(audio_buf0, audio_buf1, BUFFER_SIZE * 2, i2s3.dr_addr());
+                
+                // Clear any pending flags
+                g_audio_ready = false;
+                
+                // Re-enable DMA interrupt in NVIC
+                constexpr uint32_t NVIC_ISER0 = 0xE000E100;
+                *reinterpret_cast<volatile uint32_t*>(NVIC_ISER0) = (1U << 16);  // DMA1_Stream5
+                
+                // Re-enable audio
+                i2s3.enable_dma();
+                i2s3.enable();
+                dma_i2s.enable();
+                
+                dbg_sr_change_step = 4;  // I2S restarted
+                
+                // Update shared memory for application
+                g_current_sample_rate = new_rate;
+                g_shared.set_sample_rate(new_rate);
+                
+                // Update debug counters
+                ++dbg_sample_rate_change_count;
+                dbg_current_sample_rate = new_rate;
+                
+                // Update USB feedback calculator with actual I2S rate
+                dbg_actual_rate = actual_rate;
+                usb_audio.set_actual_rate(actual_rate);
+                
+                dbg_sr_change_step = 5;  // Complete
+            }
+        }
+        
         // Process PDM decimation when ready (moved from ISR)
         if (g_pdm_ready) {
             g_pdm_ready = false;
@@ -654,6 +815,14 @@ static void audio_loop() {
         dbg_streaming = usb_audio.is_streaming() ? 1 : 0;
         dbg_out_buf_level = usb_audio.buffered_frames();
         dbg_in_buf_level = usb_audio.in_buffered_frames();
+        dbg_feedback = usb_audio.current_feedback();
+        
+        // Sample rate debug counters
+        dbg_sr_get_cur = usb_audio.dbg_sr_get_cur();
+        dbg_sr_set_cur = usb_audio.dbg_sr_set_cur();
+        dbg_sr_ep0_rx = usb_audio.dbg_sr_ep0_rx();
+        dbg_sr_last_req = usb_audio.dbg_sr_last_req();
+        dbg_sr_ep_req = usb_audio.dbg_sr_ep_req();
     }
 }
 
@@ -671,8 +840,13 @@ int main() {
     init_audio();
     init_pdm_mic();
     
-    // Initialize shared memory
-    g_shared.sample_rate = SAMPLE_RATE;
+    // Set initial actual sample rate for USB feedback calculation
+    // 48000Hz nominal → 47991Hz actual due to PLLI2S limitations
+    usb_audio.set_actual_rate(47991);
+    dbg_actual_rate = 47991;
+    
+    // Initialize shared memory with sample rate and dt
+    g_shared.set_sample_rate(SAMPLE_RATE);  // Sets both sample_rate and dt
     g_shared.buffer_size = BUFFER_SIZE;
     g_shared.sample_position = 0;
     
@@ -688,11 +862,17 @@ int main() {
         reinterpret_cast<uintptr_t>(_app_image_start) | 1  // Thumb bit
     );
     
-    // Mark app as running (needed for syscalls)
-    g_loader.set_entry(app_entry);  // Store for debugging
+    // Check if app is valid (not erased flash = 0xFFFFFFFF)
+    uint32_t app_first_word = *reinterpret_cast<const volatile uint32_t*>(_app_image_start);
+    bool app_valid = (app_first_word != 0xFFFFFFFF);
     
-    // Call app entry point directly (runs _start -> main -> register_processor)
-    app_entry();
+    if (app_valid) {
+        // Mark app as running (needed for syscalls)
+        g_loader.set_entry(app_entry);  // Store for debugging
+        
+        // Call app entry point directly (runs _start -> main -> register_processor)
+        app_entry();
+    }
     
     // Initialize USB
     init_usb();

@@ -16,15 +16,28 @@ namespace umiusb {
 // ============================================================================
 
 /// Audio port configuration (for IN or OUT)
-template<uint8_t Channels_, uint8_t BitDepth_, uint32_t SampleRate_, uint8_t Endpoint_>
+/// @tparam Channels_ Number of audio channels (1=mono, 2=stereo)
+/// @tparam BitDepth_ Bits per sample (16 or 24)
+/// @tparam SampleRate_ Nominal sample rate (used in descriptors)
+/// @tparam Endpoint_ Endpoint number
+/// @tparam MaxSampleRate_ Maximum sample rate for packet size calculation (default=SampleRate_)
+template<uint8_t Channels_, uint8_t BitDepth_, uint32_t SampleRate_, uint8_t Endpoint_, uint32_t MaxSampleRate_ = SampleRate_>
 struct AudioPort {
     static constexpr bool ENABLED = true;
     static constexpr uint8_t CHANNELS = Channels_;
     static constexpr uint8_t BIT_DEPTH = BitDepth_;
     static constexpr uint32_t SAMPLE_RATE = SampleRate_;
+    static constexpr uint32_t MAX_SAMPLE_RATE = MaxSampleRate_;  // For buffer size calculation
     static constexpr uint8_t ENDPOINT = Endpoint_;
     static constexpr uint16_t BYTES_PER_FRAME = Channels_ * (BitDepth_ / 8);
-    static constexpr uint16_t PACKET_SIZE = ((SampleRate_ / 1000) + 1) * BYTES_PER_FRAME;
+    // Use MaxSampleRate_ for packet size to support runtime rate changes
+    // Ceil(MaxSampleRate_/1000) accounts for 44.1k (44/45) without forcing +1 at 96k
+    static constexpr uint16_t PACKET_SIZE = ((MaxSampleRate_ + 999) / 1000) * BYTES_PER_FRAME;
+    // Buffer size: ~4ms at max sample rate, rounded up to power of 2
+    // 96kHz -> 384 frames -> 512, 48kHz -> 192 frames -> 256
+    static constexpr uint32_t BUFFER_FRAMES = 
+        (MaxSampleRate_ >= 88200) ? 512 :
+        (MaxSampleRate_ >= 44100) ? 256 : 128;
 };
 
 /// Disabled audio port
@@ -33,9 +46,11 @@ struct NoAudioPort {
     static constexpr uint8_t CHANNELS = 0;
     static constexpr uint8_t BIT_DEPTH = 0;
     static constexpr uint32_t SAMPLE_RATE = 0;
+    static constexpr uint32_t MAX_SAMPLE_RATE = 0;
     static constexpr uint8_t ENDPOINT = 0;
     static constexpr uint16_t BYTES_PER_FRAME = 0;
     static constexpr uint16_t PACKET_SIZE = 0;
+    static constexpr uint32_t BUFFER_FRAMES = 128;
 };
 
 /// MIDI port configuration (for IN or OUT)
@@ -73,13 +88,15 @@ template<
     typename AudioIn_ = NoAudioPort,
     typename MidiOut_ = NoMidiPort,
     typename MidiIn_ = NoMidiPort,
-    uint8_t FeedbackEp_ = 2
+    uint8_t FeedbackEp_ = 2,
+    AudioSyncMode SyncMode_ = AudioSyncMode::Async
 >
 class AudioInterface {
 public:
     // Version
     static constexpr UacVersion UAC_VERSION = Version;
     static constexpr bool IS_UAC2 = (Version == UacVersion::Uac2);
+    static constexpr AudioSyncMode SYNC_MODE = SyncMode_;
 
     // Port types
     using AudioOut = AudioOut_;
@@ -117,15 +134,27 @@ public:
     using StatusCallback = void(*)(bool streaming);
     using MidiCallback = void(*)(uint8_t cable, const uint8_t* data, uint8_t len);
     using SysExCallback = void(*)(const uint8_t* data, uint16_t len);
+    using SampleRateCallback = void(*)(uint32_t new_rate);  ///< Called when host requests sample rate change
 
     StatusCallback on_streaming_change = nullptr;  // Audio OUT streaming state
     StatusCallback on_audio_in_change = nullptr;   // Audio IN streaming state
     void (*on_audio_rx)(void) = nullptr;           // Called on each Audio OUT packet
     void (*on_feedback_sent)(void) = nullptr;      // Called when feedback EP transmits
     void (*on_sof_app)(void) = nullptr;            // Called on USB SOF (1ms) - for app to supply Audio IN data
+    SampleRateCallback on_sample_rate_change = nullptr;  ///< Called when host sets new sample rate
 
     void set_midi_callback(MidiCallback cb) { midi_processor_.on_midi = cb; }
     void set_sysex_callback(SysExCallback cb) { midi_processor_.on_sysex = cb; }
+    void set_sample_rate_callback(SampleRateCallback cb) { on_sample_rate_change = cb; }
+    
+    /// Get current runtime sample rate (may differ from template SAMPLE_RATE after host change)
+    [[nodiscard]] uint32_t current_sample_rate() const noexcept { return current_sample_rate_; }
+    
+    /// Check if sample rate was changed by host
+    [[nodiscard]] bool sample_rate_changed() const noexcept { return sample_rate_changed_; }
+    
+    /// Clear sample rate changed flag
+    void clear_sample_rate_changed() noexcept { sample_rate_changed_ = false; }
 
 private:
     // ========================================================================
@@ -172,10 +201,14 @@ private:
                 size += 9 + 9;  // Alt 0 + Alt 1 interfaces
                 if constexpr (IS_UAC2) {
                     size += 16 + 6 + 7 + 8;  // AS General + Format + EP + CS EP
-                    size += 7;  // Feedback EP (async)
+                    if constexpr (SYNC_MODE == AudioSyncMode::Async) {
+                        size += 7;  // Feedback EP (async)
+                    }
                 } else {
-                    size += 7 + 11 + 9 + 7;  // AS General + Format + EP + CS EP
-                    size += 9;  // Feedback EP (async)
+                    size += 7 + 17 + 9 + 7;  // AS General + Format(3 rates) + EP + CS EP
+                    if constexpr (SYNC_MODE == AudioSyncMode::Async) {
+                        size += 9;  // Feedback EP (async)
+                    }
                 }
             }
 
@@ -184,7 +217,7 @@ private:
                 if constexpr (IS_UAC2) {
                     size += 16 + 6 + 7 + 8;  // AS General + Format + EP + CS EP
                 } else {
-                    size += 7 + 11 + 9 + 7;  // AS General + Format + EP + CS EP
+                    size += 7 + 17 + 9 + 7;  // AS General + Format(3 rates) + EP + CS EP
                 }
             }
         }
@@ -490,7 +523,7 @@ private:
                     // Audio Endpoint
                     w(7, bDescriptorType::Endpoint);
                     w(EP_AUDIO_OUT);
-                    w(static_cast<uint8_t>(AudioSyncMode::Async));
+                    w(static_cast<uint8_t>(SYNC_MODE));
                     w16(AudioOut::PACKET_SIZE);
                     w(1);
                     w(0);
@@ -502,13 +535,15 @@ private:
                     w(0);
                     w16(0);
 
-                    // Feedback Endpoint
-                    w(7, bDescriptorType::Endpoint);
-                    w(0x80 | EP_FEEDBACK);
-                    w(0x11);  // Iso, Feedback
-                    w16(4);   // 4 bytes for UAC2
-                    w(4);     // bInterval
-                    w(0);
+                    if constexpr (SYNC_MODE == AudioSyncMode::Async) {
+                        // Feedback Endpoint
+                        w(7, bDescriptorType::Endpoint);
+                        w(0x80 | EP_FEEDBACK);
+                        w(0x11);  // Iso, Feedback
+                        w16(4);   // 4 bytes for UAC2
+                        w(4);     // bInterval
+                        w(0);
+                    }
                 } else {
                     // UAC1 AS General
                     w(7, bDescriptorType::CsInterface, uac::as::GENERAL);
@@ -516,38 +551,42 @@ private:
                     w(1);  // bDelay
                     w16(uac::FORMAT_PCM);
 
-                    // Format Type I
-                    w(11, bDescriptorType::CsInterface, uac::as::FORMAT_TYPE);
+                    // Format Type I - support multiple sample rates
+                    w(17, bDescriptorType::CsInterface, uac::as::FORMAT_TYPE);
                     w(uac::FORMAT_TYPE_I);
                     w(AudioOut::CHANNELS);
                     w(AudioOut::BIT_DEPTH / 8);
                     w(AudioOut::BIT_DEPTH);
-                    w(1);  // bSamFreqType
-                    w24(AudioOut::SAMPLE_RATE);
+                    w(3);  // bSamFreqType = 3 (three discrete frequencies)
+                    w24(44100);   // tSamFreq[1]
+                    w24(48000);   // tSamFreq[2]
+                    w24(96000);   // tSamFreq[3]
 
                     // Audio Endpoint - Async mode with feedback
                     w(9, bDescriptorType::Endpoint);
                     w(EP_AUDIO_OUT);
-                    w(static_cast<uint8_t>(AudioSyncMode::Async));
+                    w(static_cast<uint8_t>(SYNC_MODE));
                     w16(AudioOut::PACKET_SIZE);
                     w(1);     // bInterval
                     w(0);     // bRefresh
-                    w(0x80 | EP_FEEDBACK);  // bSynchAddress = feedback EP
+                    w((SYNC_MODE == AudioSyncMode::Async) ? (0x80 | EP_FEEDBACK) : 0);  // bSynchAddress
 
-                    // CS Audio Endpoint
+                    // CS Audio Endpoint - with Sampling Frequency Control
                     w(7, bDescriptorType::CsEndpoint, uac::as::GENERAL);
-                    w(0x00);
-                    w(0);
-                    w16(0);
+                    w(0x01);  // bmAttributes: Sampling Frequency Control supported
+                    w(0);     // bLockDelayUnits
+                    w16(0);   // wLockDelay
 
-                    // Feedback Endpoint (Async mode)
-                    w(9, bDescriptorType::Endpoint);
-                    w(0x80 | EP_FEEDBACK);  // IN endpoint
-                    w(0x01);  // bmAttributes: Isochronous (TinyUSB uses 0x01)
-                    w16(3);   // wMaxPacketSize: 3 bytes for UAC1 (10.14 format)
-                    w(1);     // bInterval (Full-speed: 1ms)
-                    w(4);     // bRefresh = 2^4 = 16 SOF frames (16ms)
-                    w(0);     // bSynchAddress
+                    if constexpr (SYNC_MODE == AudioSyncMode::Async) {
+                        // Feedback Endpoint (Async mode)
+                        w(9, bDescriptorType::Endpoint);
+                        w(0x80 | EP_FEEDBACK);  // IN endpoint
+                        w(0x11);  // bmAttributes: Isochronous + Feedback usage
+                        w16(3);   // wMaxPacketSize: 3 bytes for UAC1 (10.14 format)
+                        w(1);     // bInterval (Full-speed: 1ms)
+                        w(4);     // bRefresh = 2^4 = 16 SOF frames (16ms)
+                        w(0);     // bSynchAddress
+                    }
                 }
             }
 
@@ -595,7 +634,7 @@ private:
                     // Audio Endpoint (IN)
                     w(7, bDescriptorType::Endpoint);
                     w(0x80 | EP_AUDIO_IN);
-                    w(static_cast<uint8_t>(AudioSyncMode::Async));
+                    w(static_cast<uint8_t>(SYNC_MODE));
                     w16(AudioIn::PACKET_SIZE);
                     w(1);
                     w(0);
@@ -613,30 +652,32 @@ private:
                     w(1);
                     w16(uac::FORMAT_PCM);
 
-                    // Format Type I
-                    w(11, bDescriptorType::CsInterface, uac::as::FORMAT_TYPE);
+                    // Format Type I - support multiple sample rates
+                    w(17, bDescriptorType::CsInterface, uac::as::FORMAT_TYPE);
                     w(uac::FORMAT_TYPE_I);
                     w(AudioIn::CHANNELS);
                     w(AudioIn::BIT_DEPTH / 8);
                     w(AudioIn::BIT_DEPTH);
-                    w(1);
-                    w24(AudioIn::SAMPLE_RATE);
+                    w(3);  // bSamFreqType = 3 (three discrete frequencies)
+                    w24(44100);   // tSamFreq[1]
+                    w24(48000);   // tSamFreq[2]
+                    w24(96000);   // tSamFreq[3]
 
                     // Audio Endpoint (IN) - Asynchronous mode (TinyUSB compatible)
                     // bmAttributes: Isochronous (01), Asynchronous (01 << 2) = 0x05
                     w(9, bDescriptorType::Endpoint);
                     w(0x80 | EP_AUDIO_IN);
-                    w(0x05);  // bmAttributes: Isochronous, Asynchronous
+                    w(static_cast<uint8_t>(SYNC_MODE));
                     w16(AudioIn::PACKET_SIZE);
                     w(1);     // bInterval
                     w(0);     // bRefresh (unused for data EP)
                     w(0);     // bSynchAddress: 0 (no sync EP for async IN)
 
-                    // CS Audio Endpoint
+                    // CS Audio Endpoint - with Sampling Frequency Control
                     w(7, bDescriptorType::CsEndpoint, uac::as::GENERAL);
                     w(0x01);  // bmAttributes: Sampling Frequency control
-                    w(0x01);  // bLockDelayUnits: milliseconds
-                    w16(1);   // wLockDelay: 1ms
+                    w(0);     // bLockDelayUnits
+                    w16(0);   // wLockDelay
                 }
             }
         }
@@ -796,11 +837,29 @@ private:
     uint8_t pending_set_entity_ = 0;
     uint8_t pending_set_ctrl_ = 0;
     uint8_t pending_set_len_ = 0;
+    
+    // Dynamic sample rate support
+    uint32_t current_sample_rate_ = SAMPLE_RATE;  ///< Runtime sample rate (may change from template default)
+    uint32_t actual_sample_rate_ = 0;             ///< Actual I2S rate (set by kernel after PLL config)
+    bool sample_rate_changed_ = false;            ///< Flag indicating sample rate was changed by host
+    bool pending_sample_rate_set_ = false;        ///< Waiting for SET CUR data phase
+    uint8_t pending_sample_rate_ep_ = 0;          ///< Endpoint for pending SET CUR
+    uint32_t in_rate_accum_ = 0;                  ///< Accumulator for fractional IN frames (Hz % 1000)
+    
+    // Debug counters for sample rate change
+    mutable uint32_t dbg_sr_get_cur_count_ = 0;      ///< GET CUR sample rate requests
+    mutable uint32_t dbg_sr_set_cur_count_ = 0;      ///< SET CUR sample rate requests  
+    mutable uint32_t dbg_sr_ep0_rx_count_ = 0;       ///< on_ep0_rx calls with pending sample rate
+    mutable uint32_t dbg_sr_last_requested_ = 0;     ///< Last requested sample rate
+    mutable uint32_t dbg_sr_ep_request_count_ = 0;   ///< Endpoint sample rate requests (UAC1)
 
-    // Audio processing - smaller ring buffers for lower latency
-    // 128 frames = ~2.67ms at 48kHz
-    AudioRingBuffer<128, HAS_AUDIO_OUT ? AudioOut::CHANNELS : 2> out_ring_buffer_;
-    AudioRingBuffer<128, HAS_AUDIO_IN ? AudioIn::CHANNELS : 2> in_ring_buffer_;
+    // Audio processing - ring buffer size based on max sample rate
+    // Higher sample rates need larger buffers: 96kHz->512, 48kHz->256 frames
+    // This gives ~4-5ms buffer at any rate for jitter absorption
+    static constexpr uint32_t OUT_BUFFER_FRAMES = HAS_AUDIO_OUT ? AudioOut::BUFFER_FRAMES : 128;
+    static constexpr uint32_t IN_BUFFER_FRAMES = HAS_AUDIO_IN ? AudioIn::BUFFER_FRAMES : 128;
+    AudioRingBuffer<OUT_BUFFER_FRAMES, HAS_AUDIO_OUT ? AudioOut::CHANNELS : 2> out_ring_buffer_;
+    AudioRingBuffer<IN_BUFFER_FRAMES, HAS_AUDIO_IN ? AudioIn::CHANNELS : 2> in_ring_buffer_;
     FeedbackCalculator<Version> feedback_calc_;
     PllRateController pll_controller_;
     PllRateController in_pll_controller_;  // ASRC for Audio IN
@@ -837,6 +896,7 @@ public:
         audio_in_streaming_ = false;
         midi_configured_ = false;
         sof_count_ = 0;
+        in_rate_accum_ = 0;
     }
 
     // ========================================================================
@@ -885,16 +945,20 @@ public:
                     hal.ep_configure({EP_AUDIO_OUT, Direction::Out,
                                      TransferType::Isochronous, AudioOut::PACKET_SIZE});
 
-                    // Async mode: configure feedback endpoint
-                    constexpr uint16_t fb_size = IS_UAC2 ? 4 : 3;
-                    hal.ep_configure({EP_FEEDBACK, Direction::In,
-                                     TransferType::Isochronous, fb_size});
+                    if constexpr (SYNC_MODE == AudioSyncMode::Async) {
+                        // Async mode: configure feedback endpoint
+                        constexpr uint16_t fb_size = IS_UAC2 ? 4 : 3;
+                        hal.ep_configure({EP_FEEDBACK, Direction::In,
+                                         TransferType::Isochronous, fb_size});
+                    }
 
                     audio_out_streaming_ = true;
                     out_ring_buffer_.reset();
-                    feedback_calc_.reset(AudioOut::SAMPLE_RATE);
-                    // Set actual I2S rate (47,991 Hz due to PLLI2S limitations)
-                    feedback_calc_.set_actual_rate(47991);
+                    // Use actual_sample_rate_ if set, otherwise fall back to current_sample_rate_
+                    uint32_t rate = (actual_sample_rate_ > 0) ? actual_sample_rate_ : current_sample_rate_;
+                    feedback_calc_.reset(rate);
+                    feedback_calc_.set_actual_rate(rate);
+                    feedback_calc_.set_fifo_threshold(out_ring_buffer_.capacity() / 4);
                     pll_controller_.reset();
                 } else {
                     audio_out_streaming_ = false;
@@ -971,6 +1035,43 @@ public:
                         response[10] = 0; response[11] = 0;
                         response[12] = 0; response[13] = 0;
                         response = response.subspan(0, 14);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // UAC1 Endpoint Sampling Frequency Control requests
+        if constexpr (!IS_UAC2 && HAS_AUDIO_OUT) {
+            // bmRequestType: 0x22 = SET, class, endpoint
+            //                0xA2 = GET, class, endpoint
+            uint8_t recipient = setup.bmRequestType & 0x1F;
+            bool is_endpoint_request = (recipient == 0x02);  // Endpoint recipient
+            
+            if (is_endpoint_request) {
+                uint8_t ep = setup.wIndex & 0x0F;
+                uint8_t ctrl = setup.wValue >> 8;
+                bool is_get = (setup.bmRequestType & 0x80) != 0;
+                
+                // Sampling Frequency Control = 0x01
+                if (ctrl == 0x01 && (ep == EP_AUDIO_OUT || ep == EP_AUDIO_IN)) {
+                    ++dbg_sr_ep_request_count_;
+                    
+                    if (is_get) {
+                        // GET CUR - return current sample rate (3 bytes for UAC1)
+                        ++dbg_sr_get_cur_count_;
+                        uint32_t rate = current_sample_rate_;
+                        response[0] = rate & 0xFF;
+                        response[1] = (rate >> 8) & 0xFF;
+                        response[2] = (rate >> 16) & 0xFF;
+                        response = response.subspan(0, 3);
+                        return true;
+                    } else {
+                        // SET CUR - expect 3 bytes sample rate in DATA phase
+                        ++dbg_sr_set_cur_count_;
+                        pending_sample_rate_set_ = true;
+                        pending_sample_rate_ep_ = ep;
+                        response = response.subspan(0, 0);
                         return true;
                     }
                 }
@@ -1121,6 +1222,27 @@ public:
     }
 
     void on_ep0_rx(std::span<const uint8_t> data) {
+        // UAC1 Endpoint Sampling Frequency Control - data phase
+        if constexpr (!IS_UAC2 && HAS_AUDIO_OUT) {
+            if (pending_sample_rate_set_ && data.size() >= 3) {
+                ++dbg_sr_ep0_rx_count_;
+                uint32_t new_rate = data[0] | (data[1] << 8) | (data[2] << 16);
+                dbg_sr_last_requested_ = new_rate;
+                
+                if (new_rate != current_sample_rate_) {
+                    current_sample_rate_ = new_rate;
+                    sample_rate_changed_ = true;
+                    in_rate_accum_ = 0;
+                    if (on_sample_rate_change) {
+                        on_sample_rate_change(new_rate);
+                    }
+                }
+                pending_sample_rate_set_ = false;
+                pending_sample_rate_ep_ = 0;
+                return;
+            }
+        }
+        
         if constexpr (!IS_UAC2 && HAS_AUDIO) {
             if (pending_set_ctrl_ != 0 && data.size() >= pending_set_len_) {
                 bool* mute_ptr = nullptr;
@@ -1179,16 +1301,20 @@ public:
 
     template<typename HalT>
     void on_sof(HalT& hal) {
-        // Async mode: Send feedback every SOF when streaming
-        // cbb4b78 style: don't use feedback_pending_, just send every SOF
-        // This works because the host polls at its own rate
+        // Async mode: Update feedback from FIFO level and send every SOF when streaming
+        // TinyUSB FIFO count method: adjust feedback based on buffer fill level
         if constexpr (HAS_AUDIO_OUT) {
             if (audio_out_streaming_) {
-                feedback_calc_.on_sof();
-                auto fb = feedback_calc_.get_feedback_bytes();
-                hal.ep_write(EP_FEEDBACK, fb.data(), static_cast<uint16_t>(fb.size()));
-                ++dbg_fb_sent_count_;
-                if (on_feedback_sent) on_feedback_sent();
+                if constexpr (SYNC_MODE == AudioSyncMode::Async) {
+                    // Update feedback based on current buffer level (TinyUSB-style)
+                    uint32_t level = out_ring_buffer_.buffered_frames();
+                    feedback_calc_.update_from_fifo_level(level);
+                    
+                    auto fb = feedback_calc_.get_feedback_bytes();
+                    hal.ep_write(EP_FEEDBACK, fb.data(), static_cast<uint16_t>(fb.size()));
+                    ++dbg_fb_sent_count_;
+                    if (on_feedback_sent) on_feedback_sent();
+                }
             }
         }
 
@@ -1233,7 +1359,7 @@ public:
     }
 
     void on_samples_consumed(uint32_t frame_count) {
-        if constexpr (HAS_AUDIO_OUT) {
+        if constexpr (HAS_AUDIO_OUT && SYNC_MODE == AudioSyncMode::Async) {
             feedback_calc_.add_consumed_samples(frame_count);
         }
         (void)frame_count;
@@ -1261,10 +1387,20 @@ public:
                 -28377, -25996, -23170, -19947, -16384, -12539, -8481, -4277
             };
 
-            constexpr uint32_t kSamplesPerPacket = (AudioIn::SAMPLE_RATE / 1000) + 1;  // 49
-            std::array<int16_t, kSamplesPerPacket * AudioIn::CHANNELS> test_buf{};
+            constexpr uint32_t max_frames = (AudioIn::MAX_SAMPLE_RATE / 1000) + 1;
+            uint32_t frames_per_packet = current_sample_rate_ / 1000;
+            uint32_t remainder = current_sample_rate_ % 1000;
+            in_rate_accum_ += remainder;
+            if (in_rate_accum_ >= 1000) {
+                in_rate_accum_ -= 1000;
+                ++frames_per_packet;
+            }
+            if (frames_per_packet > max_frames) {
+                frames_per_packet = max_frames;
+            }
+            std::array<int16_t, max_frames * AudioIn::CHANNELS> test_buf{};
 
-            for (uint32_t i = 0; i < kSamplesPerPacket; ++i) {
+            for (uint32_t i = 0; i < frames_per_packet; ++i) {
                 int16_t sample = kSineTable[test_phase_idx_];
                 test_buf[i * 2] = sample;      // Left
                 test_buf[i * 2 + 1] = sample;  // Right
@@ -1272,7 +1408,7 @@ public:
             }
 
             hal.ep_write(EP_AUDIO_IN, reinterpret_cast<const uint8_t*>(test_buf.data()),
-                         AudioIn::PACKET_SIZE);
+                         frames_per_packet * AudioIn::BYTES_PER_FRAME);
         }
     }
 
@@ -1296,13 +1432,15 @@ public:
             (void)dest; (void)frame_count;
             return 0;
         } else {
+            if constexpr (SYNC_MODE == AudioSyncMode::Sync) {
+                return read_audio(dest, frame_count);
+            }
             int32_t level = out_ring_buffer_.buffer_level();
             int32_t ppm = pll_controller_.update(level);
-            uint32_t rate = AudioRingBuffer<256, AudioOut::CHANNELS>::ppm_to_rate_q16(ppm);
+            uint32_t rate = AudioRingBuffer<OUT_BUFFER_FRAMES, AudioOut::CHANNELS>::ppm_to_rate_q16(ppm);
 
             uint32_t read = out_ring_buffer_.read_interpolated(dest, frame_count, rate);
-            // Don't report samples here - use fixed feedback instead
-            // The feedback value is set to nominal rate in reset()
+            // Note: Feedback is now calculated from FIFO level in on_sof(), not from consumed samples
             apply_volume_out(dest, read);
             return read;
         }
@@ -1366,15 +1504,25 @@ public:
 
             ++dbg_send_audio_in_count_;  // Debug: track calls
 
-            constexpr uint32_t frames_per_packet = AudioIn::SAMPLE_RATE / 1000;
-            int16_t buf[frames_per_packet * AudioIn::CHANNELS];
+            constexpr uint32_t max_frames = (AudioIn::MAX_SAMPLE_RATE / 1000) + 1;
+            uint32_t frames_per_packet = current_sample_rate_ / 1000;
+            uint32_t remainder = current_sample_rate_ % 1000;
+            in_rate_accum_ += remainder;
+            if (in_rate_accum_ >= 1000) {
+                in_rate_accum_ -= 1000;
+                ++frames_per_packet;
+            }
+            if (frames_per_packet > max_frames) {
+                frames_per_packet = max_frames;
+            }
+            int16_t buf[max_frames * AudioIn::CHANNELS];
 
             // ASRC: Use PI controller to track buffer level and adjust read rate
             // For Audio IN, we invert polarity: if buffer is filling up, speed up read
             int32_t level = in_ring_buffer_.buffer_level();
             int32_t ppm = in_pll_controller_.update(level);
             // Invert: positive level error = buffer filling = need to read faster
-            uint32_t rate = AudioRingBuffer<256, AudioIn::CHANNELS>::ppm_to_rate_q16(ppm);
+            uint32_t rate = AudioRingBuffer<IN_BUFFER_FRAMES, AudioIn::CHANNELS>::ppm_to_rate_q16(ppm);
             
             uint32_t read = in_ring_buffer_.read_interpolated(buf, frames_per_packet, rate);
 
@@ -1484,7 +1632,7 @@ public:
 
     [[nodiscard]] uint32_t current_asrc_rate() const {
         if constexpr (HAS_AUDIO_OUT) {
-            return AudioRingBuffer<256, AudioOut::CHANNELS>::ppm_to_rate_q16(pll_controller_.current_ppm());
+            return AudioRingBuffer<OUT_BUFFER_FRAMES, AudioOut::CHANNELS>::ppm_to_rate_q16(pll_controller_.current_ppm());
         }
         return 0x10000;
     }
@@ -1492,7 +1640,7 @@ public:
     [[nodiscard]] bool is_muted() const { return fu_out_mute_; }
     [[nodiscard]] int16_t volume_db256() const { return fu_out_volume_; }
 
-    [[nodiscard]] static constexpr AudioSyncMode sync_mode() { return AudioSyncMode::Async; }
+    [[nodiscard]] static constexpr AudioSyncMode sync_mode() { return SYNC_MODE; }
 
     // Debug: get raw sample from ring buffer at index 0
     [[nodiscard]] int16_t dbg_ring_sample0() const {
@@ -1535,6 +1683,24 @@ public:
         }
         return 0xFF;
     }
+    
+    /// Set actual hardware sample rate (for USB feedback calculation)
+    /// Call this after reconfiguring I2S/codec for a new sample rate
+    void set_actual_rate(uint32_t rate) {
+        actual_sample_rate_ = rate;  // Save for use in set_interface
+        current_sample_rate_ = rate;
+        if constexpr (HAS_AUDIO_OUT) {
+            // set_actual_rate recalculates nominal_feedback_, min/max, and rate_const
+            feedback_calc_.set_actual_rate(rate);
+        }
+    }
+    
+    // Debug accessors for sample rate change diagnostics
+    uint32_t dbg_sr_get_cur() const { return dbg_sr_get_cur_count_; }
+    uint32_t dbg_sr_set_cur() const { return dbg_sr_set_cur_count_; }
+    uint32_t dbg_sr_ep0_rx() const { return dbg_sr_ep0_rx_count_; }
+    uint32_t dbg_sr_last_req() const { return dbg_sr_last_requested_; }
+    uint32_t dbg_sr_ep_req() const { return dbg_sr_ep_request_count_; }
 
 };
 
@@ -1565,6 +1731,33 @@ using AudioFullDuplex48kV2 = AudioInterface<UacVersion::Uac2, AudioStereo48k, Au
 // STM32 OTG FS has EP0-3, with IN and OUT being independent:
 // EP1 OUT=Audio OUT, EP1 IN=MIDI IN, EP2 IN=Feedback, EP3 OUT=MIDI OUT, EP3 IN=Audio IN
 using AudioFullDuplexMidi48k = AudioInterface<UacVersion::Uac1, AudioStereo48k, AudioPort<2, 16, 48000, 3>, MidiPort<1, 3>, MidiPort<1, 1>, 2>;
+
+// Full duplex + MIDI with 96kHz max packet size support
+// Declares 48kHz nominal but uses 96kHz for packet size calculation
+// PACKET_SIZE = ceil(96k/1000) * 4 = 384 bytes
+using AudioFullDuplexMidi96kMaxAsync = AudioInterface<UacVersion::Uac1,
+    AudioPort<2, 16, 48000, 1, 96000>,  // Audio OUT: 48kHz nominal, 96kHz max packet
+    AudioPort<2, 16, 48000, 3, 96000>,  // Audio IN: 48kHz nominal, 96kHz max packet
+    MidiPort<1, 3>,                     // MIDI OUT on EP3
+    MidiPort<1, 1>,                     // MIDI IN on EP1
+    2,
+    AudioSyncMode::Async>;
+
+using AudioFullDuplexMidi96kMaxAdaptive = AudioInterface<UacVersion::Uac1,
+    AudioPort<2, 16, 48000, 1, 96000>,
+    AudioPort<2, 16, 48000, 3, 96000>,
+    MidiPort<1, 3>,
+    MidiPort<1, 1>,
+    2,
+    AudioSyncMode::Adaptive>;
+
+using AudioFullDuplexMidi96kMaxSync = AudioInterface<UacVersion::Uac1,
+    AudioPort<2, 16, 48000, 1, 96000>,
+    AudioPort<2, 16, 48000, 3, 96000>,
+    MidiPort<1, 3>,
+    MidiPort<1, 1>,
+    2,
+    AudioSyncMode::Sync>;
 
 // Audio IN only (microphone)
 using AudioInOnly48k = AudioInterface<UacVersion::Uac1, NoAudioPort, AudioPort<2, 16, 48000, 1>, NoMidiPort, NoMidiPort, 0>;

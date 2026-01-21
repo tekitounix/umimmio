@@ -75,17 +75,38 @@ public:
         sample_count_ = 0;
         sof_count_ = 0;
         accumulated_samples_ = 0;
+        
+        // TinyUSB-style min/max: ±1 sample/frame around nominal (in Q format)
+        // Use Q math to preserve fractional rates (e.g. 96.028 kHz)
+        min_feedback_ = nominal_feedback_ - (1U << FEEDBACK_SHIFT);
+        max_feedback_ = nominal_feedback_ + (1U << FEEDBACK_SHIFT);
+        
         // Initialize FIFO level average (Q16 format) to target level
-        fifo_level_avg_q16_ = 128 << 16;  // Target = 128 frames
+        // Target is fifo_threshold (half of FIFO depth in frames)
+        fifo_level_avg_q16_ = fifo_threshold_ << 16;
 
         // Calculate TinyUSB-style rate constants
         // rate_const = (max_value - nominal) / fifo_threshold
-        // With ±1% range and 128 frame threshold
-        uint32_t max_fb = nominal_feedback_ + (nominal_feedback_ / 100);
-        uint32_t min_fb = nominal_feedback_ - (nominal_feedback_ / 100);
-        constexpr uint32_t fifo_threshold = 128;
-        rate_const_up_ = (max_fb - nominal_feedback_) / fifo_threshold;
-        rate_const_down_ = (nominal_feedback_ - min_fb) / fifo_threshold;
+        rate_const_up_ = (max_feedback_ - nominal_feedback_) / fifo_threshold_;
+        rate_const_down_ = (nominal_feedback_ - min_feedback_) / fifo_threshold_;
+        
+        // Ensure minimum rate_const to avoid zero division / no adjustment
+        if (rate_const_up_ == 0) rate_const_up_ = 1;
+        if (rate_const_down_ == 0) rate_const_down_ = 1;
+    }
+    
+    /// Set FIFO threshold for feedback calculation
+    /// @param threshold Target FIFO level in frames (typically half of FIFO depth)
+    void set_fifo_threshold(uint32_t threshold) {
+        fifo_threshold_ = threshold;
+        // Recalculate rate constants with new threshold
+        if (fifo_threshold_ > 0) {
+            rate_const_up_ = (max_feedback_ - nominal_feedback_) / fifo_threshold_;
+            rate_const_down_ = (nominal_feedback_ - min_feedback_) / fifo_threshold_;
+            if (rate_const_up_ == 0) rate_const_up_ = 1;
+            if (rate_const_down_ == 0) rate_const_down_ = 1;
+        }
+        fifo_level_avg_q16_ = fifo_threshold_ << 16;
     }
 
     /// Set the actual device sample rate (for FIFO-based feedback)
@@ -102,17 +123,18 @@ public:
         nominal_feedback_ = (actual_rate << FEEDBACK_SHIFT) / 1000;
         current_feedback_ = nominal_feedback_;
 
-        // Recalculate rate constants based on actual rate
-        // TinyUSB formula: rate_const = (max_value - nominal) / fifo_threshold
-        // ±1% range around the actual rate
-        uint32_t max_fb = nominal_feedback_ + (nominal_feedback_ / 100);
-        uint32_t min_fb = nominal_feedback_ - (nominal_feedback_ / 100);
-        constexpr uint32_t fifo_threshold = 128;
-        rate_const_up_ = (max_fb - nominal_feedback_) / fifo_threshold;
-        rate_const_down_ = (nominal_feedback_ - min_fb) / fifo_threshold;
+        // Recalculate min/max based on actual rate (±1 sample/frame in Q format)
+        min_feedback_ = nominal_feedback_ - (1U << FEEDBACK_SHIFT);
+        max_feedback_ = nominal_feedback_ + (1U << FEEDBACK_SHIFT);
+        
+        // Recalculate rate constants
+        rate_const_up_ = (max_feedback_ - nominal_feedback_) / fifo_threshold_;
+        rate_const_down_ = (nominal_feedback_ - min_feedback_) / fifo_threshold_;
+        if (rate_const_up_ == 0) rate_const_up_ = 1;
+        if (rate_const_down_ == 0) rate_const_down_ = 1;
 
         // Initialize FIFO level average to target
-        fifo_level_avg_q16_ = 128 << 16;
+        fifo_level_avg_q16_ = fifo_threshold_ << 16;
     }
 
     /// Call this every SOF (1ms for FS, 125us for HS) to update timing
@@ -137,34 +159,32 @@ public:
     /// 1. Apply 64-point low-pass filter to smooth FIFO level readings
     /// 2. Compare filtered level to threshold
     /// 3. Apply linear adjustment based on deviation
-    void update_from_fifo_level(int32_t current_level, int32_t target_level) {
+    void update_from_fifo_level(uint32_t current_level) {
         // TinyUSB-style low-pass filter (64-point averaging)
+        // Use 64-bit arithmetic to prevent overflow (like TinyUSB)
         // lvl = (lvl * 63 + (lvl_new << 16)) >> 6
-        // This is a Q16 fixed-point exponential moving average
-        uint32_t lvl_new_q16 = static_cast<uint32_t>(current_level) << 16;
-        fifo_level_avg_q16_ = ((fifo_level_avg_q16_ * 63) + lvl_new_q16) >> 6;
+        uint64_t lvl64 = fifo_level_avg_q16_;
+        lvl64 = ((lvl64 * 63) + (static_cast<uint64_t>(current_level) << 16)) >> 6;
+        fifo_level_avg_q16_ = static_cast<uint32_t>(lvl64);
 
         // Extract integer part of filtered level
         uint32_t filtered_level = fifo_level_avg_q16_ >> 16;
-        uint32_t threshold = static_cast<uint32_t>(target_level);
 
         // Calculate feedback adjustment based on deviation from target
         // TinyUSB approach: linear adjustment based on frame count difference
-        if (filtered_level < threshold) {
+        if (filtered_level < fifo_threshold_) {
             // Buffer underfilled: increase feedback to request more data from host
-            uint32_t deficit = threshold - filtered_level;
+            uint32_t deficit = fifo_threshold_ - filtered_level;
             current_feedback_ = nominal_feedback_ + (deficit * rate_const_up_);
         } else {
             // Buffer overfilled: decrease feedback to request less data from host
-            uint32_t excess = filtered_level - threshold;
+            uint32_t excess = filtered_level - fifo_threshold_;
             current_feedback_ = nominal_feedback_ - (excess * rate_const_down_);
         }
 
-        // Clamp to ±1% of nominal to prevent runaway
-        uint32_t min_fb = nominal_feedback_ - (nominal_feedback_ / 100);
-        uint32_t max_fb = nominal_feedback_ + (nominal_feedback_ / 100);
-        if (current_feedback_ < min_fb) current_feedback_ = min_fb;
-        if (current_feedback_ > max_fb) current_feedback_ = max_fb;
+        // Clamp to TinyUSB-style ±1 sample/frame range
+        if (current_feedback_ < min_feedback_) current_feedback_ = min_feedback_;
+        if (current_feedback_ > max_feedback_) current_feedback_ = max_feedback_;
     }
 
     /// Get current feedback value
@@ -208,11 +228,9 @@ private:
             // Implemented with shifts: (old * 7 + measured) >> 3
             current_feedback_ = ((current_feedback_ * 7) + measured) >> 3;
 
-            // Clamp to ±1% of nominal to prevent runaway
-            uint32_t min_fb = nominal_feedback_ - (nominal_feedback_ / 100);
-            uint32_t max_fb = nominal_feedback_ + (nominal_feedback_ / 100);
-            if (current_feedback_ < min_fb) current_feedback_ = min_fb;
-            if (current_feedback_ > max_fb) current_feedback_ = max_fb;
+            // Clamp to TinyUSB-style ±1 sample/frame range (not ±1%)
+            if (current_feedback_ < min_feedback_) current_feedback_ = min_feedback_;
+            if (current_feedback_ > max_feedback_) current_feedback_ = max_feedback_;
         }
         sof_count_ = 0;
         accumulated_samples_ = 0;
@@ -221,16 +239,18 @@ private:
     uint32_t nominal_rate_ = 48000;
     uint32_t nominal_feedback_ = 0;
     uint32_t current_feedback_ = 0;
+    uint32_t min_feedback_ = 0;     // TinyUSB-style min (sample_freq - 1) / 1000 << shift
+    uint32_t max_feedback_ = 0;     // TinyUSB-style max (sample_freq / 1000 + 1) << shift
     uint32_t sample_count_ = 0;
     uint32_t sof_count_ = 0;
     uint32_t accumulated_samples_ = 0;
     uint32_t fifo_level_avg_q16_ = 128 << 16;  // Q16 filtered FIFO level
+    uint32_t fifo_threshold_ = 128;  // Target FIFO level in frames (half of FIFO depth)
 
     // TinyUSB-style rate constants for FIFO-based feedback
     // Calculated as: rate_const = (max_value - nominal) / fifo_threshold
-    // For 48kHz, ±1% range, 128 frame threshold: rate_const ≈ 61
-    uint32_t rate_const_up_ = 61;    // When buffer underfilled
-    uint32_t rate_const_down_ = 61;  // When buffer overfilled
+    uint32_t rate_const_up_ = 1;    // When buffer underfilled
+    uint32_t rate_const_down_ = 1;  // When buffer overfilled
 };
 
 
@@ -249,6 +269,9 @@ public:
     static constexpr uint32_t PREBUFFER_FRAMES = Frames / 4;
     static constexpr uint32_t SAMPLES_PER_FRAME = Channels;
     static constexpr uint32_t BYTES_PER_FRAME = Channels * sizeof(int16_t);
+    
+    /// Get buffer capacity in frames
+    [[nodiscard]] static constexpr uint32_t capacity() noexcept { return Frames; }
 
     void reset() {
         write_pos_ = 0;
@@ -465,6 +488,10 @@ public:
     [[nodiscard]] uint32_t dbg_write_pos() const { return write_pos_; }
     [[nodiscard]] uint32_t dbg_read_pos() const { return read_pos_; }
 
+    /// Get consumed input frames from last read_interpolated() call
+    /// Use this for USB feedback calculation instead of output frame count
+    [[nodiscard]] uint32_t last_consumed_input() const { return last_consumed_input_; }
+
 private:
     alignas(32) int16_t buffer_[Frames * Channels]{};
     volatile uint32_t write_pos_ = 0;
@@ -473,6 +500,7 @@ private:
     volatile bool playback_started_ = false;
     uint32_t underrun_count_ = 0;
     uint32_t overrun_count_ = 0;
+    uint32_t last_consumed_input_ = 0;  // Input frames consumed in last read_interpolated()
 };
 
 // ============================================================================
