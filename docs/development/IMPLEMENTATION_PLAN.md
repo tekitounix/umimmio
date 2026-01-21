@@ -574,17 +574,17 @@ int main() {
 - [x] make_umiapp.py スクリプト
 - [x] カーネル/アプリ別ビルド確認
 
-### Phase 4: 動作確認
+### Phase 4: 動作確認 ✅
 - [x] カーネル単体起動（ビルド成功）
 - [x] アプリロード成功（ビルド成功）
 - [x] process() 呼び出し動作（API実装完了）
-- [x] syscall 動作（wait_event等）
-- [ ] オーディオ出力確認（実機テスト必要）
+- [x] syscall 動作（RegisterProc, MidiRecv）
+- [x] オーディオ出力確認（実機テスト完了 2025-01-21）
 
-### Phase 5: 旧コード移行
-- [ ] stm32f4_synth アーカイブ
-- [ ] コード分離完了
-- [ ] 動作互換性確認
+### Phase 5: 旧コード移行 ✅
+- [x] stm32f4_synth アーカイブ（→ examples/_archive/）
+- [x] コード分離完了
+- [x] 動作互換性確認
 
 ---
 
@@ -599,11 +599,11 @@ int main() {
 | [API_APPLICATION.md](../reference/API_APPLICATION.md) | アプリケーション API |
 
 ### Phase 7: ビルド・テスト
-- [ ] ビルド成功
+- [x] ビルド成功
 - [ ] ユニットテスト通過
-- [ ] フラッシュ成功
-- [ ] USB Audio 動作確認
-- [ ] MIDI 動作確認
+- [x] フラッシュ成功
+- [x] USB Audio 動作確認（実機テスト完了）
+- [x] MIDI 動作確認（MidiRecv syscall 動作確認）
 
 ---
 
