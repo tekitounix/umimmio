@@ -215,6 +215,10 @@ int16_t dbg_hal_rx_sample0 = 0;    // HAL received sample[0]
 int16_t dbg_hal_rx_sample1 = 0;    // HAL received sample[1]
 uint32_t dbg_fifo_word = 0;        // First word read from RX FIFO
 uint32_t dbg_ep1_fifo_word = 0;   // First word from EP1 specifically
+uint32_t dbg_audio_in_write = 0;   // Audio IN write count
+int32_t dbg_audio_in_level = 0;    // Audio IN ring buffer level
+uint32_t dbg_out_buf_level = 0;    // Audio OUT ring buffer level
+uint32_t dbg_in_buf_level = 0;     // Audio IN ring buffer level
 
 // MIDI queue (ISR -> App)
 struct MidiMsg {
@@ -585,19 +589,16 @@ uint32_t dbg_synth_called = 0;    // Synth process called count
 static void process_audio_frame(int16_t* buf) {
     constexpr float dt = 1.0f / 48000.0f;
     
-    // 1. Read USB Audio OUT into buffer
+    // 1. Read USB Audio OUT into buffer (for I2S output only)
     usb_audio.read_audio_asrc(buf, BUFFER_SIZE);
+    // buf now contains USB Audio OUT data -> goes to I2S DAC
     
     // 2. Call app synth if registered
     if (g_loader.state() == umi::kernel::AppState::Running) {
-        // Convert USB audio to float for synth input
-        for (uint32_t i = 0; i < BUFFER_SIZE * 2; ++i) {
-            synth_in_buf[i] = buf[i] / 32768.0f;
-        }
-        
         // Clear output buffer
         for (uint32_t i = 0; i < BUFFER_SIZE * 2; ++i) {
             synth_out_buf[i] = 0.0f;
+            synth_in_buf[i] = 0.0f;  // No input to synth
         }
         
         // Call synth process
@@ -611,15 +612,8 @@ static void process_audio_frame(int16_t* buf) {
         g_shared.sample_position += BUFFER_SIZE;
         ++dbg_synth_called;
         
-        // Mix synth output with USB audio for I2S output
-        // Also save synth output for USB Audio IN
+        // Save synth output for USB Audio IN (don't mix with I2S output)
         for (uint32_t i = 0; i < BUFFER_SIZE * 2; ++i) {
-            float mixed = synth_in_buf[i] + synth_out_buf[i];
-            if (mixed > 1.0f) mixed = 1.0f;
-            if (mixed < -1.0f) mixed = -1.0f;
-            buf[i] = static_cast<int16_t>(mixed * 32767.0f);
-            
-            // Save synth output (convert back to int16)
             float synth_val = synth_out_buf[i];
             if (synth_val > 1.0f) synth_val = 1.0f;
             if (synth_val < -1.0f) synth_val = -1.0f;
@@ -627,13 +621,14 @@ static void process_audio_frame(int16_t* buf) {
         }
     }
     
-    // 3. Write to USB Audio IN (L=mic, R=synth)
+    // 3. Write to USB Audio IN (L=mic, R=synth) - directly, no extra buffering
     if (usb_audio.is_audio_in_streaming()) {
         for (uint32_t i = 0; i < BUFFER_SIZE; ++i) {
             stereo_buf[i * 2] = pcm_buf[i];           // L = mic
             stereo_buf[i * 2 + 1] = last_synth_out[i * 2];  // R = synth (mono from L)
         }
         usb_audio.write_audio_in(stereo_buf, BUFFER_SIZE);
+        ++dbg_audio_in_write;
     }
 }
 
@@ -657,6 +652,8 @@ static void audio_loop() {
         dbg_underrun = usb_audio.underrun_count();
         dbg_overrun = usb_audio.overrun_count();
         dbg_streaming = usb_audio.is_streaming() ? 1 : 0;
+        dbg_out_buf_level = usb_audio.buffered_frames();
+        dbg_in_buf_level = usb_audio.in_buffered_frames();
     }
 }
 
