@@ -300,14 +300,15 @@ public:
         }
 
         // Configure FIFOs (320 words total for FS)
-        // Audio packet size: 48kHz * 2ch * 16bit = 192 bytes/ms = 48 words
-        // Need ~64 words per audio endpoint for safety margin
-        // Total: RX 80 + TX0 32 + TX1 64 + TX2 16 + TX3 64 = 256 words (within 320 limit)
-        Regs::reg(Regs::GRXFSIZ) = 80;              // RX FIFO: 80 words @ 0
-        Regs::reg(Regs::DIEPTXF0) = (32U << 16) | 80;   // TX0: 32 words @ 80 (EP0 control)
-        Regs::reg(Regs::DIEPTXF(1)) = (64U << 16) | 112; // TX1: 64 words @ 112 (Audio IN: 192 bytes)
-        Regs::reg(Regs::DIEPTXF(2)) = (16U << 16) | 176; // TX2: 16 words @ 176 (Feedback: 3 bytes)
-        Regs::reg(Regs::DIEPTXF(3)) = (64U << 16) | 192; // TX3: 64 words @ 192 (Audio IN: Full Duplex)
+        // 96kHz Audio packet: 97 samples × 4 bytes = 388 bytes = 97 words
+        // RX FIFO needs: max_packet_size/4 + 1 + setup_packets(2×8bytes) + status_info(10)
+        // For 388 bytes: 97 + 1 + 4 + 10 = 112 words minimum, use 128 for safety
+        // Total: RX 128 + TX0 24 + TX1 64 + TX2 8 + TX3 96 = 320 words (exactly 320 limit)
+        Regs::reg(Regs::GRXFSIZ) = 128;              // RX FIFO: 128 words @ 0 (for 96kHz packets)
+        Regs::reg(Regs::DIEPTXF0) = (24U << 16) | 128;   // TX0: 24 words @ 128 (EP0 control)
+        Regs::reg(Regs::DIEPTXF(1)) = (64U << 16) | 152; // TX1: 64 words @ 152 (Audio IN: 48kHz)
+        Regs::reg(Regs::DIEPTXF(2)) = (8U << 16) | 216;  // TX2: 8 words @ 216 (Feedback: 3 bytes)
+        Regs::reg(Regs::DIEPTXF(3)) = (96U << 16) | 224; // TX3: 96 words @ 224 (Audio IN: 96kHz)
 
         // Clear pending interrupts
         Regs::reg(Regs::GINTSTS) = 0xBFFFFFFFU;

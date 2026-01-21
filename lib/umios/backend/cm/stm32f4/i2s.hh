@@ -66,6 +66,26 @@ struct I2S {
         reg(I2SPR) = I2SPR_MCKOE | I2SPR_ODD | 3;
     }
 
+    /// Configure I2S3 with specific divider settings
+    /// @param i2sdiv I2SDIV value (2-255)
+    /// @param odd ODD bit (0 or 1)
+    void init_with_divider(uint8_t i2sdiv, uint8_t odd) {
+        // Disable I2S
+        reg(I2SCFGR) = 0;
+
+        // Configure I2S: Master TX, Philips standard, 16-bit
+        reg(I2SCFGR) =
+            I2SCFGR_I2SMOD |
+            I2SCFGR_I2SCFG_TX |
+            I2SCFGR_I2SSTD_PHILIPS |
+            I2SCFGR_DATLEN_16 |
+            I2SCFGR_CHLEN_16;
+
+        // I2S prescaler with MCLK output enabled
+        // Fs = I2SxCLK / [256 × (2×I2SDIV + ODD)]
+        reg(I2SPR) = I2SPR_MCKOE | (odd ? I2SPR_ODD : 0) | i2sdiv;
+    }
+
     void enable() {
         reg(I2SCFGR) |= I2SCFGR_I2SE;
     }
