@@ -647,6 +647,250 @@ pkill -f renode
 
 ---
 
+## USB オーディオテスト
+
+### サンプルレート変更 (macOS CoreAudio)
+
+macOS CoreAudio API を ctypes で呼び出してサンプルレートを変更できます。
+
+```python
+#!/usr/bin/env python3
+"""macOS CoreAudio sample rate setter using ctypes"""
+
+import ctypes
+import sys
+
+# Load CoreAudio and CoreFoundation frameworks
+coreaudio = ctypes.CDLL('/System/Library/Frameworks/CoreAudio.framework/CoreAudio')
+cf = ctypes.CDLL('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
+
+# Define function signatures
+coreaudio.AudioObjectGetPropertyDataSize.argtypes = [
+    ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p,
+    ctypes.POINTER(ctypes.c_uint32)
+]
+coreaudio.AudioObjectGetPropertyDataSize.restype = ctypes.c_int32
+
+coreaudio.AudioObjectGetPropertyData.argtypes = [
+    ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p,
+    ctypes.POINTER(ctypes.c_uint32), ctypes.c_void_p
+]
+coreaudio.AudioObjectGetPropertyData.restype = ctypes.c_int32
+
+coreaudio.AudioObjectSetPropertyData.argtypes = [
+    ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p,
+    ctypes.c_uint32, ctypes.c_void_p
+]
+coreaudio.AudioObjectSetPropertyData.restype = ctypes.c_int32
+
+# CoreAudio constants (FourCC codes)
+kAudioHardwarePropertyDevices = 0x64657623        # 'dev#'
+kAudioObjectSystemObject = 1
+kAudioDevicePropertyNominalSampleRate = 0x6e737274  # 'nsrt'
+kAudioObjectPropertyScopeGlobal = 0x676c6f62      # 'glob'
+kAudioObjectPropertyScopeOutput = 0x6f757470      # 'outp'
+kAudioObjectPropertyElementMain = 0
+kAudioObjectPropertyName = 0x6c6e616d             # 'lnam'
+
+class AudioObjectPropertyAddress(ctypes.Structure):
+    _fields_ = [
+        ('mSelector', ctypes.c_uint32),
+        ('mScope', ctypes.c_uint32),
+        ('mElement', ctypes.c_uint32),
+    ]
+
+def get_device_name(dev_id):
+    """デバイス名を取得"""
+    addr = AudioObjectPropertyAddress(
+        kAudioObjectPropertyName, kAudioObjectPropertyScopeGlobal, 0)
+    name_ref = ctypes.c_void_p()
+    size = ctypes.c_uint32(8)
+    if coreaudio.AudioObjectGetPropertyData(
+            dev_id, ctypes.byref(addr), 0, None,
+            ctypes.byref(size), ctypes.byref(name_ref)) != 0:
+        return None
+    cf.CFStringGetCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
+    buf = ctypes.create_string_buffer(256)
+    cf.CFStringGetCString(name_ref, buf, 256, 0x08000100)  # UTF-8
+    cf.CFRelease(name_ref)
+    return buf.value.decode('utf-8')
+
+def get_all_devices():
+    """全オーディオデバイスIDを取得"""
+    addr = AudioObjectPropertyAddress(
+        kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, 0)
+    size = ctypes.c_uint32()
+    coreaudio.AudioObjectGetPropertyDataSize(
+        kAudioObjectSystemObject, ctypes.byref(addr), 0, None, ctypes.byref(size))
+    num_devices = size.value // 4
+    devices = (ctypes.c_uint32 * num_devices)()
+    coreaudio.AudioObjectGetPropertyData(
+        kAudioObjectSystemObject, ctypes.byref(addr), 0, None, ctypes.byref(size), devices)
+    return list(devices)
+
+def get_sample_rate(dev_id):
+    """現在のサンプルレートを取得"""
+    addr = AudioObjectPropertyAddress(
+        kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal, 0)
+    rate = ctypes.c_double()
+    size = ctypes.c_uint32(8)
+    if coreaudio.AudioObjectGetPropertyData(
+            dev_id, ctypes.byref(addr), 0, None, ctypes.byref(size), ctypes.byref(rate)) != 0:
+        return None
+    return rate.value
+
+def set_sample_rate(dev_id, rate):
+    """サンプルレートを設定（Output scope を優先）"""
+    for scope in [kAudioObjectPropertyScopeOutput, kAudioObjectPropertyScopeGlobal]:
+        addr = AudioObjectPropertyAddress(kAudioDevicePropertyNominalSampleRate, scope, 0)
+        new_rate = ctypes.c_double(float(rate))
+        result = coreaudio.AudioObjectSetPropertyData(
+            ctypes.c_uint32(dev_id), ctypes.byref(addr), 0, None, 8, ctypes.byref(new_rate))
+        if result == 0:
+            actual = get_sample_rate(dev_id)
+            if actual and abs(actual - rate) < 100:
+                return True
+    return False
+
+def find_device(name_pattern):
+    """名前でデバイスを検索"""
+    for dev_id in get_all_devices():
+        name = get_device_name(dev_id)
+        if name and name_pattern in name:
+            return dev_id, name
+    return None, None
+
+# 使用例
+if __name__ == "__main__":
+    dev_id, name = find_device("UMI")
+    if dev_id:
+        print(f"Found: {name} (ID: {dev_id})")
+        print(f"Current rate: {get_sample_rate(dev_id):.0f} Hz")
+        if set_sample_rate(dev_id, 96000):
+            print(f"Changed to: {get_sample_rate(dev_id):.0f} Hz")
+```
+
+**使用例**:
+```bash
+# デバイス一覧
+python3 -c "
+import ctypes
+# ... (上記コードを使用)
+for dev_id in get_all_devices():
+    name = get_device_name(dev_id)
+    rate = get_sample_rate(dev_id)
+    if name and rate:
+        print(f'[{dev_id}] {name}: {rate:.0f} Hz')
+"
+
+# サンプルレート変更
+python3 -c "
+# ... (上記コードを使用)
+dev_id, _ = find_device('UMI')
+set_sample_rate(dev_id, 96000)
+"
+```
+
+**注意事項**:
+- デバイスが音声再生中の場合、変更が失敗することがあります
+- 変更失敗時は数秒待ってから再試行してください
+- Music アプリ等がデバイスを使用中だと変更できません
+
+### 音声再生テスト
+
+```bash
+# システムサウンドを再生
+afplay /System/Library/Sounds/Ping.aiff
+afplay /System/Library/Sounds/Submarine.aiff
+
+# 音声合成で再生テスト（長めのテスト向け）
+say "one two three four five six seven eight nine ten"
+```
+
+### デバッグ変数の確認（再生中に実行）
+
+音声再生**中**にデバッグ変数を確認することが重要です。再生終了後はバッファが空になります。
+
+```bash
+# 再生中にデバッグ変数を読み取る例
+say "one two three four five" & sleep 0.5 && pyocd cmd -c "read32 0x20000e0c; read32 0x20000e28"
+```
+
+### 主要デバッグ変数
+
+| アドレス | 変数名 | 説明 |
+|----------|--------|------|
+| 0x20000000 | dbg_current_sample_rate | 現在のサンプルレート |
+| 0x20000e0c | dbg_underrun | Underrun カウント |
+| 0x20000e10 | dbg_streaming | ストリーミング状態 (0/1) |
+| 0x20000e14 | dbg_overrun | Overrun カウント |
+| 0x20000e18 | dbg_usb_rx_count | USB 受信パケット数 |
+| 0x20000e1c | dbg_feedback | Feedback 値 (10.14 format) |
+| 0x20000e20 | dbg_actual_rate | 実際の I2S レート |
+| 0x20000e28 | dbg_out_buf_level | 出力バッファレベル |
+| 0x20000e30 | dbg_sample_rate_change_count | サンプルレート変更回数 |
+| 0x20000e38 | dbg_sr_set_cur | SET CUR リクエスト回数 |
+
+**アドレスの取得方法**:
+```bash
+arm-none-eabi-nm build/stm32f4_kernel/release/stm32f4_kernel.elf | grep "dbg_"
+```
+
+### テスト手順例
+
+#### 1. 基本動作確認 (48kHz)
+
+```bash
+# デバイスを48kHzに設定
+python3 set_sample_rate.py 48000
+
+# カウンタをリセットして再生テスト
+pyocd cmd -c "write32 0x20000e0c 0" && say "test" & sleep 0.5 && pyocd cmd -c "read32 0x20000e0c; read32 0x20000e28"
+
+# 期待値: underrun ≈ 0-50, buf_level ≈ 40-80
+```
+
+#### 2. 高サンプルレートテスト (96kHz)
+
+```bash
+# デバイスを96kHzに設定
+python3 set_sample_rate.py 96000
+
+# 再生中にfeedbackとバッファを確認
+say "one two three four five" & sleep 0.5 && pyocd cmd -c "read32 0x20000e1c; read32 0x20000e28; read32 0x20000e0c"
+
+# feedback = 0x180xxx (96.x samples/ms)
+# buf_level > 30 なら正常
+```
+
+#### 3. サンプルレート切り替えテスト
+
+```bash
+# 48kHz → 96kHz → 48kHz と切り替え
+python3 set_sample_rate.py 48000 && sleep 3
+python3 set_sample_rate.py 96000 && sleep 3
+python3 set_sample_rate.py 48000
+
+# 変更回数を確認
+pyocd cmd -c "read32 0x20000e30"
+```
+
+### Feedback 値の解釈
+
+UAC1 10.14 フォーマット: `feedback = samples_per_ms * 16384`
+
+| サンプルレート | Feedback 値 | 16進数 |
+|----------------|-------------|--------|
+| 44.1kHz | 44.1 × 16384 ≈ 722,534 | 0x0B0666 |
+| 48kHz | 48 × 16384 = 786,432 | 0x0C0000 |
+| 96kHz | 96 × 16384 = 1,572,864 | 0x180000 |
+
+実際のレートは I2S PLL 設定により若干異なります：
+- 48kHz → 47,991 Hz (feedback ≈ 0x0BFF6C)
+- 96kHz → 96,028 Hz (feedback ≈ 0x1801CA)
+
+---
+
 ## 関連ドキュメント
 
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) - 実装計画
