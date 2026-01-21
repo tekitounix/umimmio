@@ -190,8 +190,9 @@ static void test_polyblep_square() {
 static void test_onepole() {
     std::printf("\n[OnePole Filter]\n");
 
+    constexpr float dt = 1.0f / 48000.0f;
     umi::dsp::OnePole lp;
-    lp.set_cutoff(0.1f);
+    lp.set_cutoff(4800.0f, dt);  // 4800Hz at 48kHz = 0.1 normalized
 
     // DC response test: constant input should pass through
     float out = 0.0f;
@@ -209,8 +210,9 @@ static void test_onepole() {
 static void test_biquad() {
     std::printf("\n[Biquad Filter]\n");
 
+    constexpr float dt = 1.0f / 48000.0f;
     umi::dsp::Biquad bq;
-    bq.set_lowpass(0.1f, 0.707f);
+    bq.set_lowpass(4800.0f, 0.707f, dt);  // 4800Hz at 48kHz
 
     // DC response
     float out = 0.0f;
@@ -221,7 +223,7 @@ static void test_biquad() {
 
     // Highpass should block DC
     umi::dsp::Biquad hp;
-    hp.set_highpass(0.1f, 0.707f);
+    hp.set_highpass(4800.0f, 0.707f, dt);  // 4800Hz at 48kHz
     for (int i = 0; i < 200; ++i) {
         out = hp.tick(1.0f);
     }
@@ -231,8 +233,9 @@ static void test_biquad() {
 static void test_svf() {
     std::printf("\n[SVF Filter]\n");
 
+    constexpr float dt = 1.0f / 48000.0f;
     umi::dsp::SVF svf;
-    svf.set_params(0.1f, 0.0f);
+    svf.set_params(4800.0f, 0.0f, dt);  // 4800Hz at 48kHz
 
     // Process some samples
     for (int i = 0; i < 100; ++i) {
@@ -328,19 +331,23 @@ static void test_midi_to_freq() {
 static void test_db_gain() {
     std::printf("\n[dB/Gain Conversion]\n");
 
+    // Helper functions for dB conversion
+    auto db_to_gain = [](float db) { return std::pow(10.0f, db / 20.0f); };
+    auto gain_to_db = [](float gain) { return 20.0f * std::log10(gain); };
+
     // 0 dB = gain 1.0
-    check(near(umi::dsp::db_to_gain(0.0f), 1.0f), "0dB = gain 1.0");
+    check(near(db_to_gain(0.0f), 1.0f), "0dB = gain 1.0");
 
     // -6 dB = gain ~0.5
-    check(near(umi::dsp::db_to_gain(-6.0f), 0.5f, 0.05f), "-6dB = ~0.5");
+    check(near(db_to_gain(-6.0f), 0.5f, 0.05f), "-6dB = ~0.5");
 
     // -20 dB = gain 0.1
-    check(near(umi::dsp::db_to_gain(-20.0f), 0.1f, 0.01f), "-20dB = 0.1");
+    check(near(db_to_gain(-20.0f), 0.1f, 0.01f), "-20dB = 0.1");
 
     // Round-trip
     float db = -12.0f;
-    float gain = umi::dsp::db_to_gain(db);
-    float db_back = umi::dsp::gain_to_db(gain);
+    float gain = db_to_gain(db);
+    float db_back = gain_to_db(gain);
     check(near(db, db_back), "dB round-trip");
 }
 
@@ -358,10 +365,10 @@ static void test_soft_clip() {
 static void test_lerp() {
     std::printf("\n[lerp]\n");
 
-    check(near(umi::dsp::lerp(0.0f, 1.0f, 0.0f), 0.0f), "lerp t=0");
-    check(near(umi::dsp::lerp(0.0f, 1.0f, 1.0f), 1.0f), "lerp t=1");
-    check(near(umi::dsp::lerp(0.0f, 1.0f, 0.5f), 0.5f), "lerp t=0.5");
-    check(near(umi::dsp::lerp(10.0f, 20.0f, 0.25f), 12.5f), "lerp with range");
+    check(near(std::lerp(0.0f, 1.0f, 0.0f), 0.0f), "lerp t=0");
+    check(near(std::lerp(0.0f, 1.0f, 1.0f), 1.0f), "lerp t=1");
+    check(near(std::lerp(0.0f, 1.0f, 0.5f), 0.5f), "lerp t=0.5");
+    check(near(std::lerp(10.0f, 20.0f, 0.25f), 12.5f), "lerp with range");
 }
 
 // ============================================================================
@@ -395,26 +402,28 @@ static void test_edge_cases_oscillators() {
 static void test_edge_cases_filters() {
     std::printf("\n[Edge Cases: Filters]\n");
 
+    constexpr float dt = 1.0f / 48000.0f;
+
     // Very high cutoff
     umi::dsp::OnePole lp;
-    lp.set_cutoff(0.49f);
+    lp.set_cutoff(23000.0f, dt);  // Near Nyquist
     float out = lp.tick(1.0f);
     check(std::isfinite(out), "onepole handles high cutoff");
 
     // Very low cutoff
-    lp.set_cutoff(0.0001f);
+    lp.set_cutoff(1.0f, dt);  // 1Hz
     out = lp.tick(1.0f);
     check(std::isfinite(out), "onepole handles very low cutoff");
 
     // Zero cutoff
-    lp.set_cutoff(0.0f);
+    lp.set_cutoff(0.0f, dt);
     lp.reset();
     out = lp.tick(1.0f);
     check(std::isfinite(out), "onepole handles zero cutoff");
 
     // SVF with extreme resonance
     umi::dsp::SVF svf;
-    svf.set_params(0.1f, 1.0f);  // Max resonance
+    svf.set_params(4800.0f, 1.0f, dt);  // Max resonance
     svf.tick(1.0f);
     check(std::isfinite(svf.lp()), "SVF handles max resonance");
     check(std::isfinite(svf.hp()), "SVF HP with max resonance");
@@ -422,7 +431,7 @@ static void test_edge_cases_filters() {
 
     // Biquad with extreme Q
     umi::dsp::Biquad bq;
-    bq.set_lowpass(0.1f, 10.0f);  // High Q
+    bq.set_lowpass(4800.0f, 10.0f, dt);  // High Q
     out = bq.tick(1.0f);
     check(std::isfinite(out), "biquad handles high Q");
 }
@@ -461,6 +470,10 @@ static void test_edge_cases_envelope() {
 static void test_edge_cases_utility() {
     std::printf("\n[Edge Cases: Utility]\n");
 
+    // Helper functions for dB conversion
+    auto db_to_gain = [](float db) { return std::pow(10.0f, db / 20.0f); };
+    auto gain_to_db = [](float gain) { return 20.0f * std::log10(gain); };
+
     // MIDI note boundaries
     float freq = umi::dsp::midi_to_freq(0);
     check(std::isfinite(freq) && freq > 0, "midi_to_freq handles note 0");
@@ -469,14 +482,14 @@ static void test_edge_cases_utility() {
     check(std::isfinite(freq) && freq > 0, "midi_to_freq handles note 127");
 
     // Extreme dB values
-    float gain = umi::dsp::db_to_gain(-120.0f);
+    float gain = db_to_gain(-120.0f);
     check(std::isfinite(gain) && gain >= 0, "db_to_gain handles -120dB");
 
-    gain = umi::dsp::db_to_gain(20.0f);
+    gain = db_to_gain(20.0f);
     check(std::isfinite(gain) && gain > 0, "db_to_gain handles +20dB");
 
     // gain_to_db edge case
-    float db = umi::dsp::gain_to_db(0.0001f);
+    float db = gain_to_db(0.0001f);
     check(std::isfinite(db), "gain_to_db handles small gain");
 
     // hard_clip
@@ -486,8 +499,8 @@ static void test_edge_cases_utility() {
     check(near(umi::dsp::hard_clip(0.5f, 0.3f), 0.3f), "hard_clip custom limit");
 
     // lerp edge cases
-    check(near(umi::dsp::lerp(0.0f, 1.0f, -0.5f), -0.5f), "lerp extrapolates below");
-    check(near(umi::dsp::lerp(0.0f, 1.0f, 1.5f), 1.5f), "lerp extrapolates above");
+    check(near(std::lerp(0.0f, 1.0f, -0.5f), -0.5f), "lerp extrapolates below");
+    check(near(std::lerp(0.0f, 1.0f, 1.5f), 1.5f), "lerp extrapolates above");
 }
 
 // ============================================================================

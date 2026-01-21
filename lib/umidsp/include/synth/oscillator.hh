@@ -21,6 +21,11 @@ public:
     Phase() = default;
     explicit Phase(float initial) noexcept : phase_(wrap(initial)) {}
     
+    /// Advance phase by normalized frequency (primary API)
+    float operator()(float freq_norm) noexcept {
+        return tick(freq_norm);
+    }
+    
     /// Advance phase by normalized frequency (freq / sample_rate)
     float tick(float freq_norm) noexcept {
         float out = phase_;
@@ -56,6 +61,12 @@ class Sine {
 public:
     Sine() = default;
 
+    /// Generate next sample (primary API)
+    /// @param freq_norm Normalized frequency (Hz / sample_rate)
+    [[nodiscard]] float operator()(float freq_norm) noexcept {
+        return tick(freq_norm);
+    }
+
     /// Generate next sample
     /// @param freq_norm Normalized frequency (Hz / sample_rate)
     [[nodiscard]] float tick(float freq_norm) noexcept {
@@ -82,6 +93,11 @@ class SawNaive {
 public:
     SawNaive() = default;
     
+    /// Generate next sample (primary API)
+    [[nodiscard]] float operator()(float freq_norm) noexcept {
+        return tick(freq_norm);
+    }
+    
     /// Generate next sample (-1.0 to 1.0)
     [[nodiscard]] float tick(float freq_norm) noexcept {
         return phase_.tick(freq_norm) * 2.0f - 1.0f;
@@ -104,6 +120,12 @@ class SquareNaive {
 public:
     SquareNaive() = default;
     
+    /// Generate next sample (primary API)
+    /// @param pulse_width Pulse width (0.0 to 1.0, default 0.5)
+    [[nodiscard]] float operator()(float freq_norm, float pulse_width = 0.5f) noexcept {
+        return tick(freq_norm, pulse_width);
+    }
+    
     /// Generate next sample (-1.0 or 1.0)
     /// @param pulse_width Pulse width (0.0 to 1.0, default 0.5)
     [[nodiscard]] float tick(float freq_norm, float pulse_width = 0.5f) noexcept {
@@ -125,6 +147,11 @@ private:
 class Triangle {
 public:
     Triangle() = default;
+    
+    /// Generate next sample (primary API)
+    [[nodiscard]] float operator()(float freq_norm) noexcept {
+        return tick(freq_norm);
+    }
     
     /// Generate next sample (-1.0 to 1.0)
     [[nodiscard]] float tick(float freq_norm) noexcept {
@@ -165,6 +192,11 @@ class SawBL {
 public:
     SawBL() = default;
     
+    /// Generate next sample (primary API)
+    [[nodiscard]] float operator()(float freq_norm) noexcept {
+        return tick(freq_norm);
+    }
+    
     [[nodiscard]] float tick(float freq_norm) noexcept {
         float t = phase_.value();
         float naive = 2.0f * t - 1.0f;
@@ -183,6 +215,11 @@ private:
 class SquareBL {
 public:
     SquareBL() = default;
+    
+    /// Generate next sample (primary API)
+    [[nodiscard]] float operator()(float freq_norm, float pw = 0.5f) noexcept {
+        return tick(freq_norm, pw);
+    }
     
     [[nodiscard]] float tick(float freq_norm, float pw = 0.5f) noexcept {
         float t = phase_.value();

@@ -4,6 +4,10 @@
 // Shared between embedded and WASM builds.
 // Pure DSP logic - no platform-specific dependencies.
 // Uses lib/dsp/ for DSP components.
+//
+// Conforms to UMIP specification:
+// - process(AudioContext&) method for unified application model
+// - process_sample() for legacy single-sample processing
 // =====================================================================
 
 #pragma once
@@ -11,6 +15,12 @@
 #include <umidsp/umidsp.hh>
 #include <cstdint>
 #include <cstddef>
+
+// Forward declaration for AudioContext (optional dependency)
+namespace umi {
+struct AudioContext;
+}
+
 
 namespace umi::synth {
 
@@ -54,77 +64,76 @@ public:
     Voice() = default;
 
     void init(float sample_rate) {
-        sample_rate_ = sample_rate;
-        dt_ = 1.0f / sample_rate;
+        this->sample_rate = sample_rate;
+        dt = 1.0f / sample_rate;
         // Note: ADSR and filter parameters are NOT set here.
         // They must be set via set_adsr() and set_filter() by PolySynth.
         // This ensures single source of truth for default values.
     }
 
-    void note_on(uint8_t note, uint8_t velocity) {
-        note_ = note;
-        velocity_ = static_cast<float>(velocity) / 127.0f;
+    void note_on(uint8_t note_num, uint8_t vel) {
+        note = note_num;
+        velocity = static_cast<float>(vel) / 127.0f;
 
         // Calculate normalized frequency
-        float freq = dsp::midi_to_freq(note);
-        freq_norm_ = freq / sample_rate_;
+        float freq = dsp::midi_to_freq(note_num);
+        freq_norm = freq / sample_rate;
 
         // Reset oscillator and trigger envelope
-        osc_.reset();
-        filter_.reset();
-        env_.trigger();
-        active_ = true;
+        osc.reset();
+        filter.reset();
+        env.trigger();
+        active = true;
     }
 
     void note_off() {
-        env_.release();
+        env.release();
     }
 
-    bool is_active() const { return active_; }
-    uint8_t note() const { return note_; }
+    bool is_active() const { return active; }
+    uint8_t get_note() const { return note; }
 
     // Parameter setters
     void set_adsr(float attack_ms, float decay_ms, float sustain, float release_ms) {
-        env_.set_params(attack_ms, decay_ms, sustain, release_ms);
+        env.set_params(attack_ms, decay_ms, sustain, release_ms);
     }
 
     void set_filter(float cutoff_hz, float resonance) {
-        filter_.set_params(cutoff_hz / sample_rate_, resonance);
+        filter.set_params(cutoff_hz, resonance, dt);
     }
 
     float process() {
-        if (!active_) return 0.0f;
+        if (!active) return 0.0f;
 
         // Generate oscillator output
-        float osc_out = osc_.tick(freq_norm_);
+        float osc_out = osc(freq_norm);
 
         // Apply filter
-        filter_.tick(osc_out);
-        float filtered = filter_.lp();
+        float filtered = filter(osc_out);
 
         // Apply envelope
-        float env_val = env_.tick(dt_);
-        float out = filtered * env_val * velocity_;
+        float env_val = env(dt);
+        float out = filtered * env_val * velocity;
 
         // Deactivate when envelope finishes
-        if (!env_.active()) {
-            active_ = false;
+        if (!env.active()) {
+            active = false;
         }
 
         return out;
     }
 
 private:
-    dsp::SawBL osc_;
-    dsp::SVF filter_;
-    dsp::ADSR env_;
+    dsp::SawBL osc;
+    dsp::SVF filter;
+    dsp::ADSR env;
 
-    float sample_rate_ = 48000.0f;
-    float dt_ = 1.0f / 48000.0f;
-    float freq_norm_ = 0.0f;
-    float velocity_ = 0.0f;
-    uint8_t note_ = 0;
-    bool active_ = false;
+    float sample_rate = 48000.0f;
+    float dt = 1.0f / 48000.0f;
+    float freq_norm = 0.0f;
+    float velocity = 0.0f;
+    uint8_t note = 0;
+    bool active = false;
 };
 
 // =====================================================================
@@ -133,10 +142,10 @@ private:
 
 class PolySynth {
 public:
-    void init(float sample_rate) {
-        sample_rate_ = sample_rate;
+    void init(float sr) {
+        sample_rate = sr;
         for (int i = 0; i < NUM_VOICES; ++i) {
-            voices_[i].init(sample_rate);
+            voices[i].init(sr);
         }
         // Apply current parameter values to all voices
         update_adsr();
@@ -165,31 +174,31 @@ public:
 
     // === Direct note interface ===
 
-    void note_on(uint8_t note, uint8_t velocity) {
+    void note_on(uint8_t note, uint8_t vel) {
         // First check if this note is already playing
         for (int i = 0; i < NUM_VOICES; ++i) {
-            if (voices_[i].is_active() && voices_[i].note() == note) {
-                voices_[i].note_on(note, velocity);
+            if (voices[i].is_active() && voices[i].get_note() == note) {
+                voices[i].note_on(note, vel);
                 return;
             }
         }
 
         // Find free voice
         for (int i = 0; i < NUM_VOICES; ++i) {
-            if (!voices_[i].is_active()) {
-                voices_[i].note_on(note, velocity);
+            if (!voices[i].is_active()) {
+                voices[i].note_on(note, vel);
                 return;
             }
         }
 
         // Voice stealing: use first voice (simple strategy)
-        voices_[0].note_on(note, velocity);
+        voices[0].note_on(note, vel);
     }
 
     void note_off(uint8_t note) {
         for (int i = 0; i < NUM_VOICES; ++i) {
-            if (voices_[i].is_active() && voices_[i].note() == note) {
-                voices_[i].note_off();
+            if (voices[i].is_active() && voices[i].get_note() == note) {
+                voices[i].note_off();
             }
         }
     }
@@ -199,31 +208,31 @@ public:
     void set_param(ParamId id, float value) {
         switch (id) {
             case ParamId::Attack:
-                attack_ms_ = value;
+                attack_ms = value;
                 update_adsr();
                 break;
             case ParamId::Decay:
-                decay_ms_ = value;
+                decay_ms = value;
                 update_adsr();
                 break;
             case ParamId::Sustain:
-                sustain_ = value;
+                sustain = value;
                 update_adsr();
                 break;
             case ParamId::Release:
-                release_ms_ = value;
+                release_ms = value;
                 update_adsr();
                 break;
             case ParamId::Cutoff:
-                cutoff_hz_ = value;
+                cutoff_hz = value;
                 update_filter();
                 break;
             case ParamId::Resonance:
-                resonance_ = value;
+                resonance = value;
                 update_filter();
                 break;
             case ParamId::Volume:
-                volume_ = value;
+                volume = value;
                 break;
             default:
                 break;
@@ -232,43 +241,47 @@ public:
 
     float get_param(ParamId id) const {
         switch (id) {
-            case ParamId::Attack:   return attack_ms_;
-            case ParamId::Decay:    return decay_ms_;
-            case ParamId::Sustain:  return sustain_;
-            case ParamId::Release:  return release_ms_;
-            case ParamId::Cutoff:   return cutoff_hz_;
-            case ParamId::Resonance: return resonance_;
-            case ParamId::Volume:   return volume_;
+            case ParamId::Attack:   return attack_ms;
+            case ParamId::Decay:    return decay_ms;
+            case ParamId::Sustain:  return sustain;
+            case ParamId::Release:  return release_ms;
+            case ParamId::Cutoff:   return cutoff_hz;
+            case ParamId::Resonance: return resonance;
+            case ParamId::Volume:   return volume;
             default: return 0.0f;
         }
     }
 
     // === Audio processing ===
 
-    /// Process single sample
+    /// Process single sample (legacy interface)
     float process_sample() {
         float sum = 0.0f;
         for (int i = 0; i < NUM_VOICES; ++i) {
-            sum += voices_[i].process();
+            sum += voices[i].process();
         }
         // Scale down and soft clip to prevent clipping
-        return dsp::soft_clip(sum * volume_ * 0.25f);
+        return dsp::soft_clip(sum * volume * 0.25f);
     }
 
-    /// Process buffer
+    /// Process buffer (legacy interface)
     void process(float* output, uint32_t frames) {
         for (uint32_t i = 0; i < frames; ++i) {
             output[i] = process_sample();
         }
     }
 
-    float sample_rate() const { return sample_rate_; }
+    /// Process with AudioContext (UMIP compliant)
+    /// Satisfies ProcessorLike concept
+    void process(umi::AudioContext& ctx);
+
+    float get_sample_rate() const { return sample_rate; }
 
     /// Get number of active voices
     uint32_t active_voice_count() const {
         uint32_t count = 0;
         for (int i = 0; i < NUM_VOICES; ++i) {
-            if (voices_[i].is_active()) {
+            if (voices[i].is_active()) {
                 ++count;
             }
         }
@@ -278,27 +291,65 @@ public:
 private:
     void update_adsr() {
         for (int i = 0; i < NUM_VOICES; ++i) {
-            voices_[i].set_adsr(attack_ms_, decay_ms_, sustain_, release_ms_);
+            voices[i].set_adsr(attack_ms, decay_ms, sustain, release_ms);
         }
     }
 
     void update_filter() {
         for (int i = 0; i < NUM_VOICES; ++i) {
-            voices_[i].set_filter(cutoff_hz_, resonance_);
+            voices[i].set_filter(cutoff_hz, resonance);
         }
     }
 
-    Voice voices_[NUM_VOICES];
-    float sample_rate_ = 48000.0f;
+    Voice voices[NUM_VOICES];
+    float sample_rate = 48000.0f;
 
     // Parameters with defaults
-    float attack_ms_ = 10.0f;
-    float decay_ms_ = 100.0f;
-    float sustain_ = 0.7f;
-    float release_ms_ = 200.0f;
-    float cutoff_hz_ = 2000.0f;
-    float resonance_ = 0.3f;
-    float volume_ = 1.0f;
+    float attack_ms = 10.0f;
+    float decay_ms = 100.0f;
+    float sustain = 0.7f;
+    float release_ms = 200.0f;
+    float cutoff_hz = 2000.0f;
+    float resonance = 0.3f;
+    float volume = 1.0f;
 };
 
 } // namespace umi::synth
+
+// =====================================================================
+// AudioContext-based processing (UMIP compliant)
+// =====================================================================
+
+// Include AudioContext if available (outside namespace to avoid std:: conflicts)
+#if __has_include(<umios/core/audio_context.hh>)
+#include <umios/core/audio_context.hh>
+
+namespace umi::synth {
+
+inline void PolySynth::process(umi::AudioContext& ctx) {
+    // Process MIDI events
+    for (const auto& ev : ctx.input_events) {
+        if (ev.type == umi::EventType::Midi) {
+            handle_midi(ev.midi.bytes, ev.midi.size);
+        }
+    }
+
+    // Generate audio output
+    auto* out = ctx.output(0);
+    if (!out) return;
+
+    for (uint32_t i = 0; i < ctx.buffer_size; ++i) {
+        out[i] = process_sample();
+    }
+}
+
+} // namespace umi::synth
+
+#else
+
+namespace umi::synth {
+// Stub when AudioContext is not available
+inline void PolySynth::process(umi::AudioContext&) {}
+} // namespace umi::synth
+
+#endif

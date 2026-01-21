@@ -20,13 +20,25 @@ class OnePole {
 public:
     OnePole() = default;
     
-    /// Set cutoff frequency
+    /// Set cutoff frequency (preferred API with dt)
+    /// @param cutoff_hz Cutoff frequency in Hz
+    /// @param dt Delta time (1.0 / sample_rate)
+    void set_cutoff(float cutoff_hz, float dt) noexcept {
+        set_cutoff_normalized(cutoff_hz * dt);
+    }
+    
+    /// Set cutoff frequency (legacy API with normalized frequency)
     /// @param cutoff Normalized frequency (0.0 to 0.5)
-    void set_cutoff(float cutoff) noexcept {
+    void set_cutoff_normalized(float cutoff) noexcept {
         // Simple approximation: coef = 2 * pi * fc
         // More accurate: coef = 1 - exp(-2 * pi * fc)
         coef_ = cutoff * TwoPi;
         if (coef_ > 1.0f) coef_ = 1.0f;
+    }
+    
+    /// Process one sample (primary API)
+    [[nodiscard]] float operator()(float in) noexcept {
+        return tick(in);
     }
     
     /// Process one sample
@@ -58,10 +70,18 @@ public:
         a1_ = a1; a2_ = a2;
     }
     
-    /// Configure as lowpass
+    /// Configure as lowpass (preferred API with dt)
+    /// @param cutoff_hz Cutoff frequency in Hz
+    /// @param Q Resonance (0.707 = Butterworth, higher = more resonant)
+    /// @param dt Delta time (1.0 / sample_rate)
+    void set_lowpass(float cutoff_hz, float Q, float dt) noexcept {
+        set_lowpass_normalized(cutoff_hz * dt, Q);
+    }
+    
+    /// Configure as lowpass (legacy API with normalized frequency)
     /// @param cutoff Normalized cutoff frequency (0.0 to 0.5)
     /// @param Q Resonance (0.707 = Butterworth, higher = more resonant)
-    void set_lowpass(float cutoff, float Q = 0.707f) noexcept {
+    void set_lowpass_normalized(float cutoff, float Q = 0.707f) noexcept {
         float omega = cutoff * TwoPi;
         float sin_omega = std::sin(omega);
         float cos_omega = std::cos(omega);
@@ -77,8 +97,13 @@ public:
         a2_ = (1.0f - alpha) * a0_inv;
     }
     
-    /// Configure as highpass
-    void set_highpass(float cutoff, float Q = 0.707f) noexcept {
+    /// Configure as highpass (preferred API with dt)
+    void set_highpass(float cutoff_hz, float Q, float dt) noexcept {
+        set_highpass_normalized(cutoff_hz * dt, Q);
+    }
+    
+    /// Configure as highpass (legacy API with normalized frequency)
+    void set_highpass_normalized(float cutoff, float Q = 0.707f) noexcept {
         float omega = cutoff * TwoPi;
         float sin_omega = std::sin(omega);
         float cos_omega = std::cos(omega);
@@ -94,8 +119,13 @@ public:
         a2_ = (1.0f - alpha) * a0_inv;
     }
     
-    /// Configure as bandpass
-    void set_bandpass(float cutoff, float Q = 1.0f) noexcept {
+    /// Configure as bandpass (preferred API with dt)
+    void set_bandpass(float cutoff_hz, float Q, float dt) noexcept {
+        set_bandpass_normalized(cutoff_hz * dt, Q);
+    }
+    
+    /// Configure as bandpass (legacy API with normalized frequency)
+    void set_bandpass_normalized(float cutoff, float Q = 1.0f) noexcept {
         float omega = cutoff * TwoPi;
         float sin_omega = std::sin(omega);
         float cos_omega = std::cos(omega);
@@ -111,8 +141,13 @@ public:
         a2_ = (1.0f - alpha) * a0_inv;
     }
     
-    /// Configure as notch
-    void set_notch(float cutoff, float Q = 1.0f) noexcept {
+    /// Configure as notch (preferred API with dt)
+    void set_notch(float cutoff_hz, float Q, float dt) noexcept {
+        set_notch_normalized(cutoff_hz * dt, Q);
+    }
+    
+    /// Configure as notch (legacy API with normalized frequency)
+    void set_notch_normalized(float cutoff, float Q = 1.0f) noexcept {
         float omega = cutoff * TwoPi;
         float sin_omega = std::sin(omega);
         float cos_omega = std::cos(omega);
@@ -126,6 +161,11 @@ public:
         b2_ = a0_inv;
         a1_ = b1_;
         a2_ = (1.0f - alpha) * a0_inv;
+    }
+    
+    /// Process one sample (primary API)
+    [[nodiscard]] float operator()(float in) noexcept {
+        return tick(in);
     }
     
     /// Process one sample
@@ -160,10 +200,20 @@ class SVF {
 public:
     SVF() = default;
     
-    /// Set filter parameters
+    /// Set filter parameters (preferred API with dt)
+    /// @param cutoff_hz Cutoff frequency in Hz
+    /// @param resonance Resonance (0.0 to 1.0, higher = more resonant)
+    /// @param dt Delta time (1.0 / sample_rate)
+    void set_params(float cutoff_hz, float resonance, float dt) noexcept {
+        // Convert Hz to normalized frequency
+        float cutoff = cutoff_hz * dt;
+        set_params_normalized(cutoff, resonance);
+    }
+    
+    /// Set filter parameters (legacy API with normalized frequency)
     /// @param cutoff Normalized cutoff (0.0 to 0.5)
     /// @param resonance Resonance (0.0 to 1.0, higher = more resonant)
-    void set_params(float cutoff, float resonance = 0.0f) noexcept {
+    void set_params_normalized(float cutoff, float resonance = 0.0f) noexcept {
         // Limit cutoff to prevent instability
         // For Chamberlin SVF, cutoff must be well below Nyquist
         if (cutoff > 0.4f) cutoff = 0.4f;
@@ -184,6 +234,12 @@ public:
         
         // Minimum damping for stability (prevents self-oscillation)
         if (q_ < 0.1f) q_ = 0.1f;
+    }
+    
+    /// Process one sample (primary API)
+    float operator()(float in) noexcept {
+        tick(in);
+        return lp_;
     }
     
     /// Process one sample (two-pass for better stability)
