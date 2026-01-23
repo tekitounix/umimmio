@@ -64,7 +64,7 @@ public:
 
     /// Initialize codec for I2S input, headphone output
     /// Must be called after hardware reset (PD4 high)
-    bool init() {
+    bool init(bool use_24bit = false) {
         // Check chip ID (should be 0xE0-0xE7)
         uint8_t id = read_reg(REG_ID);
         if ((id & 0xF8) != 0xE0) {
@@ -80,8 +80,9 @@ public:
         // Auto-detect clock, internal MCLK/LRCK ratio
         write_reg(REG_CLOCKING_CTL, 0x81);
 
-        // I2S format, 16-bit, slave mode
-        write_reg(REG_INTERFACE_CTL1, 0x04);
+        // I2S format, slave mode, 16/24-bit
+        // 0x04 = I2S 16-bit, 0x06 = I2S 24-bit (STM32F4-Discovery default)
+        write_reg(REG_INTERFACE_CTL1, use_24bit ? 0x06 : 0x04);
 
         // Disable passthrough
         write_reg(REG_PASSTHROUGH_A, 0x00);

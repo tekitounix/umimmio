@@ -25,7 +25,9 @@ struct I2S {
     static constexpr uint32_t I2SCFGR_I2SCFG_TX = 2U << 8;  // Master transmit
     static constexpr uint32_t I2SCFGR_I2SSTD_PHILIPS = 0U << 4;
     static constexpr uint32_t I2SCFGR_DATLEN_16 = 0U << 1;
+    static constexpr uint32_t I2SCFGR_DATLEN_24 = 2U << 1;
     static constexpr uint32_t I2SCFGR_CHLEN_16 = 0U << 0;
+    static constexpr uint32_t I2SCFGR_CHLEN_32 = 1U << 0;
 
     // I2SPR bits
     static constexpr uint32_t I2SPR_MCKOE = 1U << 9;
@@ -47,17 +49,17 @@ struct I2S {
 
     /// Configure I2S3 for 48kHz stereo output
     /// I2S clock source: PLLI2S (configured separately)
-    void init_48khz() {
+    void init_48khz(bool use_24bit = false) {
         // Disable I2S
         reg(I2SCFGR) = 0;
 
-        // Configure I2S: Master TX, Philips standard, 16-bit
+        // Configure I2S: Master TX, Philips standard, 16/24-bit
         reg(I2SCFGR) =
             I2SCFGR_I2SMOD |
             I2SCFGR_I2SCFG_TX |
             I2SCFGR_I2SSTD_PHILIPS |
-            I2SCFGR_DATLEN_16 |
-            I2SCFGR_CHLEN_16;
+            (use_24bit ? I2SCFGR_DATLEN_24 : I2SCFGR_DATLEN_16) |
+            (use_24bit ? I2SCFGR_CHLEN_32 : I2SCFGR_CHLEN_16);
 
         // I2S prescaler for ~48kHz @ PLLI2S = 86MHz
         // With MCKOE=1: Fs = I2SxCLK / [256 × (2×I2SDIV + ODD)]
@@ -69,17 +71,17 @@ struct I2S {
     /// Configure I2S3 with specific divider settings
     /// @param i2sdiv I2SDIV value (2-255)
     /// @param odd ODD bit (0 or 1)
-    void init_with_divider(uint8_t i2sdiv, uint8_t odd) {
+    void init_with_divider(uint8_t i2sdiv, uint8_t odd, bool use_24bit = false) {
         // Disable I2S
         reg(I2SCFGR) = 0;
 
-        // Configure I2S: Master TX, Philips standard, 16-bit
+        // Configure I2S: Master TX, Philips standard, 16/24-bit
         reg(I2SCFGR) =
             I2SCFGR_I2SMOD |
             I2SCFGR_I2SCFG_TX |
             I2SCFGR_I2SSTD_PHILIPS |
-            I2SCFGR_DATLEN_16 |
-            I2SCFGR_CHLEN_16;
+            (use_24bit ? I2SCFGR_DATLEN_24 : I2SCFGR_DATLEN_16) |
+            (use_24bit ? I2SCFGR_CHLEN_32 : I2SCFGR_CHLEN_16);
 
         // I2S prescaler with MCLK output enabled
         // Fs = I2SxCLK / [256 × (2×I2SDIV + ODD)]
@@ -133,6 +135,8 @@ struct DMA_I2S {
     static constexpr uint32_t CR_MINC = 1U << 10;    // Memory increment
     static constexpr uint32_t CR_PSIZE_16 = 1U << 11;
     static constexpr uint32_t CR_MSIZE_16 = 1U << 13;
+    static constexpr uint32_t CR_PSIZE_32 = 2U << 11;
+    static constexpr uint32_t CR_MSIZE_32 = 2U << 13;
     static constexpr uint32_t CR_PL_HIGH = 2U << 16;
     static constexpr uint32_t CR_DBM = 1U << 18;     // Double buffer mode
     static constexpr uint32_t CR_CHSEL_0 = 0U << 25; // Channel 0 for SPI3_TX
@@ -158,7 +162,8 @@ struct DMA_I2S {
     /// @param buf0 First buffer (samples)
     /// @param buf1 Second buffer (samples)
     /// @param samples Number of samples per buffer (total, both channels)
-    void init(int16_t* buf0, int16_t* buf1, uint32_t samples, uint32_t peripheral_addr) {
+    template<typename SampleT>
+    void init(SampleT* buf0, SampleT* buf1, uint32_t samples, uint32_t peripheral_addr) {
         // Disable stream
         reg(CR) = 0;
         while (reg(CR) & CR_EN) {}
@@ -172,12 +177,18 @@ struct DMA_I2S {
         reg(M1AR) = reinterpret_cast<uint32_t>(buf1);
         reg(NDTR) = samples;
 
-        // CR: M2P, circular, memory increment, 16-bit, high priority, double buffer, channel 0
+        uint32_t size_bits = 0;
+        if constexpr (sizeof(SampleT) == 2) {
+            size_bits = CR_MSIZE_16 | CR_PSIZE_16;
+        } else {
+            size_bits = CR_MSIZE_32 | CR_PSIZE_32;
+        }
+
+        // CR: M2P, circular, memory increment, width, high priority, double buffer, channel 0
         reg(CR) =
             CR_CHSEL_0 |
             CR_PL_HIGH |
-            CR_MSIZE_16 |
-            CR_PSIZE_16 |
+            size_bits |
             CR_MINC |
             CR_CIRC |
             CR_DIR_M2P |

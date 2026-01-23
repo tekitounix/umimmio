@@ -197,7 +197,7 @@ private:
     // Buffers
     alignas(4) uint8_t setup_buf_[8];
     alignas(4) uint8_t ep0_buf_[EP0_SIZE];
-    alignas(4) uint8_t ep_rx_buf_[MAX_EP][256];  // 256 for isochronous audio (max 192 bytes)
+    alignas(4) uint8_t ep_rx_buf_[MAX_EP][640];  // 24-bit/96kHz Audio OUT needs up to 582 bytes
 
     // Endpoint configuration cache (for re-enabling after XFRC)
     std::array<uint16_t, MAX_EP> out_ep_mps_{};
@@ -222,7 +222,13 @@ public:
     uint32_t dbg_ep1_fifo_word_ = 0;       // First word from EP1 packet
     uint32_t dbg_ep2_fb_count_ = 0;        // Feedback EP write count
     uint32_t dbg_ep2_fb_xfrc_ = 0;         // Feedback EP XFRC count
+    uint32_t dbg_ep2_int_count_ = 0;       // Feedback EP IN interrupt count
+    uint32_t dbg_ep2_int_last_ = 0;        // Last DIEPINT(2) snapshot
     uint32_t dbg_ep2_last_fb_ = 0;         // Last feedback value sent
+    uint32_t dbg_ep2_diepctl_ = 0;         // DIEPCTL(2) value
+    uint32_t dbg_ep2_diepint_ = 0;         // DIEPINT(2) value
+    uint32_t dbg_ep2_fifo_before_ = 0;     // DTXFSTS(2) before FIFO write
+    uint32_t dbg_ep2_fifo_after_ = 0;      // DTXFSTS(2) after FIFO write
     uint32_t dbg_ep3_in_count_ = 0;        // Audio IN packet count (EP3)
     uint32_t dbg_ep3_xfrc_count_ = 0;      // Audio IN XFRC count (EP3)
     uint32_t dbg_ep3_epena_busy_ = 0;      // Audio IN EPENA still set count (EP3)
@@ -247,9 +253,54 @@ public:
     uint32_t dbg_ep1_first_word_ = 0;     // First word written to EP1 FIFO
     uint32_t dbg_ep1_second_word_ = 0;    // Second word written to EP1 FIFO
     uint32_t dbg_fifo_first_word_ = 0;    // First word read from RX FIFO
+    uint32_t dbg_ep1_doepint_ = 0;        // DOEPINT(1) last snapshot
+    uint32_t dbg_ep1_doepint_err_count_ = 0; // Unhandled DOEPINT(1) bits count
+    uint32_t dbg_ep1_doepint_err_last_ = 0;  // Last unhandled DOEPINT(1) bits
+    uint32_t dbg_ep1_doepint_xfrc_count_ = 0;
+    uint32_t dbg_ep1_doepint_stup_count_ = 0;
+    uint32_t dbg_ep1_doepint_otepdis_count_ = 0;
+    uint32_t dbg_ep1_doepint_stsphsrx_count_ = 0;
+    uint32_t dbg_ep1_doepint_nak_count_ = 0;
+    uint32_t dbg_rxflvl_count_ = 0;       // RXFLVL events
+    uint32_t dbg_rxflvl_out_count_ = 0;   // RXFLVL OUT_DATA events
+    uint32_t dbg_rxflvl_setup_count_ = 0; // RXFLVL SETUP_DATA events
+    uint32_t dbg_rxflvl_other_count_ = 0; // RXFLVL other events
+    uint32_t dbg_rxflvl_pktsts_count_[16] = {}; // RXFLVL pktsts histogram
+    uint32_t dbg_ep1_out_bcnt_last_ = 0;  // EP1 OUT last byte count
+    uint32_t dbg_ep1_out_bcnt_min_ = 0;   // EP1 OUT min byte count
+    uint32_t dbg_ep1_out_bcnt_max_ = 0;   // EP1 OUT max byte count
+    uint32_t dbg_ep1_out_zero_count_ = 0; // EP1 OUT zero-length count
+    uint32_t dbg_ep1_out_zero_outdata_ = 0;
+    uint32_t dbg_ep1_out_zero_setup_ = 0;
+    uint32_t dbg_ep1_out_zero_other_ = 0;
+    uint32_t dbg_ep1_out_zero_rxsts_last_ = 0;
+    uint32_t dbg_ep1_pktsts_last_ = 0;    // EP1 last RX pktsts
+    uint32_t dbg_ep1_out_first_word_ = 0; // EP1 OUT first word
+    uint32_t dbg_ep1_out_last_word_ = 0;  // EP1 OUT last word
     uint8_t dbg_last_brequest_ = 0;
     uint16_t dbg_last_wvalue_ = 0;
     uint16_t dbg_last_wlength_ = 0;
+
+    void rearm_out_ep(uint8_t ep) {
+        uint16_t mps = out_ep_mps_[ep];
+        if (mps == 0) {
+            mps = 64;
+        }
+
+        Regs::reg(Regs::DOEPTSIZ(ep)) &= ~(0x7FFFFU);         // Clear XFRSIZ
+        Regs::reg(Regs::DOEPTSIZ(ep)) &= ~(0x3FFU << 19);     // Clear PKTCNT
+        Regs::reg(Regs::DOEPTSIZ(ep)) |= (1U << 19) | mps;    // PKTCNT=1, XFRSIZ=mps
+
+        if (out_ep_type_[ep] == TransferType::Isochronous) {
+            if ((Regs::reg(Regs::DSTS) & otg::DSTS_FNSOF_ODD) == 0) {
+                Regs::reg(Regs::DOEPCTL(ep)) |= otg::DEPCTL_SODDFRM;
+            } else {
+                Regs::reg(Regs::DOEPCTL(ep)) |= otg::DEPCTL_SD0PID;
+            }
+        }
+
+        Regs::reg(Regs::DOEPCTL(ep)) |= otg::DEPCTL_CNAK | otg::DEPCTL_EPENA;
+    }
 
 public:
     void init() {
@@ -300,15 +351,15 @@ public:
         }
 
         // Configure FIFOs (320 words total for FS)
-        // 96kHz Audio packet: 97 samples × 4 bytes = 388 bytes = 97 words
+        // 96kHz/24-bit/stereo OUT: 97 frames × 6 bytes = 582 bytes = 146 words
         // RX FIFO needs: max_packet_size/4 + 1 + setup_packets(2×8bytes) + status_info(10)
-        // For 388 bytes: 97 + 1 + 4 + 10 = 112 words minimum, use 128 for safety
-        // Total: RX 128 + TX0 24 + TX1 64 + TX2 8 + TX3 96 = 320 words (exactly 320 limit)
-        Regs::reg(Regs::GRXFSIZ) = 128;              // RX FIFO: 128 words @ 0 (for 96kHz packets)
-        Regs::reg(Regs::DIEPTXF0) = (24U << 16) | 128;   // TX0: 24 words @ 128 (EP0 control)
-        Regs::reg(Regs::DIEPTXF(1)) = (64U << 16) | 152; // TX1: 64 words @ 152 (Audio IN: 48kHz)
-        Regs::reg(Regs::DIEPTXF(2)) = (8U << 16) | 216;  // TX2: 8 words @ 216 (Feedback: 3 bytes)
-        Regs::reg(Regs::DIEPTXF(3)) = (96U << 16) | 224; // TX3: 96 words @ 224 (Audio IN: 96kHz)
+        // For 582 bytes: 146 + 1 + 4 + 10 = 161 words minimum, use 176 for safety
+        // Budget: RX 176 + TX0 24 + TX1 16 + TX2 8 + TX3 96 = 320 words
+        Regs::reg(Regs::GRXFSIZ) = 176;                 // RX FIFO: 176 words @ 0
+        Regs::reg(Regs::DIEPTXF0) = (24U << 16) | 176;  // TX0: 24 words @ 176 (EP0 control)
+        Regs::reg(Regs::DIEPTXF(1)) = (16U << 16) | 200; // TX1: 16 words @ 200 (MIDI/INT IN)
+        Regs::reg(Regs::DIEPTXF(2)) = (8U << 16) | 216;  // TX2: 8 words @ 216 (Feedback)
+        Regs::reg(Regs::DIEPTXF(3)) = (96U << 16) | 224; // TX3: 96 words @ 224 (Audio IN)
 
         // Clear pending interrupts
         Regs::reg(Regs::GINTSTS) = 0xBFFFFFFFU;
@@ -400,10 +451,12 @@ public:
             // Non-EP0: Single transfer
             // For isochronous IN: STM32Cube HAL compatible approach
             if (in_ep_type_[ep] == TransferType::Isochronous) {
-                // Debug: track EPENA state
+                // If endpoint is still enabled, previous transfer hasn't completed.
+                // Avoid reprogramming ISO IN EP while busy (prevents feedback overwrite).
                 if (Regs::reg(Regs::DIEPCTL(ep)) & otg::DEPCTL_EPENA) {
                     if (ep == 1) ++dbg_ep1_epena_busy_;
                     else if (ep == 3) ++dbg_ep3_epena_busy_;
+                    return;
                 }
 
                 uint32_t words = (len + 3) / 4;
@@ -414,6 +467,9 @@ public:
                     dbg_ep1_fifo_before_ = fifo_space;
                     dbg_ep1_txf_cfg_ = Regs::reg(Regs::DIEPTXF(1));
                     dbg_ep1_dsts_at_write_ = Regs::reg(Regs::DSTS);
+                }
+                if (ep == 2) {
+                    dbg_ep2_fifo_before_ = fifo_space;
                 }
 
                 // If FIFO doesn't have enough space, flush it first
@@ -478,6 +534,9 @@ public:
                     if (len >= 3 && data != nullptr) {
                         dbg_ep2_last_fb_ = data[0] | (data[1] << 8) | (data[2] << 16);
                     }
+                    dbg_ep2_fifo_after_ = Regs::reg(Regs::DTXFSTS(2)) & 0xFFFF;
+                    dbg_ep2_diepctl_ = Regs::reg(Regs::DIEPCTL(2));
+                    dbg_ep2_diepint_ |= Regs::reg(Regs::DIEPINT(2));
                 }
                 if (ep == 3) ++dbg_ep3_in_count_;
             } else {
@@ -698,19 +757,49 @@ private:
         uint8_t ep = rxsts & 0xF;
         uint16_t bcnt = (rxsts >> 4) & 0x7FF;
         uint8_t pktsts = (rxsts >> 17) & 0xF;
+        ++dbg_rxflvl_count_;
+        ++dbg_rxflvl_pktsts_count_[pktsts & 0xF];
 
         if (pktsts == otg::PKTSTS_SETUP_DATA) {
+            ++dbg_rxflvl_setup_count_;
             read_packet(setup_buf_, 8);
-        } else if (pktsts == otg::PKTSTS_OUT_DATA && bcnt > 0) {
+            if (ep == 1 && bcnt == 0) {
+                ++dbg_ep1_out_zero_count_;
+                ++dbg_ep1_out_zero_setup_;
+                dbg_ep1_out_zero_rxsts_last_ = rxsts;
+            }
+        } else if (pktsts == otg::PKTSTS_OUT_DATA) {
+            ++dbg_rxflvl_out_count_;
             uint8_t* buf = (ep == 0) ? ep0_buf_ : ep_rx_buf_[ep];
-            read_packet(buf, bcnt);
+            if (bcnt > 0) {
+                read_packet(buf, bcnt);
+            }
             if (ep == 0) {
-                Base::notify_ep0_rx(buf, bcnt);
+                if (bcnt > 0) {
+                    Base::notify_ep0_rx(buf, bcnt);
+                }
             } else {
                 // Debug: count Audio OUT packets (EP1)
                 if (ep == 1) {
                     ++dbg_ep1_out_count_;
                     dbg_ep1_out_bytes_ += bcnt;
+                    dbg_ep1_out_bcnt_last_ = bcnt;
+                    if (dbg_ep1_out_bcnt_min_ == 0 || bcnt < dbg_ep1_out_bcnt_min_) {
+                        dbg_ep1_out_bcnt_min_ = bcnt;
+                    }
+                    if (bcnt > dbg_ep1_out_bcnt_max_) {
+                        dbg_ep1_out_bcnt_max_ = bcnt;
+                    }
+                    if (bcnt == 0) {
+                        ++dbg_ep1_out_zero_count_;
+                        ++dbg_ep1_out_zero_outdata_;
+                        dbg_ep1_out_zero_rxsts_last_ = rxsts;
+                    }
+                    dbg_ep1_pktsts_last_ = pktsts;
+                    if (bcnt >= 4) {
+                        dbg_ep1_out_first_word_ = *reinterpret_cast<uint32_t*>(buf);
+                        dbg_ep1_out_last_word_ = *reinterpret_cast<uint32_t*>(buf + bcnt - 4);
+                    }
                     // Capture first two samples from received audio data
                     if (bcnt >= 4) {
                         dbg_ep1_rx_sample0_ = static_cast<int16_t>(buf[0] | (buf[1] << 8));
@@ -719,7 +808,19 @@ private:
                         dbg_ep1_fifo_word_ = *reinterpret_cast<uint32_t*>(buf);
                     }
                 }
-                Base::notify_rx(ep, buf, bcnt);
+                if (bcnt > 0) {
+                    Base::notify_rx(ep, buf, bcnt);
+                }
+            }
+        } else {
+            ++dbg_rxflvl_other_count_;
+            if (ep == 1) {
+                dbg_ep1_pktsts_last_ = pktsts;
+                if (bcnt == 0) {
+                    ++dbg_ep1_out_zero_count_;
+                    ++dbg_ep1_out_zero_other_;
+                    dbg_ep1_out_zero_rxsts_last_ = rxsts;
+                }
             }
         }
     }
@@ -735,6 +836,10 @@ private:
                 // Record EP1 DIEPINT for debugging
                 if (ep == 1) {
                     dbg_ep1_diepint_ = epints;
+                } else if (ep == 2) {
+                    ++dbg_ep2_int_count_;
+                    dbg_ep2_int_last_ = epints;
+                    dbg_ep2_diepint_ = epints;
                 }
                 if (epints & otg::DEPINT_XFRC) {
                     Regs::reg(Regs::DIEPEMPMSK) &= ~(1U << ep);
@@ -753,6 +858,8 @@ private:
                     } else if (ep == 1) {
                         ++dbg_ep1_xfrc_count_;
                         dbg_ep1_fifo_at_xfrc_ = Regs::reg(Regs::DTXFSTS(1)) & 0xFFFF;
+                    } else if (ep == 2) {
+                        ++dbg_ep2_fb_xfrc_;
                     } else if (ep == 3) {
                         ++dbg_ep3_xfrc_count_;
                     }
@@ -767,32 +874,40 @@ private:
         for (uint8_t ep = 0; ep < MAX_EP && epint; ++ep) {
             if (epint & (1U << ep)) {
                 uint32_t epints = Regs::reg(Regs::DOEPINT(ep));
+                bool rearm = false;
+                if (ep == 1) {
+                    dbg_ep1_doepint_ = epints;
+                    constexpr uint32_t kHandled = otg::DEPINT_XFRC |
+                                                  otg::DEPINT_STUP |
+                                                  otg::DEPINT_OTEPDIS |
+                                                  otg::DEPINT_STSPHSRX |
+                                                  otg::DEPINT_NAK;
+                    uint32_t unhandled = epints & ~kHandled;
+                    if (unhandled != 0) {
+                        ++dbg_ep1_doepint_err_count_;
+                        dbg_ep1_doepint_err_last_ = unhandled;
+                    }
+                    if (epints & otg::DEPINT_XFRC) {
+                        ++dbg_ep1_doepint_xfrc_count_;
+                    }
+                    if (epints & otg::DEPINT_STUP) {
+                        ++dbg_ep1_doepint_stup_count_;
+                    }
+                    if (epints & otg::DEPINT_OTEPDIS) {
+                        ++dbg_ep1_doepint_otepdis_count_;
+                    }
+                    if (epints & otg::DEPINT_STSPHSRX) {
+                        ++dbg_ep1_doepint_stsphsrx_count_;
+                    }
+                    if (epints & otg::DEPINT_NAK) {
+                        ++dbg_ep1_doepint_nak_count_;
+                    }
+                }
 
                 if (epints & otg::DEPINT_XFRC) {
                     Regs::reg(Regs::DOEPINT(ep)) = otg::DEPINT_XFRC;
                     if (ep != 0) {
-                        // Re-enable OUT endpoint (STM32Cube USB_EPStartXfer compatible)
-                        uint16_t mps = out_ep_mps_[ep];
-                        if (mps == 0) mps = 64;
-
-                        // Clear and set DOEPTSIZ (STM32Cube style)
-                        // XFRSIZ mask: 0x7FFFF (bits 0-18)
-                        // PKTCNT mask: 0x3FF << 19 (bits 19-28)
-                        Regs::reg(Regs::DOEPTSIZ(ep)) &= ~(0x7FFFFU);         // Clear XFRSIZ
-                        Regs::reg(Regs::DOEPTSIZ(ep)) &= ~(0x3FFU << 19);     // Clear PKTCNT
-                        Regs::reg(Regs::DOEPTSIZ(ep)) |= (1U << 19) | mps;    // PKTCNT=1, XFRSIZ=mps
-
-                        // For isochronous: set frame parity (STM32Cube compatible)
-                        if (out_ep_type_[ep] == TransferType::Isochronous) {
-                            if ((Regs::reg(Regs::DSTS) & otg::DSTS_FNSOF_ODD) == 0) {
-                                Regs::reg(Regs::DOEPCTL(ep)) |= otg::DEPCTL_SODDFRM;
-                            } else {
-                                Regs::reg(Regs::DOEPCTL(ep)) |= otg::DEPCTL_SD0PID;
-                            }
-                        }
-
-                        // EP enable (separate write as per STM32Cube)
-                        Regs::reg(Regs::DOEPCTL(ep)) |= otg::DEPCTL_CNAK | otg::DEPCTL_EPENA;
+                        rearm = true;
                     }
                 }
 
@@ -824,6 +939,9 @@ private:
 
                 if (epints & otg::DEPINT_OTEPDIS) {
                     Regs::reg(Regs::DOEPINT(ep)) = otg::DEPINT_OTEPDIS;
+                    if (ep != 0) {
+                        rearm = true;
+                    }
                 }
 
                 if (epints & otg::DEPINT_STSPHSRX) {
@@ -832,6 +950,10 @@ private:
 
                 if (epints & otg::DEPINT_NAK) {
                     Regs::reg(Regs::DOEPINT(ep)) = otg::DEPINT_NAK;
+                }
+
+                if (rearm && ep != 0) {
+                    rearm_out_ep(ep);
                 }
             }
         }

@@ -35,6 +35,8 @@
 // USB Classes
 #include "audio_types.hh"
 #include "audio_interface.hh"
+#include "audio_device.hh"
+#include "umidi_adapter.hh"
 
 // Compile-time descriptor builder
 #include "descriptor.hh"

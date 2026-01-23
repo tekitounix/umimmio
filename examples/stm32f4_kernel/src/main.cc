@@ -24,8 +24,10 @@
 #include <umios/backend/cm/stm32f4/i2s.hh>
 #include <umios/backend/cm/stm32f4/cs43l22.hh>
 #include <umios/backend/cm/stm32f4/pdm_mic.hh>  // PDM microphone
+#include <umios/backend/cm/common/irq.hh>
 #include <umios/backend/cm/common/nvic.hh>
 #include <umios/backend/cm/common/scb.hh>
+#include <umios/backend/cm/stm32f4/irq_num.hh>
 
 // USB stack (umiusb)
 #include <umiusb.hh>
@@ -82,6 +84,7 @@ namespace umi::kernel::app_syscall {
 
 constexpr uint32_t SAMPLE_RATE = 48000;
 constexpr uint32_t BUFFER_SIZE = 64;  // Samples per channel per buffer
+constexpr bool USB_ONLY_DEBUG = false;  // Skip audio init to isolate USB enumeration
 
 // ============================================================================
 // Hardware Instances
@@ -106,14 +109,14 @@ CicDecimator cic_decimator;
 
 // USB stack instances (umiusb)
 umiusb::Stm32FsHal usb_hal;
-using UsbAudioDevice = umiusb::AudioFullDuplexMidi96kMaxAdaptive;
+using UsbAudioDevice = umiusb::AudioOut96kMaxAsync;
 UsbAudioDevice usb_audio;
 umiusb::Device<umiusb::Stm32FsHal, UsbAudioDevice> usb_device(
     usb_hal, usb_audio,
     {
         .vendor_id = 0x1209,
-        .product_id = 0x0006,
-        .device_version = 0x0300,  // Version 3.0 for kernel/app separation
+        .product_id = 0x000A,      // Bump PID to invalidate macOS descriptor cache
+        .device_version = 0x0305,  // Version 3.05 to invalidate macOS descriptor cache
         .manufacturer_idx = 1,
         .product_idx = 2,
         .serial_idx = 0,
@@ -143,11 +146,14 @@ constexpr std::array<std::span<const uint8_t>, 2> string_table = {{
 // ============================================================================
 
 // DMA buffers must be in SRAM, not CCM
-__attribute__((section(".dma_buffer")))
-int16_t audio_buf0[BUFFER_SIZE * 2];  // Stereo interleaved
+constexpr uint32_t I2S_WORDS_PER_FRAME = 4;  // 24-bit packed into 2x16-bit words per channel
+constexpr uint32_t I2S_DMA_WORDS = BUFFER_SIZE * I2S_WORDS_PER_FRAME;
 
 __attribute__((section(".dma_buffer")))
-int16_t audio_buf1[BUFFER_SIZE * 2];
+uint16_t audio_buf0[I2S_DMA_WORDS];
+
+__attribute__((section(".dma_buffer")))
+uint16_t audio_buf1[I2S_DMA_WORDS];
 
 // PDM microphone DMA buffers
 // PDM @ 3.0714MHz, DMA 256 words = 256*16 bits = 4096 PDM samples
@@ -179,8 +185,11 @@ __attribute__((section(".shared")))
 umi::kernel::SharedMemory g_shared;
 
 volatile uint32_t g_current_buffer = 0;
-volatile bool g_audio_ready = false;
-volatile int16_t* g_active_buf = nullptr;
+static constexpr uint8_t AUDIO_READY_QUEUE_SIZE = 2;
+volatile uint8_t g_audio_ready_count = 0;
+volatile uint8_t g_audio_ready_w = 0;
+volatile uint8_t g_audio_ready_r = 0;
+volatile uint16_t* g_audio_ready_bufs[AUDIO_READY_QUEUE_SIZE] = {};
 volatile bool g_pdm_ready = false;
 volatile uint16_t* g_active_pdm_buf = nullptr;
 
@@ -192,32 +201,54 @@ uint32_t dbg_in_buffered = 0;
 uint32_t dbg_read_frames = 0;
 uint32_t dbg_underrun = 0;
 uint32_t dbg_streaming = 0;  // USB Audio OUT streaming flag
-int32_t dbg_pll_ppm = 0;     // PLL adjustment in ppm
+int32_t dbg_pll_ppm = 0;     // ASRC adjustment in ppm
 uint32_t dbg_overrun = 0;    // USB Audio OUT overrun count
 uint32_t dbg_missed = 0;     // Missed audio frames (processing too slow)
 uint32_t dbg_process_time = 0;  // fill_audio_buffer processing time (cycles)
 uint32_t dbg_usb_rx_count = 0;  // USB Audio OUT packets received
-int16_t dbg_sample_l = 0;       // Debug: last sample L
-int16_t dbg_sample_r = 0;       // Debug: last sample R
+int32_t dbg_sample_l = 0;       // Debug: last sample L
+int32_t dbg_sample_r = 0;       // Debug: last sample R
 uint32_t dbg_set_iface_count = 0;  // USB set_interface calls
 uint32_t dbg_sof_count = 0;        // USB SOF count
 uint32_t dbg_feedback = 0;         // Feedback value being sent to host
 uint32_t dbg_fb_count = 0;         // Feedback EP write count
 uint32_t dbg_fb_actual = 0;        // Actual feedback value sent (from HAL)
 uint32_t dbg_fb_sent = 0;          // Feedback sent from AudioInterface
+uint32_t dbg_fb_xfrc = 0;          // Feedback EP XFRC count
+uint32_t dbg_fb_int_count = 0;     // Feedback EP IN interrupt count
+uint32_t dbg_fb_int_last = 0;      // Last Feedback EP DIEPINT snapshot
+uint32_t dbg_fb_diepctl = 0;       // Feedback EP DIEPCTL
+uint32_t dbg_fb_diepint = 0;       // Feedback EP DIEPINT
+uint32_t dbg_fb_fifo_before = 0;   // Feedback EP DTXFSTS before write
+uint32_t dbg_fb_fifo_after = 0;    // Feedback EP DTXFSTS after write
+uint32_t dbg_iepint_count = 0;     // Global IEPINT count
+uint32_t dbg_last_daint = 0;       // Last DAINT snapshot
+uint32_t dbg_last_daintmsk = 0;    // Last DAINTMSK snapshot
 uint32_t dbg_set_iface_val = 0;    // (iface << 8) | alt
 uint32_t dbg_out_iface_num = 0;    // Audio OUT interface number
+uint32_t dbg_out_rx_last_len = 0;  // Audio OUT last packet length (bytes)
+uint32_t dbg_out_rx_min_len = 0;   // Audio OUT min packet length (bytes)
+uint32_t dbg_out_rx_max_len = 0;   // Audio OUT max packet length (bytes)
+uint32_t dbg_out_rx_short = 0;     // Audio OUT short packet count
+uint32_t dbg_fb_override_enable = 0;  // Feedback override enable (0/1)
+uint32_t dbg_fb_override_value = 0;   // Feedback override value (10.14)
+uint32_t dbg_fb_test_mode = 0;        // Auto toggle feedback override (0/1)
+uint32_t dbg_fb_mode = 0;             // Feedback mode (0=fifo, 1=delta)
+uint32_t dbg_fb_delta_gain = 0;       // Delta gain Q16.16 (0=auto)
 uint32_t dbg_playback_started = 0; // playback_started_ flag
 uint32_t dbg_muted = 0;            // fu_out_mute_ flag
 uint32_t dbg_actual_rate = 0;      // Actual rate passed to set_actual_rate
 int16_t dbg_volume = 0;            // fu_out_volume_ value
-int16_t dbg_ring_sample0 = 0;      // Raw ring buffer sample[0]
-int16_t dbg_ring_sample1 = 0;      // Raw ring buffer sample[1]
-int16_t dbg_hal_rx_sample0 = 0;    // HAL received sample[0]
-int16_t dbg_hal_rx_sample1 = 0;    // HAL received sample[1]
+int32_t dbg_ring_sample0 = 0;      // Raw ring buffer sample[0]
+int32_t dbg_ring_sample1 = 0;      // Raw ring buffer sample[1]
+int32_t dbg_hal_rx_sample0 = 0;    // HAL received sample[0]
+int32_t dbg_hal_rx_sample1 = 0;    // HAL received sample[1]
 uint32_t dbg_fifo_word = 0;        // First word read from RX FIFO
 uint32_t dbg_ep1_fifo_word = 0;   // First word from EP1 specifically
 uint32_t dbg_audio_in_write = 0;   // Audio IN write count
+uint32_t dbg_asrc_rate = 0;        // ASRC rate Q16.16
+uint32_t dbg_out_buf_min = 0;      // Min buffered frames since start
+uint32_t dbg_out_buf_max = 0;      // Max buffered frames since start
 int32_t dbg_audio_in_level = 0;    // Audio IN ring buffer level
 uint32_t dbg_out_buf_level = 0;    // Audio OUT ring buffer level
 uint32_t dbg_in_buf_level = 0;     // Audio IN ring buffer level
@@ -228,6 +259,129 @@ uint32_t dbg_sr_set_cur = 0;      // SET CUR sample rate requests
 uint32_t dbg_sr_ep0_rx = 0;       // EP0 RX for sample rate
 uint32_t dbg_sr_last_req = 0;     // Last requested sample rate
 uint32_t dbg_sr_ep_req = 0;       // Endpoint sample rate requests
+uint32_t dbg_out_rx_disc_count = 0;   // USB OUT packet discontinuity count
+uint32_t dbg_usb_out_doepint = 0;     // DOEPINT(1) last snapshot
+uint32_t dbg_usb_out_doepint_err_count = 0;  // DOEPINT(1) unhandled bits count
+uint32_t dbg_usb_out_doepint_err_last = 0;   // DOEPINT(1) last unhandled bits
+uint32_t dbg_usb_out_doepint_xfrc = 0;
+uint32_t dbg_usb_out_doepint_stup = 0;
+uint32_t dbg_usb_out_doepint_otepdis = 0;
+uint32_t dbg_usb_out_doepint_stsphsrx = 0;
+uint32_t dbg_usb_out_doepint_nak = 0;
+uint32_t dbg_usb_rxflvl_count = 0;   // RXFLVL events
+uint32_t dbg_usb_rxflvl_out = 0;     // RXFLVL OUT_DATA events
+uint32_t dbg_usb_rxflvl_setup = 0;   // RXFLVL SETUP_DATA events
+uint32_t dbg_usb_rxflvl_other = 0;   // RXFLVL other events
+uint32_t dbg_usb_ep1_bcnt_last = 0;  // EP1 OUT last byte count
+uint32_t dbg_usb_ep1_bcnt_min = 0;   // EP1 OUT min byte count
+uint32_t dbg_usb_ep1_bcnt_max = 0;   // EP1 OUT max byte count
+uint32_t dbg_usb_ep1_zero = 0;       // EP1 OUT zero-length count
+uint32_t dbg_usb_ep1_zero_outdata = 0;
+uint32_t dbg_usb_ep1_zero_setup = 0;
+uint32_t dbg_usb_ep1_zero_other = 0;
+uint32_t dbg_usb_ep1_zero_rxsts_last = 0;
+uint32_t dbg_usb_ep1_pktsts = 0;     // EP1 last pktsts
+uint32_t dbg_usb_ep1_first_word = 0; // EP1 OUT first word
+uint32_t dbg_usb_ep1_last_word = 0;  // EP1 OUT last word
+uint32_t dbg_usb_rxflvl_pktsts_0 = 0;
+uint32_t dbg_usb_rxflvl_pktsts_1 = 0;
+uint32_t dbg_usb_rxflvl_pktsts_2 = 0;
+uint32_t dbg_usb_rxflvl_pktsts_3 = 0;
+uint32_t dbg_usb_rxflvl_pktsts_4 = 0;
+uint32_t dbg_usb_rxflvl_pktsts_5 = 0;
+uint32_t dbg_usb_rxflvl_pktsts_6 = 0;
+uint32_t dbg_usb_rxflvl_pktsts_7 = 0;
+uint32_t dbg_usb_rxflvl_pktsts_8 = 0;
+uint32_t dbg_usb_rxflvl_pktsts_9 = 0;
+uint32_t dbg_usb_rxflvl_pktsts_a = 0;
+uint32_t dbg_usb_rxflvl_pktsts_b = 0;
+uint32_t dbg_usb_rxflvl_pktsts_c = 0;
+uint32_t dbg_usb_rxflvl_pktsts_d = 0;
+uint32_t dbg_usb_rxflvl_pktsts_e = 0;
+uint32_t dbg_usb_rxflvl_pktsts_f = 0;
+uint32_t dbg_out_rx_intra_event_count = 0;   // Intra-packet event count
+uint32_t dbg_out_rx_intra_event_len = 0;     // Packet length at event
+int32_t dbg_out_rx_intra_event_cur_l = 0;    // Current L sample at event
+int32_t dbg_out_rx_intra_event_cur_r = 0;    // Current R sample at event
+int32_t dbg_out_rx_intra_event_prev_l = 0;   // Previous L sample at event
+int32_t dbg_out_rx_intra_event_prev_r = 0;   // Previous R sample at event
+int32_t dbg_out_rx_intra_event_dl = 0;       // Delta L at event
+int32_t dbg_out_rx_intra_event_dr = 0;       // Delta R at event
+uint32_t dbg_out_rx_intra_log_threshold = 0x2000;  // Log threshold for intra spikes
+uint32_t dbg_out_rx_debug_enable = 0;  // Enable USB OUT debug tracking
+uint32_t dbg_out_rx_log_write = 0;  // Ring buffer write index
+uint32_t dbg_out_rx_log_count = 0;  // Ring buffer entry count
+uint32_t dbg_audio_ready_level = 0;     // Pending audio buffers
+uint32_t dbg_audio_ready_max = 0;       // Max pending audio buffers
+uint32_t dbg_audio_ready_overflow = 0;  // Audio ready queue overflow count
+uint32_t dbg_proc_cycles_last = 0;      // process_audio_frame cycles (last)
+uint32_t dbg_proc_cycles_max = 0;       // process_audio_frame cycles (max)
+uint32_t dbg_proc_cycles_over = 0;      // process_audio_frame over budget count
+uint32_t dbg_proc_cycles_budget = 0;    // process_audio_frame budget cycles
+
+struct OutRxLogEntry {
+    uint32_t packet_index;
+    uint32_t len;
+    int32_t max_abs;
+    uint32_t raw0;
+    uint32_t raw1;
+    int32_t cur_l;
+    int32_t cur_r;
+    int32_t prev_l;
+    int32_t prev_r;
+    int32_t dl;
+    int32_t dr;
+};
+
+static constexpr uint32_t OUT_RX_LOG_SIZE = 128;
+OutRxLogEntry dbg_out_rx_log[OUT_RX_LOG_SIZE] = {};
+
+void on_audio_out_packet(const UsbAudioDevice::OutPacketStats& stats) {
+    uint32_t idx = dbg_out_rx_log_write % OUT_RX_LOG_SIZE;
+    dbg_out_rx_log[idx] = {
+        stats.packet_index,
+        stats.len,
+        stats.max_abs,
+        stats.raw0,
+        stats.raw1,
+        stats.cur_l,
+        stats.cur_r,
+        stats.prev_l,
+        stats.prev_r,
+        stats.dl,
+        stats.dr,
+    };
+    ++dbg_out_rx_log_write;
+    if (dbg_out_rx_log_count < OUT_RX_LOG_SIZE) {
+        ++dbg_out_rx_log_count;
+    }
+}
+uint32_t dbg_out_rx_disc_max = 0;     // Max discontinuity at packet boundary
+int32_t dbg_out_rx_disc_last = 0;     // Last discontinuity delta (L)
+uint32_t dbg_out_rx_disc_threshold = 0x20000;  // Threshold for discontinuity
+int32_t dbg_dma_prev_samples[8] = {};  // Last 4 frames (L/R interleaved) of previous buffer
+int32_t dbg_dma_next_samples[8] = {};  // First 4 frames (L/R interleaved) of current buffer
+uint32_t dbg_dma_boundary_abs = 0;     // Absolute delta at boundary (max of L/R)
+uint32_t dbg_dma_interior_max = 0;     // Max absolute delta inside buffer
+uint32_t dbg_glitch_count = 0;         // In-buffer glitch detections
+uint32_t dbg_glitch_index = 0;         // Frame index where glitch detected
+uint32_t dbg_glitch_threshold = 0x10000;  // Threshold for glitch capture
+uint32_t dbg_glitch_window_len = 128;     // Frames captured around glitch
+int32_t dbg_glitch_window[256] = {};      // 128 frames (L/R interleaved)
+uint32_t dbg_dma_packed_prev[16] = {};  // Last 4 frames of packed DMA buffer (32-bit words)
+uint32_t dbg_dma_packed_next[16] = {};  // First 4 frames of packed DMA buffer (32-bit words)
+uint32_t dbg_out_rx_intra_count = 0;   // USB OUT intra-packet discontinuity count
+uint32_t dbg_out_rx_intra_max = 0;     // Max intra-packet discontinuity
+int32_t dbg_out_rx_intra_last = 0;     // Last intra-packet delta (L)
+uint32_t dbg_dma_spike_count = 0;      // DMA boundary spike count
+uint32_t dbg_dma_spike_max = 0;        // Max absolute delta at boundary
+int32_t dbg_dma_spike_last = 0;        // Last boundary delta (L channel)
+uint32_t dbg_dma_spike_threshold = 0x200000;  // Spike threshold (24-bit)
+
+// Descriptor debug dump (for host-side inspection via pyocd)
+constexpr size_t DBG_DESC_MAX = 512;
+uint32_t dbg_desc_size = 0;
+uint8_t dbg_desc_buf[DBG_DESC_MAX] = {};
 
 // MIDI queue (ISR -> App)
 struct MidiMsg {
@@ -326,7 +480,7 @@ static uint32_t configure_plli2s(uint32_t rate) {
     }
     
     // Update I2S divider - must be done while I2S is disabled
-    i2s3.init_with_divider(i2sdiv, odd);
+    i2s3.init_with_divider(i2sdiv, odd, true);
     
     return actual_rate;
 }
@@ -395,18 +549,18 @@ static void init_audio() {
     gpio_d.set(4);
     for (int i = 0; i < 100000; ++i) { asm volatile(""); }
 
-    if (!codec.init()) {
+    if (!codec.init(true)) {  // Use 24-bit mode
         gpio_d.set(14);  // Red LED = error
         while (1) {}
     }
 
     init_plli2s();
-    i2s3.init_48khz();
+    i2s3.init_48khz(true);  // Use 24-bit mode
 
     __builtin_memset(audio_buf0, 0, sizeof(audio_buf0));
     __builtin_memset(audio_buf1, 0, sizeof(audio_buf1));
 
-    dma_i2s.init(audio_buf0, audio_buf1, BUFFER_SIZE * 2, i2s3.dr_addr());
+    dma_i2s.init(audio_buf0, audio_buf1, I2S_DMA_WORDS, i2s3.dr_addr());
 
     // DMA1_Stream5 = IRQ 16, priority 5 (audio - high priority)
     NVIC::set_prio(16, 5);
@@ -446,6 +600,10 @@ static void init_pdm_mic() {
 static void init_usb() {
     for (int i = 0; i < 10000; ++i) { asm volatile(""); }
 
+    // Force re-enumeration (macOS can ignore quick reconnects)
+    usb_hal.disconnect();
+    for (int i = 0; i < 500000; ++i) { asm volatile(""); }
+
     usb_audio.on_streaming_change = [](bool streaming) {
         if (streaming) {
             gpio_d.set(15);   // Blue LED ON
@@ -471,6 +629,7 @@ static void init_usb() {
             gpio_d.toggle(12);  // Green LED toggle at ~1Hz when receiving
         }
     };
+    usb_audio.set_audio_out_packet_callback(on_audio_out_packet);
     
     // Note: USB Audio IN is written directly from I2S DMA ISR (process_audio_frame)
     // No need for on_sof_app callback
@@ -499,7 +658,17 @@ static void init_usb() {
 
     usb_device.set_strings(usb_config::string_table);
     usb_device.init();
+    {
+        auto desc = usb_audio.config_descriptor();
+        dbg_desc_size = static_cast<uint32_t>(desc.size());
+        uint32_t copy = dbg_desc_size;
+        if (copy > DBG_DESC_MAX) copy = DBG_DESC_MAX;
+        for (uint32_t i = 0; i < copy; ++i) {
+            dbg_desc_buf[i] = desc[i];
+        }
+    }
     usb_hal.connect();
+    for (int i = 0; i < 500000; ++i) { asm volatile(""); }
 
     // OTG_FS = IRQ 67, priority 6 (lower than audio DMA)
     NVIC::set_prio(67, 6);
@@ -521,6 +690,19 @@ static void init_systick() {
     *reinterpret_cast<volatile uint32_t*>(SYST_CSR) = 0x07;  // Enable, IRQ, use core clock
 }
 
+static inline uint32_t dwt_cycle() {
+    return *reinterpret_cast<volatile uint32_t*>(0xE0001004);
+}
+
+static void init_cycle_counter() {
+    constexpr uint32_t DEMCR = 0xE000EDFC;
+    constexpr uint32_t DWT_CTRL = 0xE0001000;
+    constexpr uint32_t DWT_CYCCNT = 0xE0001004;
+    *reinterpret_cast<volatile uint32_t*>(DEMCR) |= (1u << 24);
+    *reinterpret_cast<volatile uint32_t*>(DWT_CYCCNT) = 0;
+    *reinterpret_cast<volatile uint32_t*>(DWT_CTRL) |= 1u;
+}
+
 // ============================================================================
 // Interrupt Handlers
 // ============================================================================
@@ -536,15 +718,29 @@ extern "C" void DMA1_Stream3_IRQHandler() {
     }
 }
 
-// I2S DMA: Signal buffer ready (processing in main loop)
+// I2S DMA: Process buffer directly in ISR for minimum latency
 extern "C" void DMA1_Stream5_IRQHandler() {
     if (dma_i2s.transfer_complete()) {
         dma_i2s.clear_tc();
-        
-        // Get the buffer that just completed - notify only, no processing
-        g_active_buf = (dma_i2s.current_buffer() == 0) ? audio_buf1 : audio_buf0;
-        g_audio_ready = true;
-        
+
+        // DMA double-buffer: when ISR fires, DMA has already switched to next buffer
+        // We need to fill the buffer that JUST finished
+        // current_buffer() returns the active DMA target, so fill the other one
+        uint16_t* completed_buf = (dma_i2s.current_buffer() == 1) ? audio_buf0 : audio_buf1;
+
+        uint8_t count = g_audio_ready_count;
+        if (count < AUDIO_READY_QUEUE_SIZE) {
+            g_audio_ready_bufs[g_audio_ready_w] = reinterpret_cast<uint16_t*>(completed_buf);
+            g_audio_ready_w = static_cast<uint8_t>((g_audio_ready_w + 1) % AUDIO_READY_QUEUE_SIZE);
+            g_audio_ready_count = static_cast<uint8_t>(count + 1);
+            uint32_t level = count + 1;
+            if (level > dbg_audio_ready_max) {
+                dbg_audio_ready_max = level;
+            }
+        } else {
+            ++dbg_audio_ready_overflow;
+        }
+
         ++dbg_i2s_isr_count;
     }
 }
@@ -663,24 +859,135 @@ int16_t usb_in_buf[BUFFER_SIZE * 2];
 float synth_out_buf[BUFFER_SIZE * 2];
 float synth_in_buf[BUFFER_SIZE * 2];
 
+// I2S work buffer (32-bit internal audio)
+int32_t i2s_work_buf[BUFFER_SIZE * 2];
+
 // Last synth output (for USB Audio IN)
 int16_t last_synth_out[BUFFER_SIZE * 2];
 
 // Debug: track what fill_audio_buffer returns
 uint32_t dbg_fill_ret = 0;        // Return value from read_audio_asrc
 uint32_t dbg_fill_buf_addr = 0;   // Buffer address passed to fill
-int16_t dbg_buf_sample0 = 0;      // First sample in buffer after fill
-int16_t dbg_buf_sample1 = 0;      // Second sample
+int32_t dbg_buf_sample0 = 0;      // First sample in buffer after fill
+int32_t dbg_buf_sample1 = 0;      // Second sample
 uint32_t dbg_synth_called = 0;    // Synth process called count
 
 // Process audio (called from main loop)
-static void process_audio_frame(int16_t* buf) {
+static inline int32_t clamp_i24(int32_t value) {
+    if (value > 0x7FFFFF) return 0x7FFFFF;
+    if (value < -0x800000) return -0x800000;
+    return value;
+}
+
+static void pack_i2s_24(uint16_t* out, const int32_t* in, uint32_t frames, uint32_t channels) {
+    uint32_t samples = frames * channels;
+    for (uint32_t i = 0; i < samples; ++i) {
+        int32_t clamped = clamp_i24(in[i]);
+        uint32_t v = (static_cast<uint32_t>(clamped) & 0x00FFFFFFu) << 8;  // left-align 24-bit
+        // Send MSW first for STM32 I2S 24-bit in 32-bit channel length
+        out[i * 2] = static_cast<uint16_t>((v >> 16) & 0xFFFF);
+        out[i * 2 + 1] = static_cast<uint16_t>(v & 0xFFFF);
+    }
+}
+
+static void process_audio_frame(uint16_t* buf) {
     // Use dt from shared memory (updated when sample rate changes)
     const float dt = g_shared.dt;
-    
-    // 1. Read USB Audio OUT into buffer (for I2S output only)
-    usb_audio.read_audio_asrc(buf, BUFFER_SIZE);
-    // buf now contains USB Audio OUT data -> goes to I2S DAC
+
+    usb_audio.read_audio(i2s_work_buf, BUFFER_SIZE);
+
+    dbg_buf_sample0 = i2s_work_buf[0];
+    dbg_buf_sample1 = i2s_work_buf[1];
+    dbg_sample_l = i2s_work_buf[0];
+    dbg_sample_r = i2s_work_buf[1];
+    // DMA boundary spike detection (compare last sample of previous buffer)
+    static bool has_last = false;
+    static int32_t last_l = 0;
+    static int32_t last_r = 0;
+    static int32_t last_tail[8] = {};
+    if (has_last) {
+        int32_t delta_l = i2s_work_buf[0] - last_l;
+        int32_t delta_r = i2s_work_buf[1] - last_r;
+        int32_t abs_l = (delta_l < 0) ? -delta_l : delta_l;
+        int32_t abs_r = (delta_r < 0) ? -delta_r : delta_r;
+        int32_t abs_max = (abs_l > abs_r) ? abs_l : abs_r;
+        dbg_dma_spike_last = delta_l;
+        dbg_dma_boundary_abs = static_cast<uint32_t>(abs_max);
+        if (static_cast<uint32_t>(abs_max) > dbg_dma_spike_threshold) {
+            ++dbg_dma_spike_count;
+            if (static_cast<uint32_t>(abs_max) > dbg_dma_spike_max) {
+                dbg_dma_spike_max = static_cast<uint32_t>(abs_max);
+            }
+        }
+    }
+    last_l = i2s_work_buf[(BUFFER_SIZE - 1) * 2];
+    last_r = i2s_work_buf[(BUFFER_SIZE - 1) * 2 + 1];
+    // Dump boundary samples (last 4 frames of previous buffer, first 4 of current)
+    if (has_last) {
+        for (uint32_t i = 0; i < 8; ++i) {
+            dbg_dma_prev_samples[i] = last_tail[i];
+        }
+    }
+    for (uint32_t i = 0; i < 8; ++i) {
+        dbg_dma_next_samples[i] = i2s_work_buf[i];
+    }
+    // Update tail for next boundary
+    for (uint32_t i = 0; i < 8; ++i) {
+        last_tail[i] = i2s_work_buf[(BUFFER_SIZE - 4) * 2 + i];
+    }
+    // Max interior delta within current buffer (L/R)
+    uint32_t interior_max = 0;
+    bool captured = false;
+    for (uint32_t i = 1; i < BUFFER_SIZE; ++i) {
+        int32_t cur_l = i2s_work_buf[i * 2];
+        int32_t cur_r = i2s_work_buf[i * 2 + 1];
+        int32_t prev_l = i2s_work_buf[(i - 1) * 2];
+        int32_t prev_r = i2s_work_buf[(i - 1) * 2 + 1];
+        int32_t dl = cur_l - prev_l;
+        int32_t dr = cur_r - prev_r;
+        uint32_t abs_l = static_cast<uint32_t>((dl < 0) ? -dl : dl);
+        uint32_t abs_r = static_cast<uint32_t>((dr < 0) ? -dr : dr);
+        uint32_t abs_max = (abs_l > abs_r) ? abs_l : abs_r;
+        if (abs_max > interior_max) {
+            interior_max = abs_max;
+        }
+        if (!captured && abs_max > dbg_glitch_threshold) {
+            // Capture 128 frames around the glitch
+            uint32_t span = dbg_glitch_window_len;
+            uint32_t pre = span / 2;
+            uint32_t start = (i > pre) ? (i - pre) : 0;
+            if (start + span > BUFFER_SIZE) {
+                start = (BUFFER_SIZE >= span) ? (BUFFER_SIZE - span) : 0;
+            }
+            for (uint32_t j = 0; j < span; ++j) {
+                dbg_glitch_window[j * 2] = i2s_work_buf[(start + j) * 2];
+                dbg_glitch_window[j * 2 + 1] = i2s_work_buf[(start + j) * 2 + 1];
+            }
+            dbg_glitch_index = i;
+            ++dbg_glitch_count;
+            captured = true;
+        }
+    }
+    dbg_dma_interior_max = interior_max;
+    has_last = true;
+    pack_i2s_24(buf, i2s_work_buf, BUFFER_SIZE, 2);
+    // Dump packed DMA buffer boundary (4 frames => 16 words)
+    static uint32_t last_packed_tail[16] = {};
+    if (has_last) {
+        for (uint32_t i = 0; i < 16; ++i) {
+            dbg_dma_packed_prev[i] = last_packed_tail[i];
+        }
+    }
+    // First 4 frames (16 words)
+    for (uint32_t i = 0; i < 16; ++i) {
+        dbg_dma_packed_next[i] = buf[i];
+    }
+    // Save last 4 frames as tail for next boundary
+    uint32_t base = I2S_DMA_WORDS - 16;
+    for (uint32_t i = 0; i < 16; ++i) {
+        last_packed_tail[i] = buf[base + i];
+    }
+    // buf now contains packed 24-bit data -> goes to I2S DAC
     
     // 2. Call app synth if registered
     if (g_loader.state() == umi::kernel::AppState::Running) {
@@ -711,7 +1018,7 @@ static void process_audio_frame(int16_t* buf) {
     }
     
     // 3. Write to USB Audio IN (L=mic, R=synth) - directly, no extra buffering
-    if (usb_audio.is_audio_in_streaming()) {
+    if (usb_audio.is_audio_in_streaming() && g_current_sample_rate < 96000) {
         for (uint32_t i = 0; i < BUFFER_SIZE; ++i) {
             stereo_buf[i * 2] = pcm_buf[i];           // L = mic
             stereo_buf[i * 2 + 1] = last_synth_out[i * 2];  // R = synth (mono from L)
@@ -734,6 +1041,9 @@ static void audio_loop() {
                 (new_rate == 44100 || new_rate == 48000 || new_rate == 96000)) {
                 
                 dbg_sr_change_step = 1;  // Starting
+
+                // Block USB audio OUT RX during reconfiguration to avoid stale packets
+                usb_audio.block_audio_out_rx((new_rate >= 96000) ? 48 : 12);
                 
                 // Disable NVIC for DMA to prevent interrupts during reconfiguration
                 constexpr uint32_t NVIC_ICER0 = 0xE000E180;
@@ -752,7 +1062,7 @@ static void audio_loop() {
                 dbg_sr_change_step = 2;  // DMA/I2S stopped
                 
                 // Clear audio buffers to prevent glitches
-                for (uint32_t i = 0; i < BUFFER_SIZE * 2; ++i) {
+                for (uint32_t i = 0; i < I2S_DMA_WORDS; ++i) {
                     audio_buf0[i] = 0;
                     audio_buf1[i] = 0;
                 }
@@ -764,10 +1074,12 @@ static void audio_loop() {
                 dbg_sr_change_step = 3;  // PLL configured
                 
                 // Fully reinitialize DMA with clean state
-                dma_i2s.init(audio_buf0, audio_buf1, BUFFER_SIZE * 2, i2s3.dr_addr());
+                dma_i2s.init(audio_buf0, audio_buf1, I2S_DMA_WORDS, i2s3.dr_addr());
                 
-                // Clear any pending flags
-                g_audio_ready = false;
+                // Clear any pending audio buffers
+                g_audio_ready_count = 0;
+                g_audio_ready_w = 0;
+                g_audio_ready_r = 0;
                 
                 // Re-enable DMA interrupt in NVIC
                 constexpr uint32_t NVIC_ISER0 = 0xE000E100;
@@ -791,31 +1103,166 @@ static void audio_loop() {
                 // Update USB feedback calculator with actual I2S rate
                 dbg_actual_rate = actual_rate;
                 usb_audio.set_actual_rate(actual_rate);
+                usb_audio.reset_audio_out(actual_rate);
                 
                 dbg_sr_change_step = 5;  // Complete
             }
         }
         
         // Process PDM decimation when ready (moved from ISR)
-        if (g_pdm_ready) {
+        if (g_pdm_ready && g_current_sample_rate < 96000) {
             g_pdm_ready = false;
             uint16_t* pdm_data = const_cast<uint16_t*>(g_active_pdm_buf);
             cic_decimator.process_buffer(pdm_data, PDM_BUF_SIZE, pcm_buf, PCM_BUF_SIZE);
         }
         
         // Process audio when I2S buffer ready
-        if (g_audio_ready) {
-            g_audio_ready = false;
-            process_audio_frame(const_cast<int16_t*>(g_active_buf));
+        uint32_t rate = g_current_sample_rate;
+        if (rate != 0) {
+            dbg_proc_cycles_budget = static_cast<uint32_t>(
+                (168000000ull * BUFFER_SIZE + rate - 1) / rate
+            );
+        }
+        while (g_audio_ready_count > 0) {
+            uint16_t* buf = const_cast<uint16_t*>(g_audio_ready_bufs[g_audio_ready_r]);
+            g_audio_ready_r = static_cast<uint8_t>((g_audio_ready_r + 1) % AUDIO_READY_QUEUE_SIZE);
+            uint8_t count = g_audio_ready_count;
+            g_audio_ready_count = static_cast<uint8_t>(count - 1);
+            uint32_t start = dwt_cycle();
+            process_audio_frame(buf);
+            uint32_t elapsed = dwt_cycle() - start;
+            dbg_proc_cycles_last = elapsed;
+            if (elapsed > dbg_proc_cycles_max) {
+                dbg_proc_cycles_max = elapsed;
+            }
+            if (dbg_proc_cycles_budget != 0 && elapsed > dbg_proc_cycles_budget) {
+                ++dbg_proc_cycles_over;
+            }
         }
         
         // Update debug counters
         dbg_underrun = usb_audio.underrun_count();
         dbg_overrun = usb_audio.overrun_count();
         dbg_streaming = usb_audio.is_streaming() ? 1 : 0;
+        if (dbg_streaming == 0) {
+            dbg_out_buf_min = 0;
+            dbg_out_buf_max = 0;
+            dbg_audio_ready_max = 0;
+        }
+        dbg_audio_ready_level = g_audio_ready_count;
         dbg_out_buf_level = usb_audio.buffered_frames();
         dbg_in_buf_level = usb_audio.in_buffered_frames();
         dbg_feedback = usb_audio.current_feedback();
+        dbg_fb_count = usb_hal.dbg_ep2_fb_count_;
+        dbg_fb_xfrc = usb_hal.dbg_ep2_fb_xfrc_;
+        dbg_fb_int_count = usb_hal.dbg_ep2_int_count_;
+        dbg_fb_int_last = usb_hal.dbg_ep2_int_last_;
+        dbg_fb_actual = usb_hal.dbg_ep2_last_fb_;
+        dbg_fb_sent = usb_audio.dbg_fb_sent_count();
+        dbg_set_iface_val = (static_cast<uint32_t>(usb_audio.dbg_last_set_iface()) << 8) |
+                            usb_audio.dbg_last_set_alt();
+        dbg_out_iface_num = usb_audio.audio_out_interface_num();
+        dbg_out_rx_last_len = usb_audio.dbg_out_rx_last_len();
+        dbg_out_rx_min_len = usb_audio.dbg_out_rx_min_len();
+        dbg_out_rx_max_len = usb_audio.dbg_out_rx_max_len();
+        dbg_out_rx_short = usb_audio.dbg_out_rx_short_count();
+        dbg_out_rx_disc_count = usb_audio.dbg_out_rx_disc_count();
+        dbg_out_rx_disc_max = usb_audio.dbg_out_rx_disc_max();
+        dbg_out_rx_disc_last = usb_audio.dbg_out_rx_disc_last();
+        usb_audio.set_dbg_out_rx_enabled(dbg_out_rx_debug_enable != 0);
+        usb_audio.set_dbg_out_rx_disc_threshold(dbg_out_rx_disc_threshold);
+        dbg_out_rx_intra_count = usb_audio.dbg_out_rx_intra_count();
+        dbg_out_rx_intra_max = usb_audio.dbg_out_rx_intra_max();
+        dbg_out_rx_intra_last = usb_audio.dbg_out_rx_intra_last();
+        usb_audio.set_dbg_out_rx_intra_log_threshold(dbg_out_rx_intra_log_threshold);
+        dbg_out_rx_intra_event_count = usb_audio.dbg_out_rx_intra_event_count();
+        dbg_out_rx_intra_event_len = usb_audio.dbg_out_rx_intra_event_len();
+        dbg_out_rx_intra_event_cur_l = usb_audio.dbg_out_rx_intra_event_cur_l();
+        dbg_out_rx_intra_event_cur_r = usb_audio.dbg_out_rx_intra_event_cur_r();
+        dbg_out_rx_intra_event_prev_l = usb_audio.dbg_out_rx_intra_event_prev_l();
+        dbg_out_rx_intra_event_prev_r = usb_audio.dbg_out_rx_intra_event_prev_r();
+        dbg_out_rx_intra_event_dl = usb_audio.dbg_out_rx_intra_event_dl();
+        dbg_out_rx_intra_event_dr = usb_audio.dbg_out_rx_intra_event_dr();
+        if (dbg_out_rx_debug_enable != 0) {
+            usb_audio.set_audio_out_packet_callback(on_audio_out_packet);
+        } else {
+            usb_audio.set_audio_out_packet_callback(nullptr);
+        }
+        dbg_usb_out_doepint = usb_hal.dbg_ep1_doepint_;
+        dbg_usb_out_doepint_err_count = usb_hal.dbg_ep1_doepint_err_count_;
+        dbg_usb_out_doepint_err_last = usb_hal.dbg_ep1_doepint_err_last_;
+        dbg_usb_out_doepint_xfrc = usb_hal.dbg_ep1_doepint_xfrc_count_;
+        dbg_usb_out_doepint_stup = usb_hal.dbg_ep1_doepint_stup_count_;
+        dbg_usb_out_doepint_otepdis = usb_hal.dbg_ep1_doepint_otepdis_count_;
+        dbg_usb_out_doepint_stsphsrx = usb_hal.dbg_ep1_doepint_stsphsrx_count_;
+        dbg_usb_out_doepint_nak = usb_hal.dbg_ep1_doepint_nak_count_;
+        dbg_usb_rxflvl_count = usb_hal.dbg_rxflvl_count_;
+        dbg_usb_rxflvl_out = usb_hal.dbg_rxflvl_out_count_;
+        dbg_usb_rxflvl_setup = usb_hal.dbg_rxflvl_setup_count_;
+        dbg_usb_rxflvl_other = usb_hal.dbg_rxflvl_other_count_;
+        dbg_usb_ep1_bcnt_last = usb_hal.dbg_ep1_out_bcnt_last_;
+        dbg_usb_ep1_bcnt_min = usb_hal.dbg_ep1_out_bcnt_min_;
+        dbg_usb_ep1_bcnt_max = usb_hal.dbg_ep1_out_bcnt_max_;
+        dbg_usb_ep1_zero = usb_hal.dbg_ep1_out_zero_count_;
+        dbg_usb_ep1_zero_outdata = usb_hal.dbg_ep1_out_zero_outdata_;
+        dbg_usb_ep1_zero_setup = usb_hal.dbg_ep1_out_zero_setup_;
+        dbg_usb_ep1_zero_other = usb_hal.dbg_ep1_out_zero_other_;
+        dbg_usb_ep1_zero_rxsts_last = usb_hal.dbg_ep1_out_zero_rxsts_last_;
+        dbg_usb_ep1_pktsts = usb_hal.dbg_ep1_pktsts_last_;
+        dbg_usb_ep1_first_word = usb_hal.dbg_ep1_out_first_word_;
+        dbg_usb_ep1_last_word = usb_hal.dbg_ep1_out_last_word_;
+        dbg_usb_rxflvl_pktsts_0 = usb_hal.dbg_rxflvl_pktsts_count_[0];
+        dbg_usb_rxflvl_pktsts_1 = usb_hal.dbg_rxflvl_pktsts_count_[1];
+        dbg_usb_rxflvl_pktsts_2 = usb_hal.dbg_rxflvl_pktsts_count_[2];
+        dbg_usb_rxflvl_pktsts_3 = usb_hal.dbg_rxflvl_pktsts_count_[3];
+        dbg_usb_rxflvl_pktsts_4 = usb_hal.dbg_rxflvl_pktsts_count_[4];
+        dbg_usb_rxflvl_pktsts_5 = usb_hal.dbg_rxflvl_pktsts_count_[5];
+        dbg_usb_rxflvl_pktsts_6 = usb_hal.dbg_rxflvl_pktsts_count_[6];
+        dbg_usb_rxflvl_pktsts_7 = usb_hal.dbg_rxflvl_pktsts_count_[7];
+        dbg_usb_rxflvl_pktsts_8 = usb_hal.dbg_rxflvl_pktsts_count_[8];
+        dbg_usb_rxflvl_pktsts_9 = usb_hal.dbg_rxflvl_pktsts_count_[9];
+        dbg_usb_rxflvl_pktsts_a = usb_hal.dbg_rxflvl_pktsts_count_[10];
+        dbg_usb_rxflvl_pktsts_b = usb_hal.dbg_rxflvl_pktsts_count_[11];
+        dbg_usb_rxflvl_pktsts_c = usb_hal.dbg_rxflvl_pktsts_count_[12];
+        dbg_usb_rxflvl_pktsts_d = usb_hal.dbg_rxflvl_pktsts_count_[13];
+        dbg_usb_rxflvl_pktsts_e = usb_hal.dbg_rxflvl_pktsts_count_[14];
+        dbg_usb_rxflvl_pktsts_f = usb_hal.dbg_rxflvl_pktsts_count_[15];
+
+        if (dbg_fb_mode == 0) {
+            usb_audio.set_feedback_mode(umiusb::FeedbackMode::FifoLevel);
+        } else {
+            usb_audio.set_feedback_mode(umiusb::FeedbackMode::BufferDelta);
+        }
+        if (dbg_fb_delta_gain != 0) {
+            usb_audio.set_feedback_delta_gain(dbg_fb_delta_gain);
+        } else {
+            usb_audio.set_feedback_delta_gain_auto();
+        }
+
+        if (dbg_fb_test_mode != 0) {
+            uint32_t phase = (g_tick_us / 1000000) & 1U;
+            uint32_t fb = phase ? 0x160000 : 0x1A0000;  // ~88kHz / ~104kHz
+            usb_audio.set_feedback_override(true, fb);
+        } else if (dbg_fb_override_enable != 0) {
+            usb_audio.set_feedback_override(true, dbg_fb_override_value);
+        } else {
+            usb_audio.set_feedback_override(false, 0);
+        }
+        dbg_fb_diepctl = usb_hal.dbg_ep2_diepctl_;
+        dbg_fb_diepint = usb_hal.dbg_ep2_diepint_;
+        dbg_fb_fifo_before = usb_hal.dbg_ep2_fifo_before_;
+        dbg_fb_fifo_after = usb_hal.dbg_ep2_fifo_after_;
+        dbg_iepint_count = usb_hal.dbg_gintsts_iepint_count_;
+        dbg_last_daint = usb_hal.dbg_last_daint_;
+        dbg_last_daintmsk = usb_hal.dbg_last_daintmsk_;
+        dbg_pll_ppm = usb_audio.pll_adjustment_ppm();
+        dbg_asrc_rate = usb_audio.current_asrc_rate();
+        if (dbg_out_buf_min == 0 || dbg_out_buf_level < dbg_out_buf_min) {
+            dbg_out_buf_min = dbg_out_buf_level;
+        }
+        if (dbg_out_buf_level > dbg_out_buf_max) {
+            dbg_out_buf_max = dbg_out_buf_level;
+        }
         
         // Sample rate debug counters
         dbg_sr_get_cur = usb_audio.dbg_sr_get_cur();
@@ -835,11 +1282,7 @@ int main() {
     init_gpio();
     
     gpio_d.set(15);  // Blue LED - startup
-    
-    // Initialize audio hardware
-    init_audio();
-    init_pdm_mic();
-    
+
     // Set initial actual sample rate for USB feedback calculation
     // 48000Hz nominal → 47991Hz actual due to PLLI2S limitations
     usb_audio.set_actual_rate(47991);
@@ -874,11 +1317,23 @@ int main() {
         app_entry();
     }
     
-    // Initialize USB
+    // Initialize USB early (ensure enumeration even if audio init stalls)
     init_usb();
-    
+
     // Initialize SysTick
     init_systick();
+    init_cycle_counter();
+
+    if (USB_ONLY_DEBUG) {
+        gpio_d.set(12);  // Green LED on: USB-only mode
+        while (true) {
+            __asm__ volatile("wfi");
+        }
+    }
+
+    // Initialize audio hardware
+    init_audio();
+    init_pdm_mic();
     
     gpio_d.reset(15);  // Turn off blue
     gpio_d.reset(12);  // Green LED off - will turn on when synth outputs
@@ -904,53 +1359,13 @@ extern "C" {
     void PendSV_Handler()     { while (true) {} }
 }
 
-// Build full vector table (98 entries for STM32F407)
+// Boot Vector Table (minimal - only SP and Reset needed in Flash)
+// The full vector table is in SRAM and managed by umi::irq system.
+// VTOR is updated to point to SRAM table early in Reset_Handler.
 __attribute__((section(".isr_vector"), used))
-const void* const g_pfnVectors[98] = {
-    &_estack,                                  // 0: Initial SP
-    reinterpret_cast<void*>(Reset_Handler),   // 1: Reset
-    reinterpret_cast<void*>(NMI_Handler),     // 2: NMI
-    reinterpret_cast<void*>(HardFault_Handler), // 3: HardFault
-    reinterpret_cast<void*>(MemManage_Handler), // 4: MemManage
-    reinterpret_cast<void*>(BusFault_Handler),  // 5: BusFault
-    reinterpret_cast<void*>(UsageFault_Handler), // 6: UsageFault
-    nullptr, nullptr, nullptr, nullptr,        // 7-10: Reserved
-    reinterpret_cast<void*>(SVC_Handler),      // 11: SVCall
-    reinterpret_cast<void*>(DebugMon_Handler), // 12: DebugMon
-    nullptr,                                   // 13: Reserved
-    reinterpret_cast<void*>(PendSV_Handler),   // 14: PendSV
-    reinterpret_cast<void*>(SysTick_Handler),  // 15: SysTick
-    // IRQ 0-15
-    nullptr, nullptr, nullptr, nullptr,        // 16-19 (IRQ 0-3)
-    nullptr, nullptr, nullptr, nullptr,        // 20-23 (IRQ 4-7)
-    nullptr, nullptr, nullptr, nullptr,        // 24-27 (IRQ 8-11)
-    nullptr, nullptr,                          // 28-29 (IRQ 12-13)
-    reinterpret_cast<void*>(DMA1_Stream3_IRQHandler), // 30: DMA1_Stream3 (IRQ 14) - PDM mic
-    nullptr,                                   // 31 (IRQ 15)
-    // IRQ 16-31
-    reinterpret_cast<void*>(DMA1_Stream5_IRQHandler), // 32: DMA1_Stream5 (IRQ 16) - I2S audio
-    nullptr, nullptr, nullptr,                 // 33-35 (IRQ 17-19)
-    nullptr, nullptr, nullptr, nullptr,        // 36-39 (IRQ 20-23)
-    nullptr, nullptr, nullptr, nullptr,        // 40-43 (IRQ 24-27)
-    nullptr, nullptr, nullptr, nullptr,        // 44-47 (IRQ 28-31)
-    // IRQ 32-47
-    nullptr, nullptr, nullptr, nullptr,        // 48-51
-    nullptr, nullptr, nullptr, nullptr,        // 52-55
-    nullptr, nullptr, nullptr, nullptr,        // 56-59
-    nullptr, nullptr, nullptr, nullptr,        // 60-63
-    // IRQ 48-63
-    nullptr, nullptr, nullptr, nullptr,        // 64-67
-    nullptr, nullptr, nullptr, nullptr,        // 68-71
-    nullptr, nullptr, nullptr, nullptr,        // 72-75
-    nullptr, nullptr, nullptr, nullptr,        // 76-79
-    // IRQ 64-66
-    nullptr, nullptr, nullptr,                 // 80-82
-    reinterpret_cast<void*>(OTG_FS_IRQHandler), // 83: OTG_FS (IRQ 67)
-    // Remaining IRQs
-    nullptr, nullptr, nullptr, nullptr,        // 84-87
-    nullptr, nullptr, nullptr, nullptr,        // 88-91
-    nullptr, nullptr, nullptr, nullptr,        // 92-95
-    nullptr, nullptr,                          // 96-97
+const void* const g_boot_vectors[2] = {
+    reinterpret_cast<const void*>(&_estack),       // 0: Initial SP
+    reinterpret_cast<const void*>(Reset_Handler),  // 1: Reset
 };
 
 // C++ global constructors
@@ -976,6 +1391,21 @@ extern "C" [[noreturn]] void Reset_Handler() {
     while (dst < &_ebss) {
         *dst++ = 0;
     }
+
+    // Initialize dynamic IRQ system (SRAM vector table)
+    umi::irq::init();
+    namespace exc = umi::backend::cm::exc;
+    umi::irq::set_handler(exc::HardFault, HardFault_Handler);
+    umi::irq::set_handler(exc::MemManage, MemManage_Handler);
+    umi::irq::set_handler(exc::BusFault, BusFault_Handler);
+    umi::irq::set_handler(exc::UsageFault, UsageFault_Handler);
+    umi::irq::set_handler(exc::SVCall, SVC_Handler);
+    umi::irq::set_handler(exc::PendSV, PendSV_Handler);
+    umi::irq::set_handler(exc::SysTick, SysTick_Handler);
+    namespace irqn = umi::stm32f4::irq;
+    umi::irq::set_handler(irqn::DMA1_Stream3, DMA1_Stream3_IRQHandler);
+    umi::irq::set_handler(irqn::DMA1_Stream5, DMA1_Stream5_IRQHandler);
+    umi::irq::set_handler(irqn::OTG_FS, OTG_FS_IRQHandler);
     
     // Call C++ global constructors (init_array)
     for (void (**p)(void) = __init_array_start; p < __init_array_end; ++p) {
