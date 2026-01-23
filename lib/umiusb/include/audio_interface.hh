@@ -2693,20 +2693,31 @@ using AudioFullDuplexMidi48k = AudioInterface<UacVersion::Uac1, AudioStereo48k, 
 using AudioAlt16_All = AudioAltSetting<16, AudioRates<44100, 48000, 96000>>;
 using AudioAlt24_All = AudioAltSetting<24, AudioRates<44100, 48000, 96000>>;
 using AudioAltList24_16 = AudioAltList<AudioAlt16_All, AudioAlt24_All>;
+// Audio IN alt list for FS full-duplex: 24-bit limited to 44.1/48 to fit TX FIFO
+using AudioAlt24_Lo = AudioAltSetting<24, AudioRates<44100, 48000>>;
+using AudioAltList24Lo_16All = AudioAltList<AudioAlt16_All, AudioAlt24_Lo>;
 
 // Full duplex + MIDI with 96kHz max packet size support
-// Alt settings expose 16/24-bit with 44.1/48/96k in each Alt
+// Audio OUT: 16/24-bit with 44.1/48/96k. Audio IN: 16-bit 96k, 24-bit 44.1/48k only.
 using AudioFullDuplexMidi96kMaxAsync = AudioInterface<UacVersion::Uac1,
     AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
-    AudioPort<2, 24, 48000, 3, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
+    AudioPort<2, 24, 48000, 3, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24Lo_16All>,
     MidiPort<1, 3>,                     // MIDI OUT on EP3
     MidiPort<1, 1>,                     // MIDI IN on EP1
     2,
     AudioSyncMode::Async>;
 
+using AudioFullDuplexMidi96kMaxAsyncFixedEps = AudioInterface<UacVersion::Uac1,
+    AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
+    AudioPort<2, 24, 48000, 3, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24Lo_16All>,
+    MidiPort<1, 2>,                     // MIDI OUT on EP2 (OUT)
+    MidiPort<1, 1>,                     // MIDI IN on EP1 (IN)
+    2,
+    AudioSyncMode::Async>;
+
 using AudioFullDuplexMidi96kMaxAdaptive = AudioInterface<UacVersion::Uac1,
     AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
-    AudioPort<2, 24, 48000, 3, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
+    AudioPort<2, 24, 48000, 3, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24Lo_16All>,
     MidiPort<1, 3>,
     MidiPort<1, 1>,
     2,
@@ -2714,7 +2725,7 @@ using AudioFullDuplexMidi96kMaxAdaptive = AudioInterface<UacVersion::Uac1,
 
 using AudioFullDuplexMidi96kMaxSync = AudioInterface<UacVersion::Uac1,
     AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
-    AudioPort<2, 24, 48000, 3, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
+    AudioPort<2, 24, 48000, 3, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24Lo_16All>,
     MidiPort<1, 3>,
     MidiPort<1, 1>,
     2,
