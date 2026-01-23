@@ -17,12 +17,13 @@ namespace nr {
     // Process control
     inline constexpr uint32_t Exit          = 0;
     inline constexpr uint32_t RegisterProc  = 1;
-    
+
     // Event handling
     inline constexpr uint32_t WaitEvent     = 2;
     inline constexpr uint32_t SendEvent     = 3;
     inline constexpr uint32_t PeekEvent     = 4;
-    
+    inline constexpr uint32_t Yield         = 5;   // Return control to kernel
+
     // Time
     inline constexpr uint32_t GetTime       = 10;
     inline constexpr uint32_t Sleep         = 11;
@@ -119,6 +120,11 @@ inline void log(const char* msg) noexcept {
     while (true) {
         __asm__ volatile("");
     }
+}
+
+/// Yield control back to kernel (used after initialization)
+inline void yield() noexcept {
+    call(nr::Yield);
 }
 
 /// Get shared memory pointer

@@ -11,13 +11,13 @@
 extern "C" {
 
 // Initialized data section (copy from flash to RAM)
-extern uint32_t _sidata;    // Start of .data in flash
-extern uint32_t _sdata;     // Start of .data in RAM
-extern uint32_t _edata;     // End of .data in RAM
+extern uint32_t _sidata; // Start of .data in flash
+extern uint32_t _sdata;  // Start of .data in RAM
+extern uint32_t _edata;  // End of .data in RAM
 
 // Uninitialized data section (zero-fill)
-extern uint32_t _sbss;      // Start of .bss
-extern uint32_t _ebss;      // End of .bss
+extern uint32_t _sbss; // Start of .bss
+extern uint32_t _ebss; // End of .bss
 
 // Global constructors/destructors
 extern void (*__init_array_start[])(void);
@@ -27,7 +27,6 @@ extern void (*__fini_array_end[])(void);
 
 // User main function
 int main();
-
 }
 
 // ============================================================================
@@ -37,7 +36,7 @@ int main();
 extern "C" {
 
 /// Application entry point (called by kernel)
-/// 
+///
 /// This function:
 /// 1. Initializes .data and .bss sections
 /// 2. Calls global constructors
@@ -50,23 +49,22 @@ void _start() {
     while (dst < &_edata) {
         *dst++ = *src++;
     }
-    
+
     // Initialize .bss section (zero-fill)
     dst = &_sbss;
     while (dst < &_ebss) {
         *dst++ = 0;
     }
-    
+
     // Call global constructors
     for (auto fn = __init_array_start; fn < __init_array_end; ++fn) {
         (*fn)();
     }
-    
+
     // Call main - typically registers processor and returns
+    // After main() returns, control returns to kernel normally
+    // (Yield syscall is no longer needed - kernel continues in privileged mode)
     main();
-    
-    // Return to kernel (no destructors, no exit)
-    // The kernel will continue with USB init and audio loop
 }
 
 /// Minimal abort handler
@@ -95,19 +93,19 @@ int __cxa_guard_acquire(int64_t* guard) {
     // Simple implementation - assumes single-threaded initialization
     if (*guard == 0) {
         *guard = 1;
-        return 1;  // Need to initialize
+        return 1; // Need to initialize
     }
-    return 0;  // Already initialized
+    return 0; // Already initialized
 }
 
 /// Guard release (mark initialization complete)
 void __cxa_guard_release(int64_t* guard) {
-    *guard = 2;  // Mark as fully initialized
+    *guard = 2; // Mark as fully initialized
 }
 
 /// Guard abort (initialization failed)
 void __cxa_guard_abort(int64_t* guard) {
-    *guard = 0;  // Reset to uninitialized
+    *guard = 0; // Reset to uninitialized
 }
 
 } // extern "C"
