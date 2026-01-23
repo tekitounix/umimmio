@@ -6,9 +6,78 @@
 #include <cstdint>
 #include <span>
 #include <array>
+#include <tuple>
+#include <type_traits>
+#include <atomic>
 #include <umidsp/audio/rate/asrc.hh>
 
 namespace umiusb {
+
+// ============================================================================
+// Sample Rate Lists (compile-time)
+// ============================================================================
+
+namespace detail {
+    template<size_t N>
+    constexpr uint32_t max_rate(const std::array<uint32_t, N>& rates) {
+        uint32_t max_val = 0;
+        for (uint32_t rate : rates) {
+            if (rate > max_val) max_val = rate;
+        }
+        return max_val;
+    }
+
+    template<size_t N>
+    constexpr uint32_t min_rate(const std::array<uint32_t, N>& rates) {
+        if constexpr (N == 0) {
+            return 0;
+        } else {
+            uint32_t min_val = rates[0];
+            for (uint32_t rate : rates) {
+                if (rate < min_val) min_val = rate;
+            }
+            return min_val;
+        }
+    }
+}  // namespace detail
+
+template<uint32_t... Rates>
+struct AudioRates {
+    static constexpr std::array<uint32_t, sizeof...(Rates)> values = {Rates...};
+    static constexpr size_t count = sizeof...(Rates);
+    static constexpr uint32_t max_rate = detail::max_rate(values);
+    static constexpr uint32_t min_rate = detail::min_rate(values);
+};
+
+// ============================================================================
+// Alternate Format Settings (UAC1 streaming interfaces)
+// ============================================================================
+
+template<uint8_t BitDepth_, typename Rates_>
+struct AudioAltSetting {
+    static constexpr uint8_t BIT_DEPTH = BitDepth_;
+    using Rates = Rates_;
+    static constexpr size_t RATES_COUNT = Rates::count;
+    static constexpr auto RATES = Rates::values;
+    static constexpr uint32_t MAX_RATE = Rates::max_rate;
+};
+
+template<typename... AltSettings>
+struct AudioAltList {
+    static constexpr size_t count = sizeof...(AltSettings);
+
+    template<size_t Index>
+    using at = std::tuple_element_t<Index, std::tuple<AltSettings...>>;
+
+    static constexpr uint32_t max_rate = []() {
+        uint32_t max_val = 0;
+        ((max_val = (AltSettings::MAX_RATE > max_val) ? AltSettings::MAX_RATE : max_val), ...);
+        return max_val;
+    }();
+};
+
+template<uint8_t BitDepth_, typename Rates_>
+using DefaultAltList = AudioAltList<AudioAltSetting<BitDepth_, Rates_>>;
 
 // ============================================================================
 // UAC Version
@@ -43,8 +112,8 @@ enum class AudioDirection : uint8_t {
 // Type aliases for ASRC components from umidsp
 // ============================================================================
 
-// PI Rate Controller with USB Audio defaults (see lib/umidsp/include/asrc.hh)
-using PllRateController = umidsp::UsbAudioPiController;
+// PI Rate Controller (runtime configurable for buffer size)
+using PllRateController = umidsp::PiRateController;
 
 // ============================================================================
 // Feedback Calculator (for Asynchronous mode)
@@ -55,6 +124,11 @@ using PllRateController = umidsp::UsbAudioPiController;
 /// UAC2: 16.16 fixed-point format
 ///
 /// Based on TinyUSB's FIFO count method with proper low-pass filtering
+enum class FeedbackMode : uint8_t {
+    FifoLevel = 0,
+    BufferDelta = 1,
+};
+
 template<UacVersion Version = UacVersion::Uac1>
 class FeedbackCalculator {
 public:
@@ -76,14 +150,16 @@ public:
         sof_count_ = 0;
         accumulated_samples_ = 0;
         
-        // TinyUSB-style min/max: ±1 sample/frame around nominal (in Q format)
-        // Use Q math to preserve fractional rates (e.g. 96.028 kHz)
-        min_feedback_ = nominal_feedback_ - (1U << FEEDBACK_SHIFT);
-        max_feedback_ = nominal_feedback_ + (1U << FEEDBACK_SHIFT);
+        // Clamp to ±1 sample/frame in Q format (host typically only follows ±1)
+        const uint32_t range = (1U << FEEDBACK_SHIFT);
+        min_feedback_ = nominal_feedback_ - range;
+        max_feedback_ = nominal_feedback_ + range;
         
         // Initialize FIFO level average (Q16 format) to target level
         // Target is fifo_threshold (half of FIFO depth in frames)
         fifo_level_avg_q16_ = fifo_threshold_ << 16;
+        last_level_ = fifo_threshold_;
+        update_delta_gain();
 
         // Calculate TinyUSB-style rate constants
         // rate_const = (max_value - nominal) / fifo_threshold
@@ -107,6 +183,8 @@ public:
             if (rate_const_down_ == 0) rate_const_down_ = 1;
         }
         fifo_level_avg_q16_ = fifo_threshold_ << 16;
+        last_level_ = fifo_threshold_;
+        update_delta_gain();
     }
 
     /// Set the actual device sample rate (for FIFO-based feedback)
@@ -123,9 +201,10 @@ public:
         nominal_feedback_ = (actual_rate << FEEDBACK_SHIFT) / 1000;
         current_feedback_ = nominal_feedback_;
 
-        // Recalculate min/max based on actual rate (±1 sample/frame in Q format)
-        min_feedback_ = nominal_feedback_ - (1U << FEEDBACK_SHIFT);
-        max_feedback_ = nominal_feedback_ + (1U << FEEDBACK_SHIFT);
+        // Recalculate min/max based on actual rate (±1 sample/frame)
+        const uint32_t range = (1U << FEEDBACK_SHIFT);
+        min_feedback_ = nominal_feedback_ - range;
+        max_feedback_ = nominal_feedback_ + range;
         
         // Recalculate rate constants
         rate_const_up_ = (max_feedback_ - nominal_feedback_) / fifo_threshold_;
@@ -135,6 +214,8 @@ public:
 
         // Initialize FIFO level average to target
         fifo_level_avg_q16_ = fifo_threshold_ << 16;
+        last_level_ = fifo_threshold_;
+        update_delta_gain();
     }
 
     /// Call this every SOF (1ms for FS, 125us for HS) to update timing
@@ -160,26 +241,36 @@ public:
     /// 2. Compare filtered level to threshold
     /// 3. Apply linear adjustment based on deviation
     void update_from_fifo_level(uint32_t current_level) {
-        // TinyUSB-style low-pass filter (64-point averaging)
+        // Low-pass filter (32-point averaging) for smoother feedback
         // Use 64-bit arithmetic to prevent overflow (like TinyUSB)
-        // lvl = (lvl * 63 + (lvl_new << 16)) >> 6
+        // lvl = (lvl * 31 + (lvl_new << 16)) >> 5
         uint64_t lvl64 = fifo_level_avg_q16_;
-        lvl64 = ((lvl64 * 63) + (static_cast<uint64_t>(current_level) << 16)) >> 6;
+        lvl64 = ((lvl64 * 31) + (static_cast<uint64_t>(current_level) << 16)) >> 5;
         fifo_level_avg_q16_ = static_cast<uint32_t>(lvl64);
 
         // Extract integer part of filtered level
         uint32_t filtered_level = fifo_level_avg_q16_ >> 16;
 
-        // Calculate feedback adjustment based on deviation from target
-        // TinyUSB approach: linear adjustment based on frame count difference
-        if (filtered_level < fifo_threshold_) {
-            // Buffer underfilled: increase feedback to request more data from host
-            uint32_t deficit = fifo_threshold_ - filtered_level;
-            current_feedback_ = nominal_feedback_ + (deficit * rate_const_up_);
+        if (mode_ == FeedbackMode::BufferDelta) {
+            // Reference-style delta feedback: adjust based on frame-to-frame level change
+            int32_t delta = static_cast<int32_t>(filtered_level) - static_cast<int32_t>(last_level_);
+            last_level_ = filtered_level;
+            int64_t adjust = (static_cast<int64_t>(delta_gain_q16_) * delta) >> 16;
+            int64_t fb = static_cast<int64_t>(nominal_feedback_) + adjust;
+            if (fb < static_cast<int64_t>(min_feedback_)) fb = min_feedback_;
+            if (fb > static_cast<int64_t>(max_feedback_)) fb = max_feedback_;
+            current_feedback_ = static_cast<uint32_t>(fb);
         } else {
-            // Buffer overfilled: decrease feedback to request less data from host
-            uint32_t excess = filtered_level - fifo_threshold_;
-            current_feedback_ = nominal_feedback_ - (excess * rate_const_down_);
+            // TinyUSB approach: linear adjustment based on deviation from target
+            if (filtered_level < fifo_threshold_) {
+                // Buffer underfilled: increase feedback to request more data from host
+                uint32_t deficit = fifo_threshold_ - filtered_level;
+                current_feedback_ = nominal_feedback_ + (deficit * rate_const_up_);
+            } else {
+                // Buffer overfilled: decrease feedback to request less data from host
+                uint32_t excess = filtered_level - fifo_threshold_;
+                current_feedback_ = nominal_feedback_ - (excess * rate_const_down_);
+            }
         }
 
         // Clamp to TinyUSB-style ±1 sample/frame range
@@ -195,10 +286,20 @@ public:
     /// Get feedback as byte array for USB transfer
     [[nodiscard]] auto get_feedback_bytes() const {
         if constexpr (Version == UacVersion::Uac1) {
+            // If the host ignores fractional feedback, dither to integer samples/ms.
+            uint32_t fb = current_feedback_;
+            uint32_t int_fb = fb & 0xFFFFC000u;           // integer part in 10.14
+            uint32_t frac = fb & 0x00003FFFu;             // fractional part
+            uint32_t acc = fb_dither_accum_ + frac;
+            if (acc >= (1U << FEEDBACK_SHIFT)) {
+                int_fb += (1U << FEEDBACK_SHIFT);
+                acc -= (1U << FEEDBACK_SHIFT);
+            }
+            fb_dither_accum_ = acc;
             return std::array<uint8_t, 3>{
-                static_cast<uint8_t>(current_feedback_ & 0xFF),
-                static_cast<uint8_t>((current_feedback_ >> 8) & 0xFF),
-                static_cast<uint8_t>((current_feedback_ >> 16) & 0xFF),
+                static_cast<uint8_t>(int_fb & 0xFF),
+                static_cast<uint8_t>((int_fb >> 8) & 0xFF),
+                static_cast<uint8_t>((int_fb >> 16) & 0xFF),
             };
         } else {
             return std::array<uint8_t, 4>{
@@ -215,7 +316,29 @@ public:
         return static_cast<float>(current_feedback_) / (1 << FEEDBACK_SHIFT);
     }
 
+    void set_feedback_mode(FeedbackMode mode) { mode_ = mode; }
+
+    void set_delta_gain_q16(uint32_t gain_q16) {
+        delta_gain_q16_ = gain_q16;
+        delta_gain_auto_ = false;
+    }
+
+    void set_delta_gain_auto() {
+        delta_gain_auto_ = true;
+        update_delta_gain();
+    }
+
 private:
+    void update_delta_gain() {
+        if (!delta_gain_auto_) return;
+        if (fifo_threshold_ == 0) {
+            delta_gain_q16_ = 0;
+            return;
+        }
+        // Default: 1 sample/frame adjustment spread across fifo_threshold frames.
+        delta_gain_q16_ = (1u << (FEEDBACK_SHIFT + 16)) / fifo_threshold_;
+    }
+
     void update_feedback() {
         if (accumulated_samples_ > 0) {
             // Calculate feedback using shift instead of division
@@ -246,6 +369,11 @@ private:
     uint32_t accumulated_samples_ = 0;
     uint32_t fifo_level_avg_q16_ = 128 << 16;  // Q16 filtered FIFO level
     uint32_t fifo_threshold_ = 128;  // Target FIFO level in frames (half of FIFO depth)
+    mutable uint32_t fb_dither_accum_ = 0;
+    uint32_t last_level_ = 0;
+    FeedbackMode mode_ = FeedbackMode::FifoLevel;
+    uint32_t delta_gain_q16_ = 0;
+    bool delta_gain_auto_ = true;
 
     // TinyUSB-style rate constants for FIFO-based feedback
     // Calculated as: rate_const = (max_value - nominal) / fifo_threshold
@@ -260,24 +388,24 @@ private:
 
 /// Lock-free SPSC ring buffer for USB <-> Audio DMA transfer
 /// Supports optional cubic hermite interpolation for ASRC
-template<uint32_t Frames = 256, uint8_t Channels = 2>
+template<uint32_t Frames = 256, uint8_t Channels = 2, typename SampleT = int32_t>
 class AudioRingBuffer {
 public:
     static_assert((Frames & (Frames - 1)) == 0, "Frames must be power of 2");
     static constexpr uint32_t MASK = Frames - 1;
-    // Lower prebuffer for reduced latency (was Frames/2, now Frames/4)
-    static constexpr uint32_t PREBUFFER_FRAMES = Frames / 4;
+    // Prebuffer half the ring buffer for stability at high rates
+    static constexpr uint32_t PREBUFFER_FRAMES = Frames / 2;
     static constexpr uint32_t SAMPLES_PER_FRAME = Channels;
-    static constexpr uint32_t BYTES_PER_FRAME = Channels * sizeof(int16_t);
+    static constexpr uint32_t BYTES_PER_FRAME = Channels * sizeof(SampleT);
     
     /// Get buffer capacity in frames
     [[nodiscard]] static constexpr uint32_t capacity() noexcept { return Frames; }
 
     void reset() {
-        write_pos_ = 0;
-        read_pos_ = 0;
+        write_pos_.store(0, std::memory_order_relaxed);
+        read_pos_.store(0, std::memory_order_relaxed);
         read_frac_ = 0;
-        playback_started_ = false;
+        playback_started_.store(false, std::memory_order_relaxed);
         underrun_count_ = 0;
         overrun_count_ = 0;
     }
@@ -285,15 +413,29 @@ public:
     /// Reset and immediately enable reading (for Audio IN - no prebuffer needed)
     void reset_and_start() {
         reset();
-        playback_started_ = true;
+        playback_started_.store(true, std::memory_order_release);
     }
 
     /// Write frames from USB callback (producer)
-    uint32_t write(const int16_t* samples, uint32_t frame_count) {
-        uint32_t write = write_pos_;
-        uint32_t read = read_pos_;
+    uint32_t write(const SampleT* samples, uint32_t frame_count) {
+        uint32_t write = write_pos_.load(std::memory_order_relaxed);
+        uint32_t read = read_pos_.load(std::memory_order_acquire);
+        bool started = playback_started_.load(std::memory_order_acquire);
+
         uint32_t available = (write - read) & MASK;
         uint32_t free_space = Frames - 1 - available;
+
+        // If playback hasn't started and we're about to overrun, advance read_pos
+        // to keep the most recent data (circular buffer behavior during prebuffer)
+        if (!started && frame_count > free_space) {
+            // Advance read_pos to make room, but keep at least PREBUFFER_FRAMES
+            uint32_t target_read = (write + frame_count - PREBUFFER_FRAMES) & MASK;
+            read_pos_.store(target_read, std::memory_order_release);
+            // Recalculate free_space with new read_pos
+            read = target_read;
+            available = (write - read) & MASK;
+            free_space = Frames - 1 - available;
+        }
 
         if (frame_count > free_space) {
             frame_count = free_space;
@@ -317,13 +459,14 @@ public:
             }
         }
 
-        asm volatile("dmb" ::: "memory");
-        write_pos_ = (write + frame_count) & MASK;
+        // Release semantics: ensure all writes to buffer are visible before updating write_pos_
+        write_pos_.store((write + frame_count) & MASK, std::memory_order_release);
 
-        if (!playback_started_) {
-            uint32_t buffered = (write_pos_ - read_pos_) & MASK;
+        if (!started) {
+            uint32_t buffered = (write_pos_.load(std::memory_order_relaxed) -
+                                 read_pos_.load(std::memory_order_relaxed)) & MASK;
             if (buffered >= PREBUFFER_FRAMES) {
-                playback_started_ = true;
+                playback_started_.store(true, std::memory_order_release);
             }
         }
 
@@ -331,15 +474,15 @@ public:
     }
 
     /// Read frames for Audio DMA (consumer)
-    uint32_t read(int16_t* dest, uint32_t frame_count) {
-        if (!playback_started_) {
+    uint32_t read(SampleT* dest, uint32_t frame_count) {
+        if (!playback_started_.load(std::memory_order_acquire)) {
             __builtin_memset(dest, 0, static_cast<size_t>(frame_count) * BYTES_PER_FRAME);
             return 0;
         }
 
-        asm volatile("dmb" ::: "memory");
-        uint32_t write = write_pos_;
-        uint32_t read = read_pos_;
+        // Acquire semantics: ensure we see all buffer updates before reading write_pos_
+        uint32_t write = write_pos_.load(std::memory_order_acquire);
+        uint32_t read = read_pos_.load(std::memory_order_relaxed);
         uint32_t available = (write - read) & MASK;
 
         // Calculate how many frames we can actually read
@@ -349,29 +492,14 @@ public:
             uint32_t read_idx = read & MASK;
             uint32_t first_chunk = Frames - read_idx;  // Frames until wrap
 
-            if constexpr (Channels == 2) {
-                // Stereo: batch copy as 32-bit words
-                auto* dst = reinterpret_cast<uint32_t*>(dest);
-                const auto* src = reinterpret_cast<const uint32_t*>(buffer_);
-
-                if (to_read <= first_chunk) {
-                    // No wrap: single copy
-                    __builtin_memcpy(dst, src + read_idx, to_read * sizeof(uint32_t));
-                } else {
-                    // Wrap: two copies
-                    __builtin_memcpy(dst, src + read_idx, first_chunk * sizeof(uint32_t));
-                    __builtin_memcpy(dst + first_chunk, src, (to_read - first_chunk) * sizeof(uint32_t));
-                }
+            if (to_read <= first_chunk) {
+                __builtin_memcpy(dest, buffer_ + (read_idx * Channels), to_read * BYTES_PER_FRAME);
             } else {
-                // Mono or other channel counts
-                if (to_read <= first_chunk) {
-                    __builtin_memcpy(dest, buffer_ + (read_idx * Channels), to_read * BYTES_PER_FRAME);
-                } else {
-                    __builtin_memcpy(dest, buffer_ + (read_idx * Channels), first_chunk * BYTES_PER_FRAME);
-                    __builtin_memcpy(dest + (first_chunk * Channels), buffer_, (to_read - first_chunk) * BYTES_PER_FRAME);
-                }
+                __builtin_memcpy(dest, buffer_ + (read_idx * Channels), first_chunk * BYTES_PER_FRAME);
+                __builtin_memcpy(dest + (first_chunk * Channels), buffer_, (to_read - first_chunk) * BYTES_PER_FRAME);
             }
-            read_pos_ = (read + to_read) & MASK;
+            // Release semantics: ensure buffer reads complete before updating read_pos_
+            read_pos_.store((read + to_read) & MASK, std::memory_order_release);
         }
 
         // Zero-fill any remaining frames (underrun)
@@ -389,15 +517,15 @@ public:
     ///   > 0x10000: consume more input (speed up output)
     ///   < 0x10000: consume fewer input (slow down output)
     /// Returns actual frames output (always == frame_count if enough data)
-    uint32_t read_interpolated(int16_t* dest, uint32_t frame_count, uint32_t rate_q16) {
-        if (!playback_started_) {
+    uint32_t read_interpolated(SampleT* dest, uint32_t frame_count, uint32_t rate_q16) {
+        if (!playback_started_.load(std::memory_order_acquire)) {
             __builtin_memset(dest, 0, static_cast<size_t>(frame_count) * BYTES_PER_FRAME);
             return 0;
         }
 
-        asm volatile("dmb" ::: "memory");
-        uint32_t write = write_pos_;
-        uint32_t read = read_pos_;
+        // Acquire semantics: ensure we see all buffer updates
+        uint32_t write = write_pos_.load(std::memory_order_acquire);
+        uint32_t read = read_pos_.load(std::memory_order_relaxed);
         uint32_t available = (write - read) & MASK;
 
         // Need at least 4 frames for cubic interpolation (y0, y1, y2, y3)
@@ -412,7 +540,7 @@ public:
 
         while (out_frames < frame_count) {
             // Check if we have enough samples (need at least 3 ahead: y1, y2, y3)
-            uint32_t cur_read = read_pos_;
+            uint32_t cur_read = read_pos_.load(std::memory_order_relaxed);
             uint32_t cur_available = (write - cur_read) & MASK;
             if (cur_available < 4) {
                 break;  // Not enough data
@@ -426,13 +554,19 @@ public:
 
             // Interpolate each channel
             for (uint8_t ch = 0; ch < Channels; ++ch) {
-                int16_t s0 = buffer_[idx0 * Channels + ch];
-                int16_t s1 = buffer_[idx1 * Channels + ch];
-                int16_t s2 = buffer_[idx2 * Channels + ch];
-                int16_t s3 = buffer_[idx3 * Channels + ch];
+                // Read samples - compiler may reorder but DMB at loop start ensures consistency
+                SampleT ch_s0 = buffer_[(idx0 * Channels) + ch];
+                SampleT ch_s1 = buffer_[(idx1 * Channels) + ch];
+                SampleT ch_s2 = buffer_[(idx2 * Channels) + ch];
+                SampleT ch_s3 = buffer_[(idx3 * Channels) + ch];
 
-                dest[out_frames * Channels + ch] =
-                    umidsp::cubic_hermite::interpolate_i16(s0, s1, s2, s3, frac);
+                if constexpr (std::is_same_v<SampleT, int16_t>) {
+                    dest[out_frames * Channels + ch] =
+                        umidsp::cubic_hermite::interpolate_i16(ch_s0, ch_s1, ch_s2, ch_s3, frac);
+                } else {
+                    dest[out_frames * Channels + ch] =
+                        umidsp::cubic_hermite::interpolate_i32(ch_s0, ch_s1, ch_s2, ch_s3, frac);
+                }
             }
             out_frames++;
 
@@ -442,7 +576,12 @@ public:
             frac &= 0xFFFF;
 
             // Advance read position by consumed whole samples
-            read_pos_ = (cur_read + consumed) & MASK;
+            read_pos_.store((cur_read + consumed) & MASK, std::memory_order_release);
+
+            // Re-check write position periodically to catch new USB data
+            if ((out_frames & 7) == 0) {
+                write = write_pos_.load(std::memory_order_acquire);
+            }
         }
 
         read_frac_ = frac;
@@ -470,34 +609,34 @@ public:
         return static_cast<uint32_t>(0x10000 + (ppm * 65536 + 500000) / 1000000);
     }
 
-    [[nodiscard]] bool is_playback_started() const { return playback_started_; }
-    void start_playback() { playback_started_ = true; }
+    [[nodiscard]] bool is_playback_started() const { return playback_started_.load(std::memory_order_acquire); }
+    void start_playback() { playback_started_.store(true, std::memory_order_release); }
     [[nodiscard]] uint32_t buffered_frames() const {
-        return (write_pos_ - read_pos_) & MASK;
+        return (write_pos_.load(std::memory_order_relaxed) - read_pos_.load(std::memory_order_relaxed)) & MASK;
     }
     [[nodiscard]] int32_t buffer_level() const {
         return static_cast<int32_t>(buffered_frames());
     }
     [[nodiscard]] uint32_t underrun_count() const { return underrun_count_; }
     [[nodiscard]] uint32_t overrun_count() const { return overrun_count_; }
-    
+
     // Debug: get raw sample at buffer index
-    [[nodiscard]] int16_t dbg_sample_at(uint32_t idx) const {
+    [[nodiscard]] SampleT dbg_sample_at(uint32_t idx) const {
         return buffer_[idx];
     }
-    [[nodiscard]] uint32_t dbg_write_pos() const { return write_pos_; }
-    [[nodiscard]] uint32_t dbg_read_pos() const { return read_pos_; }
+    [[nodiscard]] uint32_t dbg_write_pos() const { return write_pos_.load(std::memory_order_relaxed); }
+    [[nodiscard]] uint32_t dbg_read_pos() const { return read_pos_.load(std::memory_order_relaxed); }
 
     /// Get consumed input frames from last read_interpolated() call
     /// Use this for USB feedback calculation instead of output frame count
     [[nodiscard]] uint32_t last_consumed_input() const { return last_consumed_input_; }
 
 private:
-    alignas(32) int16_t buffer_[Frames * Channels]{};
-    volatile uint32_t write_pos_ = 0;
-    volatile uint32_t read_pos_ = 0;
+    alignas(32) SampleT buffer_[Frames * Channels]{};
+    std::atomic<uint32_t> write_pos_{0};
+    std::atomic<uint32_t> read_pos_{0};
     uint32_t read_frac_ = 0;  // Fractional read position (Q0.16)
-    volatile bool playback_started_ = false;
+    std::atomic<bool> playback_started_{false};
     uint32_t underrun_count_ = 0;
     uint32_t overrun_count_ = 0;
     uint32_t last_consumed_input_ = 0;  // Input frames consumed in last read_interpolated()

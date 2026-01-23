@@ -16,6 +16,7 @@ target("stm32f4_kernel")
     add_files("src/*.cc")
     add_files("$(projectdir)/lib/bsp/stm32f4-disco/syscalls.cc")
     add_files("$(projectdir)/lib/umios/kernel/loader.cc")
+    add_files("$(projectdir)/lib/umios/backend/cm/common/irq.cc")
     
     -- Dependencies
     add_deps("umi.embedded.full")

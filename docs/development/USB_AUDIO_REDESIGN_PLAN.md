@@ -134,9 +134,9 @@ dev.init();
    * 44.1/48/96k、UAC1/UAC2、Sync/Adaptive/Async の確認。
 
 ## 移行方針
-* 既存 `AudioInterface` は **下位互換として保持**。
-* 新 API から内部で `AudioInterface` を構築するラッパーを提供。
-* MIDI 部分は umidi の API を前提に段階的に置き換える。
+* **完全に新規移行**する。
+* 既存 `AudioInterface` との下位互換は維持しない。
+* MIDI 部分は umidi の API を前提に置き換える。
 
 ## 成果物
 * 新 Config API + Descriptor Builder

@@ -3,6 +3,7 @@
 
 import ctypes
 import sys
+import time
 
 # Load CoreAudio and CoreFoundation frameworks
 coreaudio = ctypes.CDLL('/System/Library/Frameworks/CoreAudio.framework/CoreAudio')
@@ -123,8 +124,8 @@ def get_sample_rate(dev_id):
         return None
     return rate.value
 
-def set_sample_rate(dev_id, rate):
-    """Set sample rate of device"""
+def set_sample_rate(dev_id, rate, retries=5, delay=0.2):
+    """Set sample rate of device with verification retries"""
     # Try Output scope first (for playback devices)
     for scope_name, scope in [("Output", kAudioObjectPropertyScopeOutput), 
                                ("Global", kAudioObjectPropertyScopeGlobal)]:
@@ -149,13 +150,14 @@ def set_sample_rate(dev_id, rate):
         print(f"  AudioObjectSetPropertyData returned: {result}")
         
         if result == 0:
-            # Check if it actually changed
-            actual = get_sample_rate(dev_id)
-            if actual and abs(actual - rate) < 100:
-                print(f"  Success with {scope_name} scope!")
-                return True
-            else:
-                print(f"  API returned 0 but rate is still {actual}")
+            # Check if it actually changed (CoreAudio can lag)
+            for attempt in range(1, retries + 1):
+                actual = get_sample_rate(dev_id)
+                if actual and abs(actual - rate) < 100:
+                    print(f"  Success with {scope_name} scope! (attempt {attempt})")
+                    return True
+                time.sleep(delay)
+            print(f"  API returned 0 but rate is still {actual}")
         else:
             errors = {
                 -50: "paramErr",
