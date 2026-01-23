@@ -84,7 +84,7 @@ auto callback = [this](int value) {
 
 // Priority 3: プロジェクトヘッダ (^".*")
 #include "my_header.hh"
-#include "umidsp/oscillator.hh"
+#include "oscillator.hh"
 ```
 
 ### プリプロセッサ

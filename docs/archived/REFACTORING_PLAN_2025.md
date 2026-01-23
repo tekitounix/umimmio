@@ -98,7 +98,7 @@ umi/
 #include <hal/stm32/gpio.hh>
 #include <bsp/stm32f4-disco/hw_impl.hh>
 #include <umidi/ump.hh>
-#include <umidsp/filter.hh>
+#include <filter.hh>
 #include <umiui/controls.hh>
 #include <umigui/backend.hh>
 ```

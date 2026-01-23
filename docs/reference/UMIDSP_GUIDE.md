@@ -13,6 +13,43 @@
 - `dt` を使って除算を避ける。
 - **純粋関数**はこの限りではなく、`constexpr` / `const fn` を優先。
 
+**統一するべき形（推奨）**
+- 係数は注入（共有/ダブルバッファで更新）。
+- 状態はユニット内で保持（DSPスレッドが更新）。
+- `process()` で処理（C++は `operator()` をエイリアス化）。
+
+**この形に統一する理由**
+- 係数共有により **更新コストを最小化** できる。
+- 状態を内包することで **スレッド安全性** と **局所性** が高い。
+- `process()` に統一すると **テスト/合成** が容易。
+
+**複数出力を持つユニットの扱い**
+- `process()` 内で状態更新し、出力はゲッター/参照で取得。
+
+```cpp
+class Svf {
+public:
+  void set_params(float cutoff, float resonance, float dt);
+  void process(float input);  // 状態更新のみ
+  float lp() const { return lp_; }
+  float bp() const { return bp_; }
+  float hp() const { return hp_; }
+private:
+  float lp_{}, bp_{}, hp_{};
+};
+```
+
+```rust
+struct Svf { lp: f32, bp: f32, hp: f32 }
+impl Svf {
+  fn set_params(&mut self, cutoff: f32, resonance: f32, dt: f32) { /* ... */ }
+  fn process(&mut self, input: f32) { /* 更新 */ }
+  fn lp(&self) -> f32 { self.lp }
+  fn bp(&self) -> f32 { self.bp }
+  fn hp(&self) -> f32 { self.hp }
+}
+```
+
 ### B. 構造分類
 - 純粋関数: 状態なし・小関数。
 - 状態を持つユニット: 係数 + 状態 + `process()`。
@@ -33,6 +70,7 @@
 ### F. 実装スタイル
 - C++はヘッダオンリー + `inline` が基本。
 - Rustは `struct + impl` で同等。
+- **可能な限り共通インターフェイスに統一**（`set_params` / `process` / `reset`）。
 
 ---
 
@@ -109,6 +147,43 @@
   - 係数は `set_params()` で事前計算。
   - **純粋関数DSP**は `constexpr` / `const fn` を優先（`set_params()` を持たない）。
 
+**純粋関数DSPの例（C++/Rust）**
+
+```cpp
+constexpr float lerp(float a, float b, float t) {
+  return a + (b - a) * t;
+}
+```
+
+```rust
+const fn lerp(a: f32, b: f32, t: f32) -> f32 {
+  a + (b - a) * t
+}
+```
+
+**状態を引数に取る関数の例（C++/Rust）**
+
+```cpp
+struct OnePoleState { float z1 = 0.0f; };
+
+inline float onepole_process(float a0, float b1, OnePoleState& s, float in) {
+  float y = in * a0 + s.z1 * b1;
+  s.z1 = y;
+  return y;
+}
+```
+
+```rust
+#[derive(Clone, Copy, Default)]
+struct OnePoleState { z1: f32 }
+
+fn onepole_process(a0: f32, b1: f32, s: &mut OnePoleState, input: f32) -> f32 {
+  let y = input * a0 + s.z1 * b1;
+  s.z1 = y;
+  y
+}
+```
+
 ```cpp
 class DspObject {
 public:
@@ -160,6 +235,28 @@ public:
 private:
   FilterCoeffs coeffs{};
   FilterState state{};
+};
+```
+
+**係数注入 + 状態プライベートの例（C++）**
+
+```cpp
+class BiquadInjected {
+public:
+  void bind_coeffs(const FilterCoeffs* shared) { coeffs = shared; }
+
+  float operator()(float input) {
+    const auto& c = *coeffs; // 共有係数を参照
+    float out = input * c.a0 + state.z1 * c.b1;
+    state.z1 = out;
+    return out;
+  }
+
+  void reset() { state = {}; }
+
+private:
+  const FilterCoeffs* coeffs = nullptr; // 係数は注入
+  FilterState state{};                  // 状態は内部保持
 };
 ```
 
@@ -363,6 +460,119 @@ for (uint32_t i = 0; i < frames; ++i) {
     c0.b1 + (c1.b1 - c0.b1) * t,
   };
   out[i] = onepole_process(c, state, in[i]);
+}
+```
+
+#### 係数更新パターン別の構造（最も効率が出やすい形）
+
+**1) モジュレーション前提（毎サンプル更新）**
+- 係数は軽量化し、`process()` 直前で更新。
+
+```cpp
+for (uint32_t i = 0; i < frames; ++i) {
+  cutoff += mod[i];
+  auto c = onepole_set_params(cutoff, dt); // 軽い式のみ
+  out[i] = onepole_process(c, state, in[i]);
+}
+```
+
+**2) 演奏中の変更がまれ（イベント時のみ更新）**
+- UI/イベント側で係数更新 → 共有係数に注入。
+
+```cpp
+// Event thread
+shared_coeffs = onepole_set_params(cutoff, dt);
+
+// DSP thread
+const auto& c = shared_coeffs;
+for (uint32_t i = 0; i < frames; ++i) {
+  out[i] = onepole_process(c, state, in[i]);
+}
+```
+
+**3) 演奏中に変更なし（固定パラメータ）**
+- 係数は初期化時に一度だけ計算。
+
+```cpp
+const auto c = onepole_set_params(cutoff, dt);
+for (uint32_t i = 0; i < frames; ++i) {
+  out[i] = onepole_process(c, state, in[i]);
+}
+```
+
+#### 複数パラメータの更新（個別 / 一括）
+
+**個別に更新したい場合**（複数の係数を分割）
+
+```cpp
+struct FilterCoeffs {
+  float a0, b1;
+  float mix;   // 例: dry/wet
+  float gain;
+};
+
+void update_gain(FilterCoeffs& c, float gain) { c.gain = gain; }
+void update_mix(FilterCoeffs& c, float mix) { c.mix = mix; }
+```
+
+**まとめて更新したい場合**（`set_params` に集約）
+
+```cpp
+struct FilterParams { float cutoff, q, gain, mix; };
+
+inline FilterCoeffs set_params(const FilterParams& p, float dt) {
+  FilterCoeffs c;
+  float w = p.cutoff * dt;
+  c.a0 = w;
+  c.b1 = 1.0f - w;
+  c.gain = p.gain;
+  c.mix = p.mix;
+  return c;
+}
+```
+
+#### 関数型っぽい更新（係数は値、状態は別）
+
+**C++**
+
+```cpp
+struct OnePoleCoeffs { float a0, b1; };
+struct OnePoleState  { float z1 = 0.0f; };
+struct OnePoleParams { float cutoff; };
+
+inline OnePoleCoeffs onepole_coeffs(const OnePoleParams& p, float dt) {
+  float w = p.cutoff * dt;
+  return { w, 1.0f - w };
+}
+
+inline float onepole_process(const OnePoleCoeffs& c, OnePoleState& s, float in) {
+  float y = in * c.a0 + s.z1 * c.b1;
+  s.z1 = y;
+  return y;
+}
+```
+
+**Rust**
+
+```rust
+#[derive(Clone, Copy, Default)]
+struct OnePoleCoeffs { a0: f32, b1: f32 }
+
+#[derive(Clone, Copy, Default)]
+struct OnePoleState { z1: f32 }
+
+#[derive(Clone, Copy, Default)]
+struct OnePoleParams { cutoff: f32 }
+
+fn onepole_coeffs(p: OnePoleParams, dt: f32) -> OnePoleCoeffs {
+  let w = p.cutoff * dt;
+  OnePoleCoeffs { a0: w, b1: 1.0 - w }
+}
+
+fn onepole_process(c: OnePoleCoeffs, s: &mut OnePoleState, input: f32) -> f32 {
+  let y = input * c.a0 + s.z1 * c.b1;
+  s.z1 = y;
+  y
 }
 ```
 
