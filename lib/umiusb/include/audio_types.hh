@@ -3,13 +3,13 @@
 // Shared between UAC1 and UAC2 implementations
 #pragma once
 
+#include <array>
+#include <atomic>
+#include <audio/rate/asrc.hh>
 #include <cstdint>
 #include <span>
-#include <array>
 #include <tuple>
 #include <type_traits>
-#include <atomic>
-#include <umidsp/audio/rate/asrc.hh>
 
 namespace umiusb {
 
@@ -18,30 +18,32 @@ namespace umiusb {
 // ============================================================================
 
 namespace detail {
-    template<size_t N>
-    constexpr uint32_t max_rate(const std::array<uint32_t, N>& rates) {
-        uint32_t max_val = 0;
+template <size_t N>
+constexpr uint32_t max_rate(const std::array<uint32_t, N>& rates) {
+    uint32_t max_val = 0;
+    for (uint32_t rate : rates) {
+        if (rate > max_val)
+            max_val = rate;
+    }
+    return max_val;
+}
+
+template <size_t N>
+constexpr uint32_t min_rate(const std::array<uint32_t, N>& rates) {
+    if constexpr (N == 0) {
+        return 0;
+    } else {
+        uint32_t min_val = rates[0];
         for (uint32_t rate : rates) {
-            if (rate > max_val) max_val = rate;
+            if (rate < min_val)
+                min_val = rate;
         }
-        return max_val;
+        return min_val;
     }
+}
+} // namespace detail
 
-    template<size_t N>
-    constexpr uint32_t min_rate(const std::array<uint32_t, N>& rates) {
-        if constexpr (N == 0) {
-            return 0;
-        } else {
-            uint32_t min_val = rates[0];
-            for (uint32_t rate : rates) {
-                if (rate < min_val) min_val = rate;
-            }
-            return min_val;
-        }
-    }
-}  // namespace detail
-
-template<uint32_t... Rates>
+template <uint32_t... Rates>
 struct AudioRates {
     static constexpr std::array<uint32_t, sizeof...(Rates)> values = {Rates...};
     static constexpr size_t count = sizeof...(Rates);
@@ -53,7 +55,7 @@ struct AudioRates {
 // Alternate Format Settings (UAC1 streaming interfaces)
 // ============================================================================
 
-template<uint8_t BitDepth_, typename Rates_>
+template <uint8_t BitDepth_, typename Rates_>
 struct AudioAltSetting {
     static constexpr uint8_t BIT_DEPTH = BitDepth_;
     using Rates = Rates_;
@@ -62,11 +64,11 @@ struct AudioAltSetting {
     static constexpr uint32_t MAX_RATE = Rates::max_rate;
 };
 
-template<typename... AltSettings>
+template <typename... AltSettings>
 struct AudioAltList {
     static constexpr size_t count = sizeof...(AltSettings);
 
-    template<size_t Index>
+    template <size_t Index>
     using at = std::tuple_element_t<Index, std::tuple<AltSettings...>>;
 
     static constexpr uint32_t max_rate = []() {
@@ -76,7 +78,7 @@ struct AudioAltList {
     }();
 };
 
-template<uint8_t BitDepth_, typename Rates_>
+template <uint8_t BitDepth_, typename Rates_>
 using DefaultAltList = AudioAltList<AudioAltSetting<BitDepth_, Rates_>>;
 
 // ============================================================================
@@ -84,8 +86,8 @@ using DefaultAltList = AudioAltList<AudioAltSetting<BitDepth_, Rates_>>;
 // ============================================================================
 
 enum class UacVersion : uint8_t {
-    Uac1 = 1,  // USB Audio Class 1.0 - widest compatibility
-    Uac2 = 2,  // USB Audio Class 2.0 - high sample rates, low latency
+    Uac1 = 1, // USB Audio Class 1.0 - widest compatibility
+    Uac2 = 2, // USB Audio Class 2.0 - high sample rates, low latency
 };
 
 // ============================================================================
@@ -93,9 +95,9 @@ enum class UacVersion : uint8_t {
 // ============================================================================
 
 enum class AudioSyncMode : uint8_t {
-    Async = 0x05,     // Asynchronous - device clock master, feedback EP required
-    Adaptive = 0x09,  // Adaptive - device adapts to host rate
-    Sync = 0x0D,      // Synchronous - locked to SOF (not recommended)
+    Async = 0x05,    // Asynchronous - device clock master, feedback EP required
+    Adaptive = 0x09, // Adaptive - device adapts to host rate
+    Sync = 0x0D,     // Synchronous - locked to SOF (not recommended)
 };
 
 // ============================================================================
@@ -129,12 +131,12 @@ enum class FeedbackMode : uint8_t {
     BufferDelta = 1,
 };
 
-template<UacVersion Version = UacVersion::Uac1>
+template <UacVersion Version = UacVersion::Uac1>
 class FeedbackCalculator {
-public:
+  public:
     // Use power-of-2 window for efficient shift-based calculation
-    static constexpr uint32_t MEASUREMENT_WINDOW = 32;  // SOF frames to average
-    static constexpr uint32_t WINDOW_SHIFT = 5;         // log2(32) = 5
+    static constexpr uint32_t MEASUREMENT_WINDOW = 32; // SOF frames to average
+    static constexpr uint32_t WINDOW_SHIFT = 5;        // log2(32) = 5
 
     // UAC1 FS: 10.14 format, UAC2: 16.16 format
     static constexpr uint32_t FEEDBACK_SHIFT = (Version == UacVersion::Uac1) ? 14 : 16;
@@ -149,12 +151,12 @@ public:
         sample_count_ = 0;
         sof_count_ = 0;
         accumulated_samples_ = 0;
-        
+
         // Clamp to ±1 sample/frame in Q format (host typically only follows ±1)
         const uint32_t range = (1U << FEEDBACK_SHIFT);
         min_feedback_ = nominal_feedback_ - range;
         max_feedback_ = nominal_feedback_ + range;
-        
+
         // Initialize FIFO level average (Q16 format) to target level
         // Target is fifo_threshold (half of FIFO depth in frames)
         fifo_level_avg_q16_ = fifo_threshold_ << 16;
@@ -165,12 +167,14 @@ public:
         // rate_const = (max_value - nominal) / fifo_threshold
         rate_const_up_ = (max_feedback_ - nominal_feedback_) / fifo_threshold_;
         rate_const_down_ = (nominal_feedback_ - min_feedback_) / fifo_threshold_;
-        
+
         // Ensure minimum rate_const to avoid zero division / no adjustment
-        if (rate_const_up_ == 0) rate_const_up_ = 1;
-        if (rate_const_down_ == 0) rate_const_down_ = 1;
+        if (rate_const_up_ == 0)
+            rate_const_up_ = 1;
+        if (rate_const_down_ == 0)
+            rate_const_down_ = 1;
     }
-    
+
     /// Set FIFO threshold for feedback calculation
     /// @param threshold Target FIFO level in frames (typically half of FIFO depth)
     void set_fifo_threshold(uint32_t threshold) {
@@ -179,8 +183,10 @@ public:
         if (fifo_threshold_ > 0) {
             rate_const_up_ = (max_feedback_ - nominal_feedback_) / fifo_threshold_;
             rate_const_down_ = (nominal_feedback_ - min_feedback_) / fifo_threshold_;
-            if (rate_const_up_ == 0) rate_const_up_ = 1;
-            if (rate_const_down_ == 0) rate_const_down_ = 1;
+            if (rate_const_up_ == 0)
+                rate_const_up_ = 1;
+            if (rate_const_down_ == 0)
+                rate_const_down_ = 1;
         }
         fifo_level_avg_q16_ = fifo_threshold_ << 16;
         last_level_ = fifo_threshold_;
@@ -205,12 +211,14 @@ public:
         const uint32_t range = (1U << FEEDBACK_SHIFT);
         min_feedback_ = nominal_feedback_ - range;
         max_feedback_ = nominal_feedback_ + range;
-        
+
         // Recalculate rate constants
         rate_const_up_ = (max_feedback_ - nominal_feedback_) / fifo_threshold_;
         rate_const_down_ = (nominal_feedback_ - min_feedback_) / fifo_threshold_;
-        if (rate_const_up_ == 0) rate_const_up_ = 1;
-        if (rate_const_down_ == 0) rate_const_down_ = 1;
+        if (rate_const_up_ == 0)
+            rate_const_up_ = 1;
+        if (rate_const_down_ == 0)
+            rate_const_down_ = 1;
 
         // Initialize FIFO level average to target
         fifo_level_avg_q16_ = fifo_threshold_ << 16;
@@ -227,9 +235,7 @@ public:
     }
 
     /// Call this when samples are consumed by I2S DMA
-    void add_consumed_samples(uint32_t count) {
-        accumulated_samples_ += count;
-    }
+    void add_consumed_samples(uint32_t count) { accumulated_samples_ += count; }
 
     /// Update feedback based on FIFO level (TinyUSB FIFO count method)
     /// Call this periodically to adjust feedback based on buffer fill level
@@ -257,8 +263,10 @@ public:
             last_level_ = filtered_level;
             int64_t adjust = (static_cast<int64_t>(delta_gain_q16_) * delta) >> 16;
             int64_t fb = static_cast<int64_t>(nominal_feedback_) + adjust;
-            if (fb < static_cast<int64_t>(min_feedback_)) fb = min_feedback_;
-            if (fb > static_cast<int64_t>(max_feedback_)) fb = max_feedback_;
+            if (fb < static_cast<int64_t>(min_feedback_))
+                fb = min_feedback_;
+            if (fb > static_cast<int64_t>(max_feedback_))
+                fb = max_feedback_;
             current_feedback_ = static_cast<uint32_t>(fb);
         } else {
             // TinyUSB approach: linear adjustment based on deviation from target
@@ -274,22 +282,22 @@ public:
         }
 
         // Clamp to TinyUSB-style ±1 sample/frame range
-        if (current_feedback_ < min_feedback_) current_feedback_ = min_feedback_;
-        if (current_feedback_ > max_feedback_) current_feedback_ = max_feedback_;
+        if (current_feedback_ < min_feedback_)
+            current_feedback_ = min_feedback_;
+        if (current_feedback_ > max_feedback_)
+            current_feedback_ = max_feedback_;
     }
 
     /// Get current feedback value
-    [[nodiscard]] uint32_t get_feedback() const {
-        return current_feedback_;
-    }
+    [[nodiscard]] uint32_t get_feedback() const { return current_feedback_; }
 
     /// Get feedback as byte array for USB transfer
     [[nodiscard]] auto get_feedback_bytes() const {
         if constexpr (Version == UacVersion::Uac1) {
             // If the host ignores fractional feedback, dither to integer samples/ms.
             uint32_t fb = current_feedback_;
-            uint32_t int_fb = fb & 0xFFFFC000u;           // integer part in 10.14
-            uint32_t frac = fb & 0x00003FFFu;             // fractional part
+            uint32_t int_fb = fb & 0xFFFFC000u; // integer part in 10.14
+            uint32_t frac = fb & 0x00003FFFu;   // fractional part
             uint32_t acc = fb_dither_accum_ + frac;
             if (acc >= (1U << FEEDBACK_SHIFT)) {
                 int_fb += (1U << FEEDBACK_SHIFT);
@@ -328,9 +336,10 @@ public:
         update_delta_gain();
     }
 
-private:
+  private:
     void update_delta_gain() {
-        if (!delta_gain_auto_) return;
+        if (!delta_gain_auto_)
+            return;
         if (fifo_threshold_ == 0) {
             delta_gain_q16_ = 0;
             return;
@@ -352,8 +361,10 @@ private:
             current_feedback_ = ((current_feedback_ * 7) + measured) >> 3;
 
             // Clamp to TinyUSB-style ±1 sample/frame range (not ±1%)
-            if (current_feedback_ < min_feedback_) current_feedback_ = min_feedback_;
-            if (current_feedback_ > max_feedback_) current_feedback_ = max_feedback_;
+            if (current_feedback_ < min_feedback_)
+                current_feedback_ = min_feedback_;
+            if (current_feedback_ > max_feedback_)
+                current_feedback_ = max_feedback_;
         }
         sof_count_ = 0;
         accumulated_samples_ = 0;
@@ -362,13 +373,13 @@ private:
     uint32_t nominal_rate_ = 48000;
     uint32_t nominal_feedback_ = 0;
     uint32_t current_feedback_ = 0;
-    uint32_t min_feedback_ = 0;     // TinyUSB-style min (sample_freq - 1) / 1000 << shift
-    uint32_t max_feedback_ = 0;     // TinyUSB-style max (sample_freq / 1000 + 1) << shift
+    uint32_t min_feedback_ = 0; // TinyUSB-style min (sample_freq - 1) / 1000 << shift
+    uint32_t max_feedback_ = 0; // TinyUSB-style max (sample_freq / 1000 + 1) << shift
     uint32_t sample_count_ = 0;
     uint32_t sof_count_ = 0;
     uint32_t accumulated_samples_ = 0;
-    uint32_t fifo_level_avg_q16_ = 128 << 16;  // Q16 filtered FIFO level
-    uint32_t fifo_threshold_ = 128;  // Target FIFO level in frames (half of FIFO depth)
+    uint32_t fifo_level_avg_q16_ = 128 << 16; // Q16 filtered FIFO level
+    uint32_t fifo_threshold_ = 128;           // Target FIFO level in frames (half of FIFO depth)
     mutable uint32_t fb_dither_accum_ = 0;
     uint32_t last_level_ = 0;
     FeedbackMode mode_ = FeedbackMode::FifoLevel;
@@ -377,10 +388,9 @@ private:
 
     // TinyUSB-style rate constants for FIFO-based feedback
     // Calculated as: rate_const = (max_value - nominal) / fifo_threshold
-    uint32_t rate_const_up_ = 1;    // When buffer underfilled
-    uint32_t rate_const_down_ = 1;  // When buffer overfilled
+    uint32_t rate_const_up_ = 1;   // When buffer underfilled
+    uint32_t rate_const_down_ = 1; // When buffer overfilled
 };
-
 
 // ============================================================================
 // Ring Buffer for USB Audio
@@ -388,14 +398,14 @@ private:
 
 /// Lock-free SPSC ring buffer for USB <-> Audio DMA transfer
 /// Supports optional cubic hermite interpolation for ASRC
-template<uint32_t Frames = 256, uint8_t Channels = 2, typename SampleT = int32_t>
+template <uint32_t Frames = 256, uint8_t Channels = 2, typename SampleT = int32_t>
 class AudioRingBuffer {
-public:
+  public:
     static_assert((Frames & (Frames - 1)) == 0, "Frames must be power of 2");
     static constexpr uint32_t MASK = Frames - 1;
     static constexpr uint32_t SAMPLES_PER_FRAME = Channels;
     static constexpr uint32_t BYTES_PER_FRAME = Channels * sizeof(SampleT);
-    
+
     /// Get buffer capacity in frames
     [[nodiscard]] static constexpr uint32_t capacity() noexcept { return Frames; }
 
@@ -429,18 +439,17 @@ public:
 
         if (frame_count > 0) {
             uint32_t write_idx = write & MASK;
-            uint32_t first_chunk = Frames - write_idx;  // Frames until wrap
+            uint32_t first_chunk = Frames - write_idx; // Frames until wrap
 
             if (frame_count <= first_chunk) {
                 // No wrap: single memcpy
-                __builtin_memcpy(&buffer_[write_idx * Channels], samples,
-                                frame_count * BYTES_PER_FRAME);
+                __builtin_memcpy(&buffer_[write_idx * Channels], samples, frame_count * BYTES_PER_FRAME);
             } else {
                 // Wrap: two memcpy calls
-                __builtin_memcpy(&buffer_[write_idx * Channels], samples,
-                                first_chunk * BYTES_PER_FRAME);
-                __builtin_memcpy(buffer_, &samples[static_cast<size_t>(first_chunk) * Channels],
-                                (frame_count - first_chunk) * BYTES_PER_FRAME);
+                __builtin_memcpy(&buffer_[write_idx * Channels], samples, first_chunk * BYTES_PER_FRAME);
+                __builtin_memcpy(buffer_,
+                                 &samples[static_cast<size_t>(first_chunk) * Channels],
+                                 (frame_count - first_chunk) * BYTES_PER_FRAME);
             }
         }
 
@@ -462,7 +471,7 @@ public:
 
         if (to_read > 0) {
             uint32_t read_idx = read & MASK;
-            uint32_t first_chunk = Frames - read_idx;  // Frames until wrap
+            uint32_t first_chunk = Frames - read_idx; // Frames until wrap
 
             if (to_read <= first_chunk) {
                 __builtin_memcpy(dest, buffer_ + (read_idx * Channels), to_read * BYTES_PER_FRAME);
@@ -515,7 +524,7 @@ public:
             uint32_t cur_read = read_pos_.load(std::memory_order_relaxed);
             uint32_t cur_available = (write - cur_read) & MASK;
             if (cur_available < 4) {
-                break;  // Not enough data
+                break; // Not enough data
             }
 
             // Get 4 sample positions for interpolation
@@ -561,8 +570,7 @@ public:
         // Zero-fill any remaining frames (underrun)
         if (out_frames < frame_count) {
             uint32_t underrun_frames = frame_count - out_frames;
-            __builtin_memset(dest + (out_frames * Channels), 0,
-                            static_cast<size_t>(underrun_frames) * BYTES_PER_FRAME);
+            __builtin_memset(dest + (out_frames * Channels), 0, static_cast<size_t>(underrun_frames) * BYTES_PER_FRAME);
             underrun_count_ += underrun_frames;
         }
 
@@ -586,16 +594,12 @@ public:
     [[nodiscard]] uint32_t buffered_frames() const {
         return (write_pos_.load(std::memory_order_relaxed) - read_pos_.load(std::memory_order_relaxed)) & MASK;
     }
-    [[nodiscard]] int32_t buffer_level() const {
-        return static_cast<int32_t>(buffered_frames());
-    }
+    [[nodiscard]] int32_t buffer_level() const { return static_cast<int32_t>(buffered_frames()); }
     [[nodiscard]] uint32_t underrun_count() const { return underrun_count_; }
     [[nodiscard]] uint32_t overrun_count() const { return overrun_count_; }
 
     // Debug: get raw sample at buffer index
-    [[nodiscard]] SampleT dbg_sample_at(uint32_t idx) const {
-        return buffer_[idx];
-    }
+    [[nodiscard]] SampleT dbg_sample_at(uint32_t idx) const { return buffer_[idx]; }
     [[nodiscard]] uint32_t dbg_write_pos() const { return write_pos_.load(std::memory_order_relaxed); }
     [[nodiscard]] uint32_t dbg_read_pos() const { return read_pos_.load(std::memory_order_relaxed); }
 
@@ -603,15 +607,15 @@ public:
     /// Use this for USB feedback calculation instead of output frame count
     [[nodiscard]] uint32_t last_consumed_input() const { return last_consumed_input_; }
 
-private:
+  private:
     alignas(32) SampleT buffer_[Frames * Channels]{};
     std::atomic<uint32_t> write_pos_{0};
     std::atomic<uint32_t> read_pos_{0};
-    uint32_t read_frac_ = 0;  // Fractional read position (Q0.16)
+    uint32_t read_frac_ = 0; // Fractional read position (Q0.16)
     std::atomic<bool> playback_started_{false};
     uint32_t underrun_count_ = 0;
     uint32_t overrun_count_ = 0;
-    uint32_t last_consumed_input_ = 0;  // Input frames consumed in last read_interpolated()
+    uint32_t last_consumed_input_ = 0; // Input frames consumed in last read_interpolated()
 };
 
 // ============================================================================
@@ -620,9 +624,9 @@ private:
 
 /// USB MIDI packet processing (shared between UAC1 and UAC2)
 class MidiProcessor {
-public:
-    using MidiCallback = void(*)(uint8_t cable, const uint8_t* data, uint8_t len);
-    using SysExCallback = void(*)(const uint8_t* data, uint16_t len);
+  public:
+    using MidiCallback = void (*)(uint8_t cable, const uint8_t* data, uint8_t len);
+    using SysExCallback = void (*)(const uint8_t* data, uint16_t len);
 
     MidiCallback on_midi = nullptr;
     SysExCallback on_sysex = nullptr;
@@ -632,81 +636,90 @@ public:
         uint8_t cable = header >> 4;
 
         switch (cin) {
-            case 0x04:  // SysEx start/continue
-                if (!in_sysex_) {
-                    in_sysex_ = true;
-                    sysex_pos_ = 0;
-                }
-                if (sysex_pos_ + 3 <= sysex_buf_.size()) {
-                    sysex_buf_[sysex_pos_++] = b0;
-                    sysex_buf_[sysex_pos_++] = b1;
-                    sysex_buf_[sysex_pos_++] = b2;
-                }
-                break;
+        case 0x04: // SysEx start/continue
+            if (!in_sysex_) {
+                in_sysex_ = true;
+                sysex_pos_ = 0;
+            }
+            if (sysex_pos_ + 3 <= sysex_buf_.size()) {
+                sysex_buf_[sysex_pos_++] = b0;
+                sysex_buf_[sysex_pos_++] = b1;
+                sysex_buf_[sysex_pos_++] = b2;
+            }
+            break;
 
-            case 0x05:  // SysEx ends with 1 byte
-                if (sysex_pos_ < sysex_buf_.size()) {
-                    sysex_buf_[sysex_pos_++] = b0;
-                }
-                complete_sysex();
-                break;
+        case 0x05: // SysEx ends with 1 byte
+            if (sysex_pos_ < sysex_buf_.size()) {
+                sysex_buf_[sysex_pos_++] = b0;
+            }
+            complete_sysex();
+            break;
 
-            case 0x06:  // SysEx ends with 2 bytes
-                if (sysex_pos_ + 2 <= sysex_buf_.size()) {
-                    sysex_buf_[sysex_pos_++] = b0;
-                    sysex_buf_[sysex_pos_++] = b1;
-                }
-                complete_sysex();
-                break;
+        case 0x06: // SysEx ends with 2 bytes
+            if (sysex_pos_ + 2 <= sysex_buf_.size()) {
+                sysex_buf_[sysex_pos_++] = b0;
+                sysex_buf_[sysex_pos_++] = b1;
+            }
+            complete_sysex();
+            break;
 
-            case 0x07:  // SysEx ends with 3 bytes
-                if (sysex_pos_ + 3 <= sysex_buf_.size()) {
-                    sysex_buf_[sysex_pos_++] = b0;
-                    sysex_buf_[sysex_pos_++] = b1;
-                    sysex_buf_[sysex_pos_++] = b2;
-                }
-                complete_sysex();
-                break;
+        case 0x07: // SysEx ends with 3 bytes
+            if (sysex_pos_ + 3 <= sysex_buf_.size()) {
+                sysex_buf_[sysex_pos_++] = b0;
+                sysex_buf_[sysex_pos_++] = b1;
+                sysex_buf_[sysex_pos_++] = b2;
+            }
+            complete_sysex();
+            break;
 
-            case 0x08:  // Note Off
-            case 0x09:  // Note On
-            case 0x0A:  // Poly Aftertouch
-            case 0x0B:  // Control Change
-            case 0x0E:  // Pitch Bend
-                if (on_midi != nullptr) {
-                    std::array<uint8_t, 3> msg = {b0, b1, b2};
-                    on_midi(cable, msg.data(), 3);
-                }
-                break;
+        case 0x08: // Note Off
+        case 0x09: // Note On
+        case 0x0A: // Poly Aftertouch
+        case 0x0B: // Control Change
+        case 0x0E: // Pitch Bend
+            if (on_midi != nullptr) {
+                std::array<uint8_t, 3> msg = {b0, b1, b2};
+                on_midi(cable, msg.data(), 3);
+            }
+            break;
 
-            case 0x0C:  // Program Change
-            case 0x0D:  // Channel Aftertouch
-                if (on_midi != nullptr) {
-                    std::array<uint8_t, 2> msg = {b0, b1};
-                    on_midi(cable, msg.data(), 2);
-                }
-                break;
+        case 0x0C: // Program Change
+        case 0x0D: // Channel Aftertouch
+            if (on_midi != nullptr) {
+                std::array<uint8_t, 2> msg = {b0, b1};
+                on_midi(cable, msg.data(), 2);
+            }
+            break;
 
-            default:
-                break;
+        default:
+            break;
         }
     }
 
     static constexpr uint8_t status_to_cin(uint8_t status) {
         switch (status & 0xF0) {
-            case 0x80: return 0x08;
-            case 0x90: return 0x09;
-            case 0xA0: return 0x0A;
-            case 0xB0: return 0x0B;
-            case 0xC0: return 0x0C;
-            case 0xD0: return 0x0D;
-            case 0xE0: return 0x0E;
-            case 0xF0: return 0x04;
-            default: return 0x0F;
+        case 0x80:
+            return 0x08;
+        case 0x90:
+            return 0x09;
+        case 0xA0:
+            return 0x0A;
+        case 0xB0:
+            return 0x0B;
+        case 0xC0:
+            return 0x0C;
+        case 0xD0:
+            return 0x0D;
+        case 0xE0:
+            return 0x0E;
+        case 0xF0:
+            return 0x04;
+        default:
+            return 0x0F;
         }
     }
 
-private:
+  private:
     void complete_sysex() {
         if (on_sysex != nullptr && sysex_pos_ > 0) {
             on_sysex(sysex_buf_.data(), sysex_pos_);
@@ -728,37 +741,37 @@ namespace uac {
 
 // Descriptor subtypes - Audio Control
 namespace ac {
-    inline constexpr uint8_t HEADER = 0x01;
-    inline constexpr uint8_t INPUT_TERMINAL = 0x02;
-    inline constexpr uint8_t OUTPUT_TERMINAL = 0x03;
-    inline constexpr uint8_t MIXER_UNIT = 0x04;
-    inline constexpr uint8_t SELECTOR_UNIT = 0x05;
-    inline constexpr uint8_t FEATURE_UNIT = 0x06;
-    inline constexpr uint8_t EFFECT_UNIT = 0x07;       // UAC2
-    inline constexpr uint8_t PROCESSING_UNIT = 0x08;
-    inline constexpr uint8_t EXTENSION_UNIT = 0x09;
-    inline constexpr uint8_t CLOCK_SOURCE = 0x0A;      // UAC2
-    inline constexpr uint8_t CLOCK_SELECTOR = 0x0B;    // UAC2
-    inline constexpr uint8_t CLOCK_MULTIPLIER = 0x0C;  // UAC2
-    inline constexpr uint8_t SAMPLE_RATE_CONVERTER = 0x0D;  // UAC2
-}
+inline constexpr uint8_t HEADER = 0x01;
+inline constexpr uint8_t INPUT_TERMINAL = 0x02;
+inline constexpr uint8_t OUTPUT_TERMINAL = 0x03;
+inline constexpr uint8_t MIXER_UNIT = 0x04;
+inline constexpr uint8_t SELECTOR_UNIT = 0x05;
+inline constexpr uint8_t FEATURE_UNIT = 0x06;
+inline constexpr uint8_t EFFECT_UNIT = 0x07; // UAC2
+inline constexpr uint8_t PROCESSING_UNIT = 0x08;
+inline constexpr uint8_t EXTENSION_UNIT = 0x09;
+inline constexpr uint8_t CLOCK_SOURCE = 0x0A;          // UAC2
+inline constexpr uint8_t CLOCK_SELECTOR = 0x0B;        // UAC2
+inline constexpr uint8_t CLOCK_MULTIPLIER = 0x0C;      // UAC2
+inline constexpr uint8_t SAMPLE_RATE_CONVERTER = 0x0D; // UAC2
+} // namespace ac
 
 // Descriptor subtypes - Audio Streaming
 namespace as {
-    inline constexpr uint8_t GENERAL = 0x01;
-    inline constexpr uint8_t FORMAT_TYPE = 0x02;
-    inline constexpr uint8_t ENCODER = 0x03;           // UAC2
-    inline constexpr uint8_t DECODER = 0x04;           // UAC2
-}
+inline constexpr uint8_t GENERAL = 0x01;
+inline constexpr uint8_t FORMAT_TYPE = 0x02;
+inline constexpr uint8_t ENCODER = 0x03; // UAC2
+inline constexpr uint8_t DECODER = 0x04; // UAC2
+} // namespace as
 
 // Descriptor subtypes - MIDI Streaming
 namespace ms {
-    inline constexpr uint8_t HEADER = 0x01;
-    inline constexpr uint8_t MIDI_IN_JACK = 0x02;
-    inline constexpr uint8_t MIDI_OUT_JACK = 0x03;
-    inline constexpr uint8_t ELEMENT = 0x04;
-    inline constexpr uint8_t GENERAL = 0x01;  // For endpoint
-}
+inline constexpr uint8_t HEADER = 0x01;
+inline constexpr uint8_t MIDI_IN_JACK = 0x02;
+inline constexpr uint8_t MIDI_OUT_JACK = 0x03;
+inline constexpr uint8_t ELEMENT = 0x04;
+inline constexpr uint8_t GENERAL = 0x01; // For endpoint
+} // namespace ms
 
 // Terminal types
 inline constexpr uint16_t TERMINAL_USB_STREAMING = 0x0101;
@@ -784,20 +797,20 @@ inline constexpr uint8_t JACK_EXTERNAL = 0x02;
 
 // UAC2 specific
 namespace uac2 {
-    // Clock source attributes
-    inline constexpr uint8_t CLOCK_EXTERNAL = 0x00;
-    inline constexpr uint8_t CLOCK_INTERNAL_FIXED = 0x01;
-    inline constexpr uint8_t CLOCK_INTERNAL_VARIABLE = 0x02;
-    inline constexpr uint8_t CLOCK_INTERNAL_PROGRAMMABLE = 0x03;
-    inline constexpr uint8_t CLOCK_SYNCED_TO_SOF = 0x04;
+// Clock source attributes
+inline constexpr uint8_t CLOCK_EXTERNAL = 0x00;
+inline constexpr uint8_t CLOCK_INTERNAL_FIXED = 0x01;
+inline constexpr uint8_t CLOCK_INTERNAL_VARIABLE = 0x02;
+inline constexpr uint8_t CLOCK_INTERNAL_PROGRAMMABLE = 0x03;
+inline constexpr uint8_t CLOCK_SYNCED_TO_SOF = 0x04;
 
-    // Audio function category
-    inline constexpr uint8_t FUNCTION_SUBCLASS = 0x00;
+// Audio function category
+inline constexpr uint8_t FUNCTION_SUBCLASS = 0x00;
 
-    // Interface protocol
-    inline constexpr uint8_t IP_VERSION_02_00 = 0x20;
-}
+// Interface protocol
+inline constexpr uint8_t IP_VERSION_02_00 = 0x20;
+} // namespace uac2
 
-}  // namespace uac
+} // namespace uac
 
-}  // namespace umiusb
+} // namespace umiusb
