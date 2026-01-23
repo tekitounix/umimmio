@@ -71,13 +71,22 @@ public:
         // This ensures single source of truth for default values.
     }
 
+    void set_sample_rate(float new_rate) {
+        sample_rate = new_rate;
+        dt = 1.0f / new_rate;
+        if (active) {
+            float freq = dsp::midi_to_freq(note);
+            freq_norm = freq * dt;
+        }
+    }
+
     void note_on(uint8_t note_num, uint8_t vel) {
         note = note_num;
         velocity = static_cast<float>(vel) / 127.0f;
 
         // Calculate normalized frequency
         float freq = dsp::midi_to_freq(note_num);
-        freq_norm = freq / sample_rate;
+        freq_norm = freq * dt;
 
         // Reset oscillator and trigger envelope
         osc.reset();
@@ -148,6 +157,17 @@ public:
             voices[i].init(sr);
         }
         // Apply current parameter values to all voices
+        update_adsr();
+        update_filter();
+    }
+
+    void set_sample_rate(float sr) {
+        if (sr == sample_rate) return;
+        sample_rate = sr;
+        for (int i = 0; i < NUM_VOICES; ++i) {
+            voices[i].set_sample_rate(sr);
+        }
+        // Recompute coefficient-dependent params
         update_adsr();
         update_filter();
     }
@@ -327,6 +347,9 @@ private:
 namespace umi::synth {
 
 inline void PolySynth::process(umi::AudioContext& ctx) {
+    // Keep synth in sync with AudioContext timing
+    set_sample_rate(static_cast<float>(ctx.sample_rate));
+
     // Process MIDI events
     for (const auto& ev : ctx.input_events) {
         if (ev.type == umi::EventType::Midi) {

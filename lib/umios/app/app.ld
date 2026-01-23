@@ -4,9 +4,10 @@
 
 /* Memory regions - must match kernel's APP_FLASH address */
 MEMORY {
-    /* Application runs XIP from Flash */
-    /* MUST match kernel.ld APP_FLASH address (0x08060000) */
-    APP_FLASH (rx)  : ORIGIN = 0x08060000, LENGTH = 128K  /* XIP apps - matches kernel */
+    /* .umiapp header lives at the start of APP_FLASH in kernel.ld */
+    APP_HDR   (rx)  : ORIGIN = 0x08060000, LENGTH = 128   /* AppHeader (128 bytes) */
+    /* Application runs XIP after header */
+    APP_FLASH (rx)  : ORIGIN = 0x08060080, LENGTH = (128K - 128)
     APP_RAM   (rwx) : ORIGIN = 0x2000C000, LENGTH = 48K   /* Data + BSS + Stack - matches kernel */
 }
 
@@ -20,7 +21,7 @@ SECTIONS {
     
     .app_header : {
         KEEP(*(.app_header))
-    } > APP_FLASH
+    } > APP_HDR
     
     /* ================================================================== */
     /* Code Section (.text) */

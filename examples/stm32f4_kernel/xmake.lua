@@ -30,3 +30,23 @@ target("stm32f4_kernel")
     add_defines("STM32F4", "BOARD_STM32F4")
     
     -- Note: embedded rule handles .bin/.hex/.map generation automatically
+
+task("flash-kernel")
+    set_category("action")
+    on_run(function ()
+        import("core.project.project")
+        local target = project.target("stm32f4_kernel")
+        if not target then
+            raise("target stm32f4_kernel not found")
+        end
+        print("Building STM32F4 kernel...")
+        os.exec("xmake build " .. target:name())
+        local binfile = path.join(target:targetdir(), target:name() .. ".bin")
+        if not os.isfile(binfile) then
+            raise("kernel binary not found: " .. binfile)
+        end
+        print("Flashing kernel via pyOCD...")
+        os.execv("pyocd", {"flash", "-t", "stm32f407vg", binfile})
+    end)
+    set_menu {usage = "xmake flash-kernel", description = "Build and flash STM32F4 kernel"}
+task_end()

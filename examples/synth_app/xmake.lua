@@ -58,3 +58,23 @@ target("synth_app")
             print("Warning: make_umiapp.py not found, using raw binary")
         end
     end)
+
+task("flash-synth-app")
+    set_category("action")
+    on_run(function ()
+        import("core.project.project")
+        local target = project.target("synth_app")
+        if not target then
+            raise("target synth_app not found")
+        end
+        print("Building synth app...")
+        os.exec("xmake build " .. target:name())
+        local umiapp = path.join(target:targetdir(), target:name() .. ".umiapp")
+        if not os.isfile(umiapp) then
+            raise(".umiapp not found: " .. umiapp)
+        end
+        print("Flashing synth app to APP_FLASH via pyOCD...")
+        os.execv("pyocd", {"flash", "-t", "stm32f407vg", "-a", "0x08060000", "--format", "bin", umiapp})
+    end)
+    set_menu {usage = "xmake flash-synth-app", description = "Build and flash synth app (.umiapp) to APP_FLASH"}
+task_end()
