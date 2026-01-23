@@ -1,9 +1,9 @@
 # DSP モジュール
 
 ```cpp
-#include <umidsp/oscillator.hh>
-#include <umidsp/filter.hh>
-#include <umidsp/envelope.hh>
+#include <oscillator.hh>
+#include <filter.hh>
+#include <envelope.hh>
 ```
 
 ---

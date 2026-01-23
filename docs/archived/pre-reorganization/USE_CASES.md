@@ -108,8 +108,8 @@ int main() {
 ```cpp
 // synth.cc
 #include <umi/app.hh>
-#include <umidsp/oscillator.hh>
-#include <umidsp/envelope.hh>
+#include <oscillator.hh>
+#include <envelope.hh>
 
 struct Synth {
     float attack = 0.01f;
