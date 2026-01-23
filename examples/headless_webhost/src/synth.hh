@@ -28,7 +28,7 @@ namespace umi::synth {
 // Configuration
 // =====================================================================
 
-constexpr int NUM_VOICES = 4;
+constexpr int NUM_VOICES = 2;
 
 // =====================================================================
 // Parameter IDs
@@ -80,7 +80,7 @@ public:
         }
     }
 
-    void note_on(uint8_t note_num, uint8_t vel) {
+    void note_on(uint8_t note_num, uint8_t vel, bool reset_osc = false) {
         note = note_num;
         velocity = static_cast<float>(vel) / 127.0f;
 
@@ -88,9 +88,14 @@ public:
         float freq = dsp::midi_to_freq(note_num);
         freq_norm = freq * dt;
 
-        // Reset oscillator and trigger envelope
-        osc.reset();
-        filter.reset();
+        // Reset oscillator and filter only when stealing a voice (not on fresh voice)
+        // This avoids clicks on normal note-on while allowing clean restart on steal
+        if (reset_osc) {
+            osc.reset();
+            filter.reset();
+            fade_samples = FADE_DURATION;  // Start fade-in to prevent click
+        }
+
         env.trigger();
         active = true;
     }
@@ -124,6 +129,21 @@ public:
         float env_val = env(dt);
         float out = filtered * env_val * velocity;
 
+        // Soft clip per-voice to prevent overload when multiple voices overlap
+        // Simple soft clipper: x / (1 + |x|)
+        if (out > 0.0f) {
+            out = out / (1.0f + out);
+        } else {
+            out = out / (1.0f - out);
+        }
+
+        // Fade in after reset to prevent click on voice stealing
+        if (fade_samples > 0) {
+            float fade = static_cast<float>(FADE_DURATION - fade_samples) / static_cast<float>(FADE_DURATION);
+            out *= fade;
+            --fade_samples;
+        }
+
         // Deactivate when envelope finishes
         if (!env.active()) {
             active = false;
@@ -133,6 +153,8 @@ public:
     }
 
 private:
+    static constexpr uint32_t FADE_DURATION = 32;  // ~0.7ms at 48kHz
+
     dsp::SawBL osc;
     dsp::SVF filter;
     dsp::ADSR env;
@@ -143,6 +165,7 @@ private:
     float velocity = 0.0f;
     uint8_t note = 0;
     bool active = false;
+    uint32_t fade_samples = 0;  // Fade-in counter after reset
 };
 
 // =====================================================================
@@ -197,10 +220,10 @@ public:
     // === Direct note interface ===
 
     void note_on(uint8_t note, uint8_t vel) {
-        // First check if this note is already playing
+        // First check if this note is already playing (retrigger without reset)
         for (int i = 0; i < NUM_VOICES; ++i) {
             if (voices[i].is_active() && voices[i].get_note() == note) {
-                voices[i].note_on(note, vel);
+                voices[i].note_on(note, vel, false);  // No reset on retrigger
                 return;
             }
         }
@@ -208,13 +231,16 @@ public:
         // Find free voice
         for (int i = 0; i < NUM_VOICES; ++i) {
             if (!voices[i].is_active()) {
-                voices[i].note_on(note, vel);
+                voices[i].note_on(note, vel, false);  // No reset on fresh voice
                 return;
             }
         }
 
-        // Voice stealing: use first voice (simple strategy)
-        voices[0].note_on(note, vel);
+        // Voice stealing: NO RESET - just change note and continue from current phase
+        // This avoids clicks completely, though may cause brief dissonance during transition
+        static uint8_t steal_index = 0;
+        steal_index = (steal_index + 1) % NUM_VOICES;
+        voices[steal_index].note_on(note, vel, false);  // No reset even on steal
     }
 
     void note_off(uint8_t note) {
@@ -283,7 +309,8 @@ public:
             sum += voices[i].process();
         }
         // Scale down and soft clip to prevent clipping
-        return dsp::soft_clip(sum * volume * 0.25f);
+        // Scale down by number of voices to prevent clipping when all are active
+        return dsp::soft_clip(sum * volume / static_cast<float>(NUM_VOICES));
     }
 
     /// Process buffer (legacy interface)
