@@ -11,6 +11,7 @@ import {
   DEFAULT_KEY_MAP,
   MidiMonitor,
   ParamControl,
+  TargetSelector,
   darkTheme,
   lightTheme,
   applyTheme,
@@ -20,8 +21,7 @@ import {
 const state = {
   backend: null,
   backendManager: new BackendManager(),
-  targets: [],
-  currentTarget: null,
+  targetSelector: null,
   isPlaying: false,
   theme: 'dark',
   midiRxCount: 0,
@@ -70,8 +70,11 @@ async function init() {
   // Load theme
   loadTheme();
 
-  // Load targets (apps + hardware)
-  await loadTargets();
+  // Initialize TargetSelector component
+  state.targetSelector = new TargetSelector(els.targetSelect, {
+    backendManager: state.backendManager,
+    onChange: onTargetChange,
+  });
 
   // Setup event listeners
   setupEventListeners();
@@ -87,141 +90,11 @@ async function init() {
 
 // ========== Target Management ==========
 
-async function loadTargets() {
-  try {
-    // Load apps from manifest
-    const apps = await state.backendManager.loadApplications();
-
-    // Build target list
-    state.targets = [];
-
-    // Add simulator targets from apps
-    for (const app of apps) {
-      state.targets.push({
-        id: app.id,
-        name: app.name,
-        icon: getTargetIcon(app.backend),
-        type: 'simulator',
-        backend: app.backend,
-        app: app,
-      });
-    }
-
-    // Add Renode if available
-    const backends = await state.backendManager.getAvailableBackends();
-    const renodeBackend = backends.find(b => b.type === BackendType.RENODE);
-    if (renodeBackend?.available) {
-      state.targets.push({
-        id: 'renode',
-        name: 'Renode Emulator',
-        icon: '🔧',
-        type: 'emulator',
-        backend: 'renode',
-      });
-    }
-
-    // Check for hardware devices (without triggering permission)
-    const hwBackend = backends.find(b => b.type === 'hardware');
-    if (hwBackend?.available) {
-      state.targets.push({
-        id: 'hardware-scan',
-        name: 'Scan USB Devices...',
-        icon: '🔌',
-        type: 'hardware-scan',
-        backend: 'hardware',
-      });
-    }
-
-    // Populate select
-    populateTargetSelect();
-
-    // Auto-select default
-    const defaultApp = apps.find(a => a.default) || apps[0];
-    if (defaultApp) {
-      els.targetSelect.value = defaultApp.id;
-      state.currentTarget = state.targets.find(t => t.id === defaultApp.id);
-    }
-  } catch (err) {
-    console.error('[App] Failed to load targets:', err);
-    setStatus('error', 'Load Failed');
-  }
-}
-
-function populateTargetSelect() {
-  els.targetSelect.innerHTML = '';
-
-  // Group targets by type
-  const simulators = state.targets.filter(t => t.type === 'simulator');
-  const emulators = state.targets.filter(t => t.type === 'emulator');
-  const hardware = state.targets.filter(t => t.type === 'hardware' || t.type === 'hardware-scan');
-
-  // Simulators
-  if (simulators.length > 0) {
-    const group = document.createElement('optgroup');
-    group.label = 'Simulators';
-    for (const t of simulators) {
-      const opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = `${t.icon} ${t.name}`;
-      group.appendChild(opt);
-    }
-    els.targetSelect.appendChild(group);
-  }
-
-  // Emulators
-  if (emulators.length > 0) {
-    const group = document.createElement('optgroup');
-    group.label = 'Emulators';
-    for (const t of emulators) {
-      const opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = `${t.icon} ${t.name}`;
-      group.appendChild(opt);
-    }
-    els.targetSelect.appendChild(group);
-  }
-
-  // Hardware
-  if (hardware.length > 0) {
-    const group = document.createElement('optgroup');
-    group.label = 'Hardware';
-    for (const t of hardware) {
-      const opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = `${t.icon} ${t.name}`;
-      group.appendChild(opt);
-    }
-    els.targetSelect.appendChild(group);
-  }
-}
-
-function getTargetIcon(backend) {
-  switch (backend) {
-    case 'umim':
-    case 'umios':
-      return '🖥️';
-    case 'renode':
-      return '🔧';
-    case 'hardware':
-      return '🔌';
-    default:
-      return '📦';
-  }
-}
-
-async function onTargetChange() {
-  const targetId = els.targetSelect.value;
-  const target = state.targets.find(t => t.id === targetId);
-
-  if (!target) return;
-
-  // Handle hardware scan
-  if (target.type === 'hardware-scan') {
-    await scanHardwareDevices();
-    return;
-  }
-
-  state.currentTarget = target;
+/**
+ * Handle target change from TargetSelector
+ * @param {object} target - Selected target
+ */
+async function onTargetChange(target) {
   console.log('[App] Selected target:', target.name);
 
   // If playing, switch backend
@@ -231,47 +104,18 @@ async function onTargetChange() {
   }
 }
 
-async function scanHardwareDevices() {
-  try {
-    setStatus('loading', 'Scanning...');
-    const devices = await state.backendManager.getHardwareDevices();
-
-    // Remove old hardware entries (except scan option)
-    state.targets = state.targets.filter(t => t.type !== 'hardware');
-
-    // Add detected devices
-    for (const device of devices) {
-      state.targets.push({
-        id: `hw-${device.name.replace(/\s+/g, '-').toLowerCase()}`,
-        name: `USB: ${device.name}`,
-        icon: '🔌',
-        type: 'hardware',
-        backend: 'hardware',
-        deviceName: device.name,
-      });
-    }
-
-    populateTargetSelect();
-    setStatus('ready', 'Ready');
-
-    if (devices.length > 0) {
-      // Select first device
-      const firstHw = state.targets.find(t => t.type === 'hardware');
-      if (firstHw) {
-        els.targetSelect.value = firstHw.id;
-        state.currentTarget = firstHw;
-      }
-    }
-  } catch (err) {
-    console.error('[App] Hardware scan failed:', err);
-    setStatus('error', 'Scan Failed');
-  }
+/**
+ * Get currently selected target
+ */
+function getCurrentTarget() {
+  return state.targetSelector?.getSelected();
 }
 
 // ========== Audio Control ==========
 
 async function startAudio() {
-  if (!state.currentTarget) {
+  const target = getCurrentTarget();
+  if (!target) {
     console.warn('[App] No target selected');
     return;
   }
@@ -281,12 +125,12 @@ async function startAudio() {
 
     // Create backend based on target
     let backend;
-    if (state.currentTarget.app) {
-      backend = await state.backendManager.switchToApp(state.currentTarget.app.id);
+    if (target.app) {
+      backend = await state.backendManager.switchToApp(target.app.id);
     } else {
       backend = await state.backendManager.switchBackend(
-        state.currentTarget.backend,
-        state.currentTarget.deviceName ? { deviceName: state.currentTarget.deviceName } : {}
+        target.backend,
+        target.deviceName ? { deviceName: target.deviceName } : {}
       );
     }
 
@@ -606,7 +450,7 @@ function setStatus(type, text) {
 // ========== Event Listeners ==========
 
 function setupEventListeners() {
-  els.targetSelect.addEventListener('change', onTargetChange);
+  // Note: targetSelect events handled by TargetSelector component
   els.startBtn.addEventListener('click', startAudio);
   els.stopBtn.addEventListener('click', stopAudio);
   els.themeToggle.addEventListener('click', toggleTheme);

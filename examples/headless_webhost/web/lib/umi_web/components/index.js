@@ -41,5 +41,8 @@ export {
     encode7bit
 } from './shell/index.js';
 
-// Backend Selector
+// Backend Selector (legacy)
 export { BackendSelector } from './backend-selector/index.js';
+
+// Target Selector (unified backend + app selection)
+export { TargetSelector, TargetType } from './target-selector/index.js';
