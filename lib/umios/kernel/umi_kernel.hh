@@ -58,6 +58,24 @@ enum class Core : std::uint8_t {
     Any = 0xFF,  ///< Can run on any core
 };
 
+/// FPU usage policy for deterministic context switching
+enum class FpuPolicy : std::uint8_t {
+    /// FPU usage forbidden (default)
+    /// No FPU context save/restore on context switch
+    /// Use for: Shell, MIDI handler, UI tasks
+    Forbidden = 0,
+
+    /// FPU exclusively owned by this task
+    /// Other tasks must be Forbidden - no save needed
+    /// Use for: Audio DSP task (single FPU owner)
+    Exclusive = 1,
+
+    /// Traditional lazy stacking (for compatibility)
+    /// Hardware handles save/restore via LSPACT
+    /// Use for: Multiple FPU tasks (rare in audio)
+    LazyStack = 2,
+};
+
 /// Task identifier (opaque handle)
 struct TaskId {
     std::uint16_t value {0xFFFF};
@@ -78,8 +96,15 @@ struct TaskConfig {
     void* arg {nullptr};             ///< Argument passed to entry
     Priority prio {Priority::Idle};  ///< Task priority
     std::uint8_t core_affinity {static_cast<std::uint8_t>(Core::Any)};
-    bool uses_fpu {false};           ///< Enable FPU context save/restore
+    FpuPolicy fpu_policy {FpuPolicy::Forbidden};  ///< FPU handling strategy
     const char* name {"<unnamed>"};  ///< Task name for debugging/shell
+
+    /// @deprecated Use fpu_policy instead
+    [[deprecated("Use fpu_policy = FpuPolicy::LazyStack instead")]]
+    void set_uses_fpu(bool v) { fpu_policy = v ? FpuPolicy::LazyStack : FpuPolicy::Forbidden; }
+
+    /// Check if task uses FPU (for backward compatibility)
+    bool uses_fpu() const { return fpu_policy != FpuPolicy::Forbidden; }
 };
 
 /// Shared memory region identifiers
@@ -685,6 +710,32 @@ public:
         schedule();
     }
 
+    // -----------------------------------------------------------------
+    // User Application API: FPU Ownership
+    // -----------------------------------------------------------------
+
+    /// Set exclusive FPU owner (call during init, before starting tasks).
+    /// Only one task can own FPU exclusively.
+    /// All other tasks should use FpuPolicy::Forbidden.
+    /// Returns true if ownership granted, false if already owned.
+    bool set_fpu_owner(TaskId id) {
+        if (fpu_owner_.has_value()) return false;
+        if (!valid_task(id)) return false;
+        if (tasks[id.value].cfg.fpu_policy != FpuPolicy::Exclusive) return false;
+        fpu_owner_ = id;
+        return true;
+    }
+
+    /// Check if task is the FPU owner.
+    bool is_fpu_owner(TaskId id) const {
+        return fpu_owner_.has_value() && fpu_owner_->value == id.value;
+    }
+
+    /// Get FPU owner (if any).
+    std::optional<TaskId> get_fpu_owner() const {
+        return fpu_owner_;
+    }
+
     /// Get current task for this core (or specified core).
     std::optional<TaskId> current_task(std::uint8_t core = 0xFF) const {
         if (core == 0xFF) core = HW::current_core();
@@ -995,19 +1046,31 @@ public:
     void prepare_switch(std::uint16_t next_idx) {
         auto self_core = HW::current_core();
         auto& cur_id = current_per_core[self_core];
-        
+
         if (cur_id.has_value() && cur_id->value == next_idx) return;
-        
+
         auto& next = tasks[next_idx];
-        
-        // FPU lazy stacking
-        if (cur_id.has_value() && tasks[cur_id->value].cfg.uses_fpu) {
-            HW::save_fpu();
+
+        // FPU context handling based on policy
+        // Exclusive mode: Only one task owns FPU, no save/restore needed
+        // LazyStack mode: Hardware handles via LSPACT
+        // Forbidden mode: No FPU operations
+        if (cur_id.has_value()) {
+            auto cur_policy = tasks[cur_id->value].cfg.fpu_policy;
+            auto next_policy = next.cfg.fpu_policy;
+
+            // Only save/restore if both tasks use lazy stacking
+            // Exclusive owner never needs save (others are Forbidden)
+            if (cur_policy == FpuPolicy::LazyStack) {
+                HW::save_fpu();
+            }
+            if (next_policy == FpuPolicy::LazyStack) {
+                HW::restore_fpu();
+            }
+            // Exclusive mode: no action needed
+            // The exclusive owner's FPU state remains in registers
         }
-        if (next.cfg.uses_fpu) {
-            HW::restore_fpu();
-        }
-        
+
         // State transition
         next.state = State::Running;
         if (cur_id.has_value() && tasks[cur_id->value].state == State::Running) {
@@ -1044,6 +1107,9 @@ private:
     // O(1) Bitmap scheduler infrastructure
     std::atomic<std::uint8_t> ready_bitmap_ {0};  // Bit per priority level
     std::array<PriorityQueue, num_priorities> priority_queues_ {};
+
+    // FPU exclusive owner (for Exclusive policy)
+    std::optional<TaskId> fpu_owner_ {};
 
     bool valid_task(TaskId id) const { 
         return id.valid() && id.value < tasks.size() && 
