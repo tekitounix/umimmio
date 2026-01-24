@@ -870,6 +870,7 @@ inline umi::os::ShellConfig g_shell_config = {
     .low_battery_threshold = 15,
     .shutdown_threshold = 5,
     .midi_monitor_enabled = false,
+    .platform_name = "WASM Simulator",
     .serial_number = "SIM-00000000",
     .manufacture_date = 20240101,
     .factory_locked = false,

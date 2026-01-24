@@ -76,6 +76,7 @@ struct RCC {
     static void enable_spi3() { reg(APB1ENR) |= APB1ENR_SPI3EN; }
     static void enable_dma1() { reg(AHB1ENR) |= AHB1ENR_DMA1EN; }
     static void enable_usb_otg_fs() { reg(AHB2ENR) |= AHB2ENR_OTGFSEN; }
+    static void enable_syscfg() { reg(APB2ENR) |= APB2ENR_SYSCFGEN; }
 
     /// Configure system clock to 168MHz using 8MHz HSE
     /// PLL: M=8, N=336, P=2, Q=7 -> SYSCLK=168MHz, USB=48MHz
