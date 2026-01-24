@@ -70,17 +70,23 @@ async function init() {
   // Load theme
   loadTheme();
 
-  // Initialize TargetSelector component
+  // Initialize TargetSelector component and wait for it to be ready
   state.targetSelector = new TargetSelector(els.targetSelect, {
     backendManager: state.backendManager,
     onChange: onTargetChange,
   });
+
+  // Wait for TargetSelector to finish loading
+  await state.targetSelector.ready;
 
   // Setup event listeners
   setupEventListeners();
 
   // Initialize components
   initKeyboard();
+
+  // Enable start button
+  els.startBtn.disabled = false;
 
   // Update status
   setStatus('ready', 'Ready');

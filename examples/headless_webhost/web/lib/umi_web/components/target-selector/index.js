@@ -51,13 +51,15 @@ export class TargetSelector {
     /** @type {Target|null} */
     this.selectedTarget = null;
 
-    this._init();
+    /** @type {Promise} */
+    this.ready = this._init();
   }
 
   async _init() {
     await this.loadTargets();
     this._render();
     this._setupEvents();
+    return this;
   }
 
   /**
