@@ -540,7 +540,13 @@ public:
                 }
                 if (ep == 3) ++dbg_ep3_in_count_;
             } else {
-                // Non-isochronous: original flow
+                // Non-isochronous (Bulk/Interrupt): wait for previous transfer to complete
+                // Check if EPENA is still set from previous transfer
+                uint32_t timeout_wait = 100000;
+                while ((Regs::reg(Regs::DIEPCTL(ep)) & otg::DEPCTL_EPENA) && --timeout_wait > 0) {
+                    // Previous transfer still in progress - spin wait
+                }
+
                 constexpr uint16_t mps = 64;
                 uint16_t pktcnt = len == 0 ? 1 : (len + mps - 1) / mps;
                 Regs::reg(Regs::DIEPTSIZ(ep)) = (static_cast<uint32_t>(pktcnt) << 19) | len;
