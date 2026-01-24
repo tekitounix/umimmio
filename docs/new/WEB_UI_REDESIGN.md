@@ -483,5 +483,38 @@ const targets = [
 
 ---
 
-*Document Version: Draft 1.0*
+## 9. 実装状況
+
+| Phase | 内容 | 状態 |
+|-------|------|------|
+| Phase 1 | CSS分離 (`styles/main.css`) | ✅ 完了 |
+| Phase 2 | レイアウト簡素化・TargetSelector | ✅ 完了 |
+| Phase 3 | 最終調整・テスト | 🔄 進行中 |
+
+### 実装されたファイル
+
+```
+examples/headless_webhost/web/
+├── index.html                 # 新UI（~200行）
+├── index-old.html             # 旧UI（参照用）
+├── app.js                     # 新エントリーポイント
+├── styles/
+│   └── main.css               # 統一スタイルシート
+└── lib/umi_web/components/
+    └── target-selector/
+        └── index.js           # TargetSelectorコンポーネント
+```
+
+### 主な変更点
+
+1. **TargetSelector統合**: Backend SelectorとApp Selectを統合
+2. **CSS外部化**: インラインCSS → `styles/main.css`
+3. **モダンCSS**: CSS Nesting, Container Queries, 論理プロパティ
+4. **簡素化レイアウト**: 3カラム → メイン+サイドバー
+5. **Popover活用**: Settings/Debugをポップオーバーに移動
+
+---
+
+*Document Version: Draft 1.1*
 *Author: Claude*
+*Last Updated: 2025-01-25*
