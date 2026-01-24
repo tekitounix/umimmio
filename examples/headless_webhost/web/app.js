@@ -26,6 +26,8 @@ const state = {
   theme: 'dark',
   midiRxCount: 0,
   audioContext: null,
+  params: [],
+  keyboard: null,
 };
 
 // ========== DOM References ==========
@@ -142,10 +144,37 @@ async function startAudio() {
 
     state.backend = backend;
 
-    // Setup callbacks
-    backend.onMidiMessage = handleMidiMessage;
-    backend.onShellOutput = handleShellOutput;
-    backend.onStateUpdate = handleStateUpdate;
+    // Setup callbacks - backend uses onMessage for all events
+    backend.onMessage = (msg) => {
+      switch (msg.type) {
+        case 'ready':
+          console.log('[App] Backend ready');
+          break;
+        case 'params':
+          console.log('[App] Received params:', msg.params?.length);
+          state.params = msg.params;
+          loadParameters();
+          break;
+        case 'kernel-state':
+          handleKernelState(msg);
+          break;
+        case 'shell-output':
+          handleShellOutput(msg.text, 'stdout');
+          break;
+        case 'midi':
+          handleMidiMessage(msg.data);
+          break;
+        case 'error':
+          console.error('[App] Backend error:', msg.message);
+          setStatus('error', 'Error');
+          break;
+      }
+    };
+
+    backend.onError = (err) => {
+      console.error('[App] Backend error:', err);
+      setStatus('error', 'Error');
+    };
 
     // Start audio
     await backend.start();
@@ -156,9 +185,15 @@ async function startAudio() {
     els.audioIndicator.classList.add('active');
     els.shellInput.disabled = false;
 
+    // Update sample rate display
+    const audioContext = backend.getAudioContext?.();
+    if (audioContext) {
+      els.sampleRate.textContent = `${audioContext.sampleRate} Hz`;
+    }
+
     setStatus('playing', 'Playing');
 
-    // Load parameters
+    // Load parameters (may be updated later via onMessage)
     loadParameters();
 
     // Start update loop
@@ -192,8 +227,6 @@ function initKeyboard() {
 
   const keyboard = new Keyboard(els.keyboard, {
     keyMap: DEFAULT_KEY_MAP,
-    startOctave: 4,
-    octaveRange: 2,
   });
 
   keyboard.onNoteOn = (note, velocity) => {
@@ -207,12 +240,19 @@ function initKeyboard() {
       state.backend.noteOff(note);
     }
   };
+
+  // Enable keyboard input
+  keyboard.enable();
+
+  // Store reference
+  state.keyboard = keyboard;
 }
 
 function loadParameters() {
-  if (!state.backend || !els.paramGrid) return;
+  if (!els.paramGrid) return;
 
-  const params = state.backend.getParameters?.() || [];
+  // Use params from state (received via onMessage) or backend
+  const params = state.params || state.backend?.params || [];
 
   if (params.length === 0) {
     els.paramGrid.innerHTML = '<p style="color: var(--color-text-secondary);">No parameters available</p>';
@@ -224,12 +264,13 @@ function loadParameters() {
   for (const param of params) {
     const div = document.createElement('div');
     div.className = 'param';
+    const defaultValue = param.default !== undefined ? param.default : 0.5;
     div.innerHTML = `
       <div class="param-header">
         <span class="param-name">${param.name}</span>
-        <span class="param-value">${formatParamValue(param)}</span>
+        <span class="param-value">${formatParamValue({ ...param, value: defaultValue })}</span>
       </div>
-      <input type="range" min="0" max="1" step="0.001" value="${param.value}">
+      <input type="range" min="0" max="1" step="0.001" value="${defaultValue}">
     `;
 
     const slider = div.querySelector('input');
@@ -237,7 +278,7 @@ function loadParameters() {
 
     slider.addEventListener('input', () => {
       const value = parseFloat(slider.value);
-      state.backend.setParameter?.(param.index, value);
+      state.backend?.setParam?.(param.id, value);
       valueEl.textContent = formatParamValue({ ...param, value });
     });
 
@@ -309,13 +350,38 @@ function handleShellOutput(text, type) {
 
   const span = document.createElement('span');
   span.className = type === 'stderr' ? 'error' : 'response';
-  span.textContent = text;
+  span.textContent = text + '\n';
   els.shellOutput.appendChild(span);
   els.shellOutput.scrollTop = els.shellOutput.scrollHeight;
 }
 
-function handleStateUpdate(state) {
-  // Update UI based on backend state
+function handleKernelState(msg) {
+  // Update UI based on kernel state
+  if (msg.dspLoad !== undefined) {
+    const load = Math.round(msg.dspLoad * 100);
+    els.dspLoad.textContent = `${load}%`;
+    els.dspLoadBar.style.width = `${load}%`;
+    els.dspLoadBar.className = 'load-bar-fill' +
+      (load > 80 ? ' critical' : load > 50 ? ' warning' : '');
+    els.footerDsp.textContent = `${load}%`;
+  }
+
+  if (msg.sampleRate) {
+    els.sampleRate.textContent = `${msg.sampleRate} Hz`;
+  }
+
+  if (msg.bufferSize) {
+    els.bufferSize.textContent = msg.bufferSize;
+    els.footerBuf.textContent = msg.bufferSize;
+  }
+
+  if (msg.uptime !== undefined) {
+    els.uptime.textContent = formatUptime(msg.uptime);
+  }
+
+  if (msg.state) {
+    els.kernelState.textContent = msg.state;
+  }
 }
 
 // ========== Update Loop ==========
@@ -325,56 +391,19 @@ let updateInterval = null;
 function startUpdateLoop() {
   if (updateInterval) return;
 
+  // Request kernel state periodically (UMI-OS backend sends via onMessage)
   updateInterval = setInterval(() => {
     if (!state.backend) return;
 
-    const status = state.backend.getStatus?.() || {};
+    // Request kernel state (will be delivered via onMessage -> handleKernelState)
+    state.backend.requestKernelState?.();
 
-    // DSP Load
-    if (status.dspLoad !== undefined) {
-      const load = Math.round(status.dspLoad * 100);
-      els.dspLoad.textContent = `${load}%`;
-      els.dspLoadBar.style.width = `${load}%`;
-      els.dspLoadBar.className = 'load-bar-fill' +
-        (load > 80 ? ' critical' : load > 50 ? ' warning' : '');
-      els.footerDsp.textContent = `${load}%`;
-    }
-
-    // Sample rate
-    if (status.sampleRate) {
-      els.sampleRate.textContent = `${status.sampleRate} Hz`;
-    }
-
-    // Buffer
-    if (status.bufferSize) {
-      els.bufferSize.textContent = status.bufferSize;
-      els.footerBuf.textContent = status.bufferSize;
-    }
-
-    // Drops
-    if (status.dropCount !== undefined) {
-      els.dropCount.textContent = status.dropCount;
-      els.dropCount.className = 'status-value' + (status.dropCount > 0 ? ' error' : '');
-    }
-
-    // Position
-    if (status.samplePosition !== undefined) {
-      els.footerPos.textContent = status.samplePosition.toLocaleString();
-    }
-
-    // Uptime
-    if (status.uptime !== undefined) {
-      els.uptime.textContent = formatUptime(status.uptime);
-    }
-
-    // Kernel state
-    if (status.kernelState) {
-      els.kernelState.textContent = status.kernelState;
-    }
-
-    // Waveform
-    if (state.backend.getWaveformData && els.waveformCanvas) {
-      drawWaveform(state.backend.getWaveformData());
+    // Update waveform from analyzer node
+    const analyzer = state.backend.getAnalyzer?.();
+    if (analyzer && els.waveformCanvas) {
+      const data = new Float32Array(analyzer.fftSize);
+      analyzer.getFloatTimeDomainData(data);
+      drawWaveform(data);
     }
   }, 50);
 }
