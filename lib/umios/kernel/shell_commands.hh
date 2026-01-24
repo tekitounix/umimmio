@@ -91,6 +91,7 @@ struct ShellConfig {
     bool midi_monitor_enabled = false;
 
     // Factory info
+    const char* platform_name = "Unknown";
     char serial_number[20] = "UNSET";
     uint32_t manufacture_date = 0;
     bool factory_locked = false;
@@ -166,10 +167,10 @@ private:
 ///   - void reset_system()
 ///   - void feed_watchdog()
 ///   - void enable_watchdog(bool)
-template<typename StateProvider>
+template<typename StateProvider, size_t OutputBufSize = 2048>
 class ShellCommands {
 public:
-    using Output = shell::OutputBuffer<2048>;
+    using Output = shell::OutputBuffer<OutputBufSize>;
 
     explicit ShellCommands(StateProvider& provider)
         : provider_(provider) {}
@@ -427,6 +428,7 @@ private:
 
         out_.put_str("System Information\n");
         out_.put_str("==================\n");
+        out_.put_kv("Platform", cfg.platform_name ? cfg.platform_name : "Unknown");
         out_.put_kv("Version", "UMI-OS v2.0.0");
         out_.put_kv("Serial", cfg.serial_number);
         out_.put_str("  Uptime: ");
