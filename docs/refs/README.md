@@ -55,6 +55,7 @@ docs/
 │   └── UMIDSP_GUIDE.md          # DSPライブラリガイド
 │
 ├── specs/                       # 仕様書
+│   ├── NOMENCLATURE.md          # 命名体系（用語定義）
 │   ├── ARCHITECTURE.md          # アーキテクチャ概要
 │   ├── UMIP.md                  # Processor仕様
 │   ├── UMIC.md                  # Controller仕様
@@ -98,6 +99,7 @@ docs/
 
 | ドキュメント | 内容 | 状態 |
 |-------------|------|------|
+| [specs/NOMENCLATURE.md](specs/NOMENCLATURE.md) | **命名体系**（用語定義、命名規則） | ✓ |
 | [specs/UMIP.md](specs/UMIP.md) | UMI-Processor（DSP処理ユニット）仕様 | ✓ |
 | [specs/UMIM.md](specs/UMIM.md) | UMI-Module バイナリ形式（.umiapp） | ✓ |
 | [specs/SECURITY.md](specs/SECURITY.md) | セキュリティリスク分析、MPU保護 | ✓ |
