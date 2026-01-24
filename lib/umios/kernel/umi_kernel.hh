@@ -585,7 +585,18 @@ template <std::size_t MaxTasks, std::size_t MaxTimers, class HW, std::size_t Max
 class Kernel {
 public:
     static constexpr std::size_t max_cores = MaxCores;
-    
+    static constexpr std::size_t num_priorities = 4;  // Realtime, Server, User, Idle
+
+    /// Task state (public for shell/debug introspection)
+    enum class State : std::uint8_t { Unused, Ready, Running, Blocked };
+
+    /// Task control block (public for shell/debug introspection)
+    struct Tcb {
+        TaskConfig cfg {};
+        State state {State::Unused};
+        std::uint8_t next {0xFF};  // Next task in same-priority queue (0xFF = end)
+    };
+
     Kernel() = default;
 
     // -----------------------------------------------------------------
@@ -593,7 +604,7 @@ public:
     // -----------------------------------------------------------------
     
     /// Create a new task. Returns invalid TaskId if no slots available.
-    /// Task starts in Ready state.
+    /// Task starts in Ready state and is added to bitmap scheduler.
     TaskId create_task(const TaskConfig& cfg) {
         MaskedCritical<HW> guard;
         auto id = allocate_tcb();
@@ -601,6 +612,9 @@ public:
         auto& t = tasks[id.value];
         t.cfg = cfg;
         t.state = State::Ready;
+        t.next = 0xFF;
+        // Add to bitmap scheduler
+        bitmap_add_ready(id, cfg.prio);
         return id;
     }
 
@@ -608,43 +622,52 @@ public:
     void resume_task(TaskId id) {
         MaskedCritical<HW> guard;
         if (!valid_task(id)) return;
-        tasks[id.value].state = State::Ready;
+        if (tasks[id.value].state == State::Ready) return;  // Already ready
+        set_ready_with_bitmap(id);
         schedule();
     }
-    
+
     /// Suspend a task (force to blocked state).
     void suspend_task(TaskId id) {
         MaskedCritical<HW> guard;
         if (!valid_task(id)) return;
-        tasks[id.value].state = State::Blocked;
+        if (tasks[id.value].state == State::Blocked) return;  // Already blocked
+        set_blocked_with_bitmap(id);
         // If suspending current task, trigger reschedule
         auto cur = current_task();
         if (cur.has_value() && cur->value == id.value) {
             schedule();
         }
     }
-    
+
     /// Delete a task and free its slot.
     /// Cannot delete the currently running task.
     /// Returns true if deleted, false if failed.
     bool delete_task(TaskId id) {
         MaskedCritical<HW> guard;
         if (!valid_task(id)) return false;
-        
+
         // Cannot delete currently running task
         auto cur = current_task();
         if (cur.has_value() && cur->value == id.value) {
             return false;
         }
-        
+
+        // Remove from bitmap scheduler if ready
+        auto& t = tasks[id.value];
+        if (t.state == State::Ready || t.state == State::Running) {
+            bitmap_remove_ready(id, t.cfg.prio);
+        }
+
         // Clear task state
-        tasks[id.value].state = State::Unused;
-        tasks[id.value].cfg = {};
-        
+        t.state = State::Unused;
+        t.cfg = {};
+        t.next = 0xFF;
+
         // Clear notifications for this task
         notifications.flags[id.value].store(0, std::memory_order_relaxed);
         notifications.wait_mask[id.value] = 0;
-        
+
         return true;
     }
     
@@ -874,47 +897,85 @@ public:
     
     /// Get next task to switch to for this core.
     /// Returns task index, or nullopt if no ready task (enter sleep).
+    /// O(1) bitmap-based implementation using __builtin_ctz.
     std::optional<std::uint16_t> get_next_task() {
         auto self_core = HW::current_core();
-        std::optional<TaskId> best;
-        Priority best_prio = Priority::Idle;
-        std::optional<TaskId> first_user;  // First User task found (for round-robin)
-        
-        auto start_idx = (last_user_idx + 1) % tasks.size();
-        
-        for (std::uint16_t count = 0; count < tasks.size(); ++count) {
-            std::uint16_t i = (start_idx + count) % tasks.size();
-            auto& t = tasks[i];
-            if (t.state != State::Ready && t.state != State::Running) continue;
-            
-            // Core affinity check
-            if (t.cfg.core_affinity != static_cast<std::uint8_t>(Core::Any) && 
-                t.cfg.core_affinity != self_core) continue;
-            
-            // Higher priority than User always wins
-            if (t.cfg.prio < Priority::User) {
-                if (!best.has_value() || t.cfg.prio < best_prio) {
-                    best_prio = t.cfg.prio;
-                    best = TaskId{i};
+
+        // O(1): Load bitmap and find highest priority with ready tasks
+        auto bitmap = ready_bitmap_.load(std::memory_order_acquire);
+        if (bitmap == 0) {
+            return std::nullopt;  // No ready tasks
+        }
+
+        // __builtin_ctz: Count Trailing Zeros - finds lowest set bit (highest priority)
+        // Priority 0 (Realtime) = bit 0, Priority 3 (Idle) = bit 3
+        auto highest_prio = static_cast<std::size_t>(__builtin_ctz(bitmap));
+        auto& queue = priority_queues_[highest_prio];
+
+        // Get head of queue for this priority
+        if (queue.head == 0xFF) {
+            // Bitmap inconsistency - fall back to linear search
+            return get_next_task_fallback(self_core);
+        }
+
+        auto task_idx = queue.head;
+        auto& t = tasks[task_idx];
+
+        // Core affinity check
+        if (t.cfg.core_affinity != static_cast<std::uint8_t>(Core::Any) &&
+            t.cfg.core_affinity != self_core) {
+            // Task not eligible for this core - scan queue for next eligible
+            std::uint8_t cur = task_idx;
+            while (cur != 0xFF) {
+                auto& task = tasks[cur];
+                if (task.cfg.core_affinity == static_cast<std::uint8_t>(Core::Any) ||
+                    task.cfg.core_affinity == self_core) {
+                    return cur;
+                }
+                cur = task.next;
+            }
+            // No eligible task at this priority, try lower priorities
+            for (std::size_t prio = highest_prio + 1; prio < num_priorities; ++prio) {
+                if ((bitmap & (1u << prio)) == 0) continue;
+                auto& q = priority_queues_[prio];
+                cur = q.head;
+                while (cur != 0xFF) {
+                    auto& task = tasks[cur];
+                    if (task.cfg.core_affinity == static_cast<std::uint8_t>(Core::Any) ||
+                        task.cfg.core_affinity == self_core) {
+                        return cur;
+                    }
+                    cur = task.next;
                 }
             }
-            // Round-robin for User priority: take first found (starting from last_user_idx+1)
-            else if (t.cfg.prio == Priority::User && !first_user.has_value()) {
-                first_user = TaskId{i};
-            }
-            // Idle priority: only if nothing else
-            else if (!best.has_value() && !first_user.has_value() && t.cfg.prio == Priority::Idle) {
+            return std::nullopt;
+        }
+
+        // For User priority, implement round-robin by rotating queue after selection
+        if (highest_prio == static_cast<std::size_t>(Priority::User) && queue.count > 1) {
+            last_user_idx = task_idx;
+        }
+
+        return task_idx;
+    }
+
+    /// Fallback O(n) scheduler for edge cases (bitmap inconsistency)
+    std::optional<std::uint16_t> get_next_task_fallback(std::uint8_t self_core) {
+        std::optional<TaskId> best;
+        Priority best_prio = Priority::Idle;
+
+        for (std::uint16_t i = 0; i < tasks.size(); ++i) {
+            auto& t = tasks[i];
+            if (t.state != State::Ready && t.state != State::Running) continue;
+            if (t.cfg.core_affinity != static_cast<std::uint8_t>(Core::Any) &&
+                t.cfg.core_affinity != self_core) continue;
+
+            if (!best.has_value() || t.cfg.prio < best_prio) {
                 best_prio = t.cfg.prio;
                 best = TaskId{i};
             }
         }
-        
-        // User priority wins over Idle, but loses to Realtime
-        if (first_user.has_value() && (!best.has_value() || best_prio >= Priority::User)) {
-            last_user_idx = first_user->value;
-            return first_user->value;
-        }
-        
+
         if (!best.has_value()) return std::nullopt;
         return best->value;
     }
@@ -948,17 +1009,17 @@ private:
     // -----------------------------------------------------------------
     // Kernel Internals
     // -----------------------------------------------------------------
-    
-    enum class State : std::uint8_t { Unused, Ready, Running, Blocked };
-
-    struct Tcb {
-        TaskConfig cfg {};
-        State state {State::Unused};
-    };
 
     struct SharedRegion {
         void* base {nullptr};
         std::size_t bytes {0};
+    };
+
+    // Per-priority ready queue for O(1) scheduler
+    struct PriorityQueue {
+        std::uint8_t head {0xFF};   // First ready task (0xFF = empty)
+        std::uint8_t tail {0xFF};   // Last ready task for O(1) enqueue
+        std::uint8_t count {0};     // Number of tasks in queue
     };
 
     usec time_us {0};
@@ -968,6 +1029,10 @@ private:
     Notification<MaxTasks> notifications {};
     TimerQueue<MaxTimers> timers {};
     std::array<std::optional<TaskId>, MaxCores> current_per_core {};
+
+    // O(1) Bitmap scheduler infrastructure
+    std::atomic<std::uint8_t> ready_bitmap_ {0};  // Bit per priority level
+    std::array<PriorityQueue, num_priorities> priority_queues_ {};
 
     bool valid_task(TaskId id) const { 
         return id.valid() && id.value < tasks.size() && 
@@ -982,6 +1047,85 @@ private:
             }
         }
         return {};
+    }
+
+    // -----------------------------------------------------------------
+    // O(1) Bitmap Scheduler Helpers
+    // -----------------------------------------------------------------
+
+    // Add task to priority queue and update bitmap
+    void bitmap_add_ready(TaskId id, Priority prio) {
+        auto prio_idx = static_cast<std::size_t>(prio);
+        auto& queue = priority_queues_[prio_idx];
+        auto task_idx = static_cast<std::uint8_t>(id.value);
+
+        // Add to tail of queue
+        tasks[task_idx].next = 0xFF;
+        if (queue.tail != 0xFF) {
+            tasks[queue.tail].next = task_idx;
+        } else {
+            queue.head = task_idx;
+        }
+        queue.tail = task_idx;
+        queue.count++;
+
+        // Set priority bit in bitmap
+        ready_bitmap_.fetch_or(1u << prio_idx, std::memory_order_release);
+    }
+
+    // Remove task from priority queue and update bitmap if empty
+    void bitmap_remove_ready(TaskId id, Priority prio) {
+        auto prio_idx = static_cast<std::size_t>(prio);
+        auto& queue = priority_queues_[prio_idx];
+        auto task_idx = static_cast<std::uint8_t>(id.value);
+
+        // Find and remove from queue
+        std::uint8_t prev = 0xFF;
+        std::uint8_t cur = queue.head;
+        while (cur != 0xFF) {
+            if (cur == task_idx) {
+                // Found - unlink
+                if (prev != 0xFF) {
+                    tasks[prev].next = tasks[cur].next;
+                } else {
+                    queue.head = tasks[cur].next;
+                }
+                if (queue.tail == cur) {
+                    queue.tail = prev;
+                }
+                tasks[cur].next = 0xFF;
+                queue.count--;
+                break;
+            }
+            prev = cur;
+            cur = tasks[cur].next;
+        }
+
+        // Clear bitmap bit if queue is now empty
+        if (queue.count == 0) {
+            ready_bitmap_.fetch_and(~(1u << prio_idx), std::memory_order_release);
+        }
+    }
+
+    // Set task to Ready state with bitmap update
+    void set_ready_with_bitmap(TaskId id) {
+        if (!valid_task(id)) return;
+        auto& t = tasks[id.value];
+        if (t.state == State::Ready) return;  // Already ready
+        t.state = State::Ready;
+        bitmap_add_ready(id, t.cfg.prio);
+    }
+
+    // Set task to Blocked state with bitmap update
+    void set_blocked_with_bitmap(TaskId id) {
+        if (!valid_task(id)) return;
+        auto& t = tasks[id.value];
+        if (t.state == State::Blocked) return;  // Already blocked
+        Priority prio = t.cfg.prio;
+        if (t.state == State::Ready || t.state == State::Running) {
+            bitmap_remove_ready(id, prio);
+        }
+        t.state = State::Blocked;
     }
 
     void schedule() {
