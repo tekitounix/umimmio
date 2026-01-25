@@ -1063,7 +1063,8 @@ void svc_handler_impl(uint32_t* sp) {
 }
 
 // Simplified SVC handler - no Yield processing needed
-extern "C" void svc_handler_c(uint32_t* sp) {
+// [[gnu::used]] prevents LTO from removing this symbol (called from assembly)
+extern "C" [[gnu::used]] void svc_handler_c(uint32_t* sp) {
     svc_handler_impl(sp);
 }
 
@@ -1087,7 +1088,8 @@ extern "C" [[gnu::naked]] void SVC_Handler() {
 // ============================================================================
 
 // External symbol for port layer PendSV handler
-extern "C" umi::port::cm4::TaskContext* umi_cm4_current_tcb = nullptr;
+// [[gnu::used]] prevents LTO from removing this symbol (referenced by assembly)
+extern "C" [[gnu::used]] umi::port::cm4::TaskContext* umi_cm4_current_tcb = nullptr;
 
 // Select next task to run (simple 2-task scheduler)
 // Audio task has higher priority than Control task
@@ -1112,7 +1114,8 @@ static umi::port::cm4::TaskContext* select_next_task() {
 
 // Context switch function called from PendSV handler
 // Updates umi_cm4_current_tcb to point to next task
-extern "C" void umi_cm4_switch_context() {
+// [[gnu::used]] prevents LTO from removing this symbol (called from assembly)
+extern "C" [[gnu::used]] void umi_cm4_switch_context() {
     // Update current task state (Running -> Ready, unless Blocked)
     if (g_current_tcb == &g_audio_tcb && g_audio_task_state == TaskState::Running) {
         g_audio_task_state = TaskState::Ready;

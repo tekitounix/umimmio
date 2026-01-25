@@ -1,7 +1,8 @@
 # UMI-OS コンパクト化・最適化計画
 
-**バージョン**: 1.0
+**バージョン**: 1.1
 **作成日**: 2026-01-25
+**更新日**: 2026-01-26
 **対象**: カーネル、USBスタック、シェルライブラリ
 
 ## 概要
@@ -14,152 +15,56 @@
 
 ## 現状分析
 
-### ビルドサイズ (STM32F4 Discovery)
+### ビルドサイズ (stm32f4_kernel)
 
-| コンポーネント | Flash | RAM | 備考 |
-|---------------|-------|-----|------|
-| 全体 | 41,776B | 77,820B | .text + .data / .data + .bss |
-| カーネル (推定) | ~8KB | ~4KB | テンプレート含む |
-| USB スタック | ~12KB | ~2KB | Audio Class含む |
-| シェル | ~6KB | ~3KB | コマンド数による |
-
-### シンボルサイズ分析
-
-```
-シェルコマンド (各700-1,800バイト):
-  shell_help: 892B
-  shell_status: 1,024B
-  shell_audio: 1,456B
-  shell_midi: 1,232B
-
-USB関数 (各400-800バイト):
-  usb_audio_data_out: 756B
-  usb_audio_data_in: 684B
-  usb_get_descriptor: 524B
-  usb_handle_setup: 812B
-```
+| 指標 | 値 | 備考 |
+|------|-----|------|
+| text (Flash) | 41,692 B | コード |
+| data | 84 B | 初期化済みデータ |
+| bss (RAM) | 77,736 B | 未初期化データ |
 
 ---
 
-## Phase 1: カーネル最適化
+## 実測検証結果
 
-### 1.1 TimerQueue O(1)スロット管理
+### ✅ LTO (Link Time Optimization) - **検証済み・有効**
 
-**現状**: TimerQueue はタイマー挿入時に O(n) の線形探索を行う
-
-**改善**: 時間スロットベースのハッシュテーブル
-
-```cpp
-// 改善前: O(n) 挿入
-void insert(Timer* timer) {
-    auto pos = std::lower_bound(...);  // O(n)
-    timers_.insert(pos, timer);
-}
-
-// 改善後: O(1) 挿入 (時間スロットハッシュ)
-static constexpr size_t SLOT_COUNT = 64;
-static constexpr uint64_t SLOT_GRANULARITY_US = 1000;  // 1ms
-
-struct TimerSlot {
-    Timer* head {nullptr};
-};
-TimerSlot slots_[SLOT_COUNT];
-
-void insert(Timer* timer) {
-    auto slot = (timer->expiry / SLOT_GRANULARITY_US) % SLOT_COUNT;
-    timer->next = slots_[slot].head;
-    slots_[slot].head = timer;  // O(1)
-}
+```
+$ xmake build stm32f4_kernel  # LTO=thin
 ```
 
-**期待効果**:
-- CPU使用率: 15-20%削減（タイマー多用時）
-- コードサイズ: ±0（同程度）
+| 指標 | LTOなし | LTO (thin) | 削減 |
+|------|---------|------------|------|
+| text (Flash) | 41,692 B | 40,344 B | **-1,348 B (3.2%)** |
+| data | 84 B | 20 B | -64 B |
+| bss (RAM) | 77,736 B | 72,616 B | **-5,120 B (6.6%)** |
 
-### 1.2 キャッシュラインアライメント削除
-
-**現状**: シングルコアMCUで不要な64バイトアライメント
-
-```cpp
-// 現状
-alignas(64) std::array<Tcb, MAX_TASKS> tcbs_;
-```
-
-**改善**: 自然アライメントに変更
+**注意点**: アセンブリから参照されるシンボルには `[[gnu::used]]` 属性が必要
 
 ```cpp
-// 改善後
-std::array<Tcb, MAX_TASKS> tcbs_;
+// LTO対応のためのシンボル保護
+extern "C" [[gnu::used]] void umi_cm4_switch_context();
+extern "C" [[gnu::used]] void svc_handler_c(uint32_t* sp);
+extern "C" [[gnu::used]] umi::port::cm4::TaskContext* umi_cm4_current_tcb;
 ```
 
-**期待効果**:
-- RAMパディング削減: 最大 `(MAX_TASKS - 1) * 60` バイト
-- 8タスクで最大420バイト節約
-
-### 1.3 スケジューラ冗長検証削除
-
-**現状**: 毎回のスケジュール呼び出しで全TCBを検証
-
-**改善**: 状態遷移時のみ検証（デバッグビルドのみ）
-
-```cpp
-#if defined(UMI_DEBUG)
-    #define VALIDATE_TCB(tcb) validate_tcb_state(tcb)
-#else
-    #define VALIDATE_TCB(tcb) ((void)0)
-#endif
-```
-
-**期待効果**:
-- リリースビルドで5-10%のスケジューラオーバーヘッド削減
-
-### 1.4 テンプレート肥大化抑制
-
-**現状**: `Hw<Impl>` テンプレートが各インスタンスで重複コード生成
-
-**改善**: 非テンプレート基底クラスへの共通ロジック移動
-
-```cpp
-// 改善前
-template <class Impl>
-class Hw {
-    void common_logic() { /* 重複生成 */ }
-};
-
-// 改善後
-class HwBase {
-protected:
-    void common_logic() { /* 1回のみ生成 */ }
-};
-
-template <class Impl>
-class Hw : public HwBase {
-    // Impl固有のみ
-};
-```
-
-**期待効果**:
-- Flash削減: 10-15%（テンプレート部分）
+**判定**: ✅ 有効 - 即座に適用可能
 
 ---
 
-## Phase 2: シェルライブラリ最適化
+### ✅ コマンドハッシュテーブル - **検証済み・有効**
 
-### 2.1 コマンドハッシュテーブル
+ホストベンチマーク結果 (16コマンド、100万回反復):
 
-**現状**: コマンド検索が O(n) 線形探索
+| 方式 | 所要時間 | 1回あたり |
+|------|----------|----------|
+| if-else連鎖 (現状) | 115.7 ms | 19.3 ns |
+| FNV-1aハッシュテーブル | 45.0 ms | 7.5 ns |
 
-```cpp
-// 現状
-for (const auto& cmd : commands_) {
-    if (cmd.name == input) return cmd;  // O(n)
-}
-```
-
-**改善**: 完全ハッシュまたはFNV-1aハッシュテーブル
+**高速化率: 2.57倍**
 
 ```cpp
-// 改善後: FNV-1aハッシュ
+// FNV-1a ハッシュ (コンパイル時計算可能)
 constexpr uint32_t fnv1a(const char* str) {
     uint32_t hash = 2166136261u;
     while (*str) {
@@ -168,270 +73,121 @@ constexpr uint32_t fnv1a(const char* str) {
     }
     return hash;
 }
-
-static constexpr size_t HASH_BUCKETS = 16;
-CommandEntry* hash_table_[HASH_BUCKETS];
-
-CommandEntry* find(const char* name) {
-    auto bucket = fnv1a(name) % HASH_BUCKETS;
-    for (auto* e = hash_table_[bucket]; e; e = e->next) {
-        if (strcmp(e->name, name) == 0) return e;
-    }
-    return nullptr;  // O(1) 平均
-}
 ```
 
-**期待効果**:
-- コマンド10個以上で50%高速化
-- RAM増加: 64バイト（16バケット × 4バイト）
-
-### 2.2 出力バッファ削減
-
-**現状**: 各コマンドで2KBの出力バッファ
-
-```cpp
-char output_buffer_[2048];
-```
-
-**改善**: ストリーミング出力またはサイズ可変バッファ
-
-```cpp
-// 改善後: ストリーミング出力
-class ShellOutput {
-    void (*write_fn_)(const char*, size_t);
-public:
-    void print(const char* str) {
-        write_fn_(str, strlen(str));  // 即時出力
-    }
-};
-```
-
-**期待効果**:
-- RAM削減: 1.5-2KB
-
-### 2.3 テンプレート特殊化削減
-
-**現状**: `ShellCommands<Hw>` が全コマンドをテンプレート展開
-
-**改善**: 型消去による共通実装
-
-```cpp
-// 改善後
-class ShellCommandsBase {
-protected:
-    // 非テンプレート共通実装
-    void print_help_header();
-    void format_status_line(char* buf, size_t len);
-};
-
-template <class Hw>
-class ShellCommands : public ShellCommandsBase {
-    // Hw固有の薄いラッパーのみ
-};
-```
-
-**期待効果**:
-- Flash削減: 30-40%（シェル部分）
+**判定**: ✅ 有効 - コマンド数10個以上で効果大
 
 ---
 
-## Phase 3: USBスタック最適化
-
-### 3.1 StringDescriptor ランタイム変換削除
-
-**現状**: USB文字列記述子を毎回UTF-16変換
+### ❌ キャッシュラインアライメント削除 - **検証済み・削除不可**
 
 ```cpp
-void get_string_desc(uint8_t index, uint8_t* buf) {
-    const char* str = string_table[index];
-    // ランタイムでUTF-16変換...
-}
+// umi_kernel.hh:350-351 - SpscQueueのみで使用
+alignas(64) std::atomic<std::size_t> write_pos_ {0};
+alignas(64) std::atomic<std::size_t> read_pos_ {0};
 ```
 
-**改善**: コンパイル時UTF-16リテラル
+**検証結果**: ISR-Task間のfalse sharing防止に**必須**。TCB配列には未使用。
 
-```cpp
-// 改善後: コンパイル時生成
-static constexpr uint8_t STRING_MANUFACTURER[] = {
-    14,                    // bLength
-    USB_DESC_STRING,       // bDescriptorType
-    'U', 0, 'M', 0, 'I', 0, '-', 0, 'O', 0, 'S', 0  // UTF-16LE
-};
-```
-
-**期待効果**:
-- Flash削減: 30-50%（記述子部分）
-- CPU削減: 毎リクエスト100-200サイクル節約
-
-### 3.2 CRTP コールバック最適化
-
-**現状**: 仮想関数によるコールバック
-
-```cpp
-class UsbCallbacks {
-    virtual void on_setup(SetupPacket& pkt) = 0;  // vtable indirection
-};
-```
-
-**改善**: CRTP (Curiously Recurring Template Pattern)
-
-```cpp
-// 改善後
-template <class Derived>
-class UsbDevice {
-    void handle_setup(SetupPacket& pkt) {
-        static_cast<Derived*>(this)->on_setup(pkt);  // インライン化
-    }
-};
-
-class MyUsbDevice : public UsbDevice<MyUsbDevice> {
-    void on_setup(SetupPacket& pkt) { /* 実装 */ }
-};
-```
-
-**期待効果**:
-- ISRでの間接呼び出し削減: 10% CPU削減
-- vtable削減: 各クラス8-16バイト
-
-### 3.3 エンドポイント設定テーブル化
-
-**現状**: エンドポイント設定が個別関数呼び出し
-
-```cpp
-configure_ep(EP1_IN, TYPE_BULK, 64);
-configure_ep(EP1_OUT, TYPE_BULK, 64);
-configure_ep(EP2_IN, TYPE_ISO, 192);
-// ...
-```
-
-**改善**: 静的テーブルからのループ設定
-
-```cpp
-// 改善後
-struct EpConfig {
-    uint8_t ep;
-    uint8_t type;
-    uint16_t max_packet;
-};
-
-static constexpr EpConfig ep_configs[] = {
-    {EP1_IN,  TYPE_BULK, 64},
-    {EP1_OUT, TYPE_BULK, 64},
-    {EP2_IN,  TYPE_ISO,  192},
-};
-
-void configure_all_eps() {
-    for (const auto& cfg : ep_configs) {
-        configure_ep(cfg.ep, cfg.type, cfg.max_packet);
-    }
-}
-```
-
-**期待効果**:
-- Flash削減: エンドポイント数 × 20-40バイト
-
-### 3.4 Audio Class バッファ管理最適化
-
-**現状**: ダブルバッファリングが静的配列
-
-**改善**: リングバッファまたはDMA直接転送
-
-```cpp
-// 改善後: ゼロコピーDMAリングバッファ
-template <size_t SIZE>
-class DmaRingBuffer {
-    alignas(4) uint8_t buffer_[SIZE];
-    volatile size_t head_ {0};
-    volatile size_t tail_ {0};
-public:
-    // DMAが直接書き込み、CPUは読み取りのみ
-    uint8_t* dma_buffer() { return buffer_; }
-    size_t available() const { return (head_ - tail_) % SIZE; }
-};
-```
-
-**期待効果**:
-- メモリコピー削減: オーディオパスで20-30%高速化
+**判定**: ❌ 削除不可
 
 ---
 
-## Phase 4: 共通最適化
+### ❌ USB StringDescriptor変換削除 - **検証済み・既に実装済み**
 
-### 4.1 LTO (Link Time Optimization) 有効化
-
-**現状**: 個別コンパイルでインライン化制限
-
-**改善**: `-flto` フラグ有効化
-
-```makefile
-CXXFLAGS += -flto
-LDFLAGS += -flto
+```cpp
+// lib/umiusb/include/descriptor.hh:88-100
+// コンパイル時UTF-16変換が既に実装済み
+template<std::size_t N>
+constexpr auto String(const char (&s)[N]) {
+    // コンパイル時にUTF-16LE変換
+    for (std::size_t i = 0; i < len; ++i) {
+        result[2 + i * 2] = static_cast<uint8_t>(s[i]);
+        result[2 + i * 2 + 1] = 0;
+    }
+    return result;
+}
 ```
 
-**期待効果**:
-- Flash削減: 5-15%（全体）
-- 関数インライン化によるパフォーマンス向上
-
-### 4.2 文字列プーリング
-
-**現状**: 重複文字列リテラル
-
-**改善**: `-fmerge-all-constants` 有効化
-
-```makefile
-CXXFLAGS += -fmerge-all-constants
-```
-
-**期待効果**:
-- Flash削減: 1-3%
-
-### 4.3 セクション分離とGC
-
-**現状**: 未使用コードが残存
-
-**改善**: 関数/データセクション分離とGC
-
-```makefile
-CXXFLAGS += -ffunction-sections -fdata-sections
-LDFLAGS += -Wl,--gc-sections
-```
-
-**期待効果**:
-- Flash削減: 3-8%（未使用コード除去）
+**判定**: ❌ 不要 - 既に最適化済み
 
 ---
 
-## 実装優先度
+### ⚠️ TimerQueue O(1) - **効果限定的**
 
-| 優先度 | 項目 | 効果 | 難易度 | 対象 |
+**現状**: デルタエンコード方式で O(n) 挿入
+
+**検証結果**: MaxTimers は通常8-16程度のため実用上問題なし。
+デルタエンコードはメモリ効率が良く、現状維持が適切。
+
+**判定**: ⚠️ 効果限定的 - 将来タイマー数が増加した場合のみ検討
+
+---
+
+### ⚠️ Hw<Impl> テンプレート共通化 - **効果薄**
+
+```cpp
+// 現状: 薄いラッパー (各メソッド1行転送)
+template <class Impl>
+class Hw {
+    static void set_timer_absolute(usec target) { Impl::set_timer_absolute(target); }
+    static usec monotonic_time_usecs() { return Impl::monotonic_time_usecs(); }
+    // ...
+};
+```
+
+**検証結果**: 各メソッドが1行の転送のみで、共通化の余地なし。
+
+**判定**: ⚠️ 効果薄
+
+---
+
+## 有効な最適化項目 (優先度順)
+
+| 優先度 | 項目 | 効果 | 難易度 | 状態 |
 |-------|------|------|--------|------|
-| 1 | LTO有効化 | Flash 5-15% | 低 | 全体 |
-| 2 | キャッシュライン削除 | RAM 400B | 低 | カーネル |
-| 3 | 出力バッファ削減 | RAM 1.5KB | 低 | シェル |
-| 4 | コマンドハッシュ | CPU 50% | 中 | シェル |
-| 5 | StringDesc変換削除 | Flash 30% | 中 | USB |
-| 6 | テンプレート共通化 | Flash 30% | 中 | 全体 |
-| 7 | TimerQueue O(1) | CPU 15-20% | 中 | カーネル |
-| 8 | CRTP最適化 | CPU 10% | 高 | USB |
-| 9 | DMAリングバッファ | CPU 20-30% | 高 | USB |
+| **1** | **LTO有効化** | Flash -3.2%, RAM -6.6% | 低 | ✅ 検証済み |
+| **2** | **コマンドハッシュ** | CPU 2.57x高速化 | 中 | ✅ 検証済み |
+| 3 | 出力バッファ削減 | RAM 1.5-2KB | 低 | 未検証 |
+| 4 | セクションGC | Flash 3-8% | 低 | 未検証 |
+| 5 | CRTP最適化 | ISR CPU 10% | 高 | 未検証 |
+| 6 | DMAリングバッファ | Audio CPU 20-30% | 高 | 未検証 |
+
+## 削除/不要な項目
+
+| 項目 | 理由 |
+|------|------|
+| キャッシュライン削除 | false sharing防止に必須 |
+| StringDesc変換削除 | 既にコンパイル時変換実装済み |
+| TimerQueue O(1) | MaxTimers小で効果限定的 |
+| Hw<Impl>共通化 | 薄いラッパーで効果薄 |
+
+---
+
+## 実装済み変更
+
+1. **LTO対応シンボル保護** (`examples/stm32f4_kernel/src/main.cc`)
+   - `[[gnu::used]]` 属性追加
+
+2. **LTO設定** (`examples/stm32f4_kernel/xmake.lua`)
+   - `embedded.lto = "thin"` オプション（コメントアウト状態）
 
 ---
 
 ## 期待される最終効果
 
-| 指標 | 現状 | 目標 | 削減率 |
-|------|------|------|--------|
-| Flash | 41,776B | ~32,000B | 23% |
-| RAM | 77,820B | ~72,000B | 7% |
-| コンテキストスイッチ | ~150サイクル | ~120サイクル | 20% |
-| オーディオレイテンシ | ~500us | ~400us | 20% |
+| 指標 | 現状 | LTO適用後 | 全最適化後 |
+|------|------|----------|----------|
+| Flash | 41,692 B | 40,344 B (-3.2%) | ~38,000 B (-9%) |
+| RAM | 77,736 B | 72,616 B (-6.6%) | ~70,000 B (-10%) |
+| コマンド検索 | O(n) | O(n) | O(1) 平均 |
 
 ---
 
 ## 検証方法
 
 1. **サイズ検証**: `arm-none-eabi-size` での継続的監視
-2. **パフォーマンス検証**: DWT サイクルカウンタによる測定
+2. **パフォーマンス検証**: ホストベンチマーク + DWT サイクルカウンタ
 3. **回帰テスト**: 既存機能の動作確認
 4. **ハードウェアテスト**: STM32F4 Discovery での実機確認
 

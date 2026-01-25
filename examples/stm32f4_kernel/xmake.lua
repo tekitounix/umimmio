@@ -11,6 +11,8 @@ target("stm32f4_kernel")
     set_values("embedded.mcu", "stm32f407vg")
     set_values("embedded.linker_script", path.join(os.scriptdir(), "kernel.ld"))
     set_values("embedded.optimize", "size")  -- -Os for kernel
+    -- LTO test result: -3.2% Flash (-1,348B), -6.6% RAM (-5,120B)
+    -- Uncomment to enable: set_values("embedded.lto", "thin")
     
     -- Source files
     add_files("src/*.cc")
