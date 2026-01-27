@@ -30,14 +30,22 @@ constexpr float R5 = 10e3f;
 constexpr float C1 = 10e-9f;
 constexpr float C2 = 1e-6f;
 
-// トランジスタパラメータ
-constexpr float V_T = 0.025865f;
-constexpr float V_T_INV = 1.0f / V_T;
-constexpr float I_S = 1e-13f;
-constexpr float BETA_F = 100.0f;
-constexpr float ALPHA_F = BETA_F / (BETA_F + 1.0f);
-constexpr float ALPHA_R = 0.5f / 1.5f;
-constexpr float V_CRIT = V_T * 40.0f;
+// =============================================================================
+// 2SA733P トランジスタパラメータ
+// TB-303サービスノート(1982)に基づくNEC 2SA733 Pランク準拠
+// 注: I_S, BETA_F のバラつきは音色への影響が知覚困難なレベルのため固定値を採用
+// =============================================================================
+inline namespace p2sa733p {
+    constexpr float V_T = 0.025865f;                        // 熱電圧 @ 25℃
+    constexpr float V_T_INV = 1.0f / V_T;
+    constexpr float V_CRIT = V_T * 40.0f;
+
+    constexpr float I_S = 5e-14f;                           // 飽和電流 (SPICEモデル中央値)
+    constexpr float BETA_F = 300.0f;                        // 順方向β (Pランク: 200-400)
+    constexpr float ALPHA_F = BETA_F / (BETA_F + 1.0f);     // ≈ 0.9967
+    constexpr float BETA_R = 0.1f;                          // 逆方向β (MACOM実測)
+    constexpr float ALPHA_R = BETA_R / (BETA_R + 1.0f);     // ≈ 0.0909
+}  // namespace p2sa733p
 
 // 事前計算コンダクタンス
 constexpr float G2 = 1.0f / R2;
@@ -133,207 +141,10 @@ inline bool solve_sparse(
 }
 
 // =============================================================================
-// Newton 1回反復
+// Newton N回反復 (テンプレート版)
 // =============================================================================
-class WaveShaperOneIter {
-public:
-    void setSampleRate(float sampleRate) {
-        dt_ = 1.0f / sampleRate;
-        g_c1_ = C1 / dt_;
-        g_c2_ = C2 / dt_;
-    }
-
-    void reset() {
-        v_c1_ = 0.0f;
-        v_c2_ = 8.0f;
-        v_b_ = 8.0f;
-        v_e_ = 8.0f;
-        v_c_ = V_COLL;
-    }
-
-    float process(float v_in) {
-        const float v_c1_prev = v_c1_;
-        const float v_c2_prev = v_c2_;
-
-        // 初期推定: 前回の解
-        float v_cap = v_in - v_c1_prev;
-        float v_b = v_b_;
-        float v_e = v_c2_prev;
-        float v_c = v_c_;
-
-        // 1回Newton反復
-        newton_step(v_in, v_c1_prev, v_c2_prev, v_cap, v_b, v_e, v_c);
-
-        // 状態更新
-        v_c1_ = v_in - v_cap;
-        v_c2_ = v_e;
-        v_b_ = v_b;
-        v_e_ = v_e;
-        v_c_ = v_c;
-
-        return v_c;
-    }
-
-private:
-    void newton_step(float v_in, float v_c1_prev, float v_c2_prev,
-                     float& v_cap, float& v_b, float& v_e, float& v_c) {
-        // ダイオード評価
-        float v_eb = v_e - v_b;
-        float v_cb = v_c - v_b;
-
-        float i_ef, g_ef, i_cr, g_cr;
-        diode_iv(v_eb, i_ef, g_ef);
-        diode_iv(v_cb, i_cr, g_cr);
-
-        // Ebers-Moll電流
-        float i_e = i_ef - ALPHA_R * i_cr;
-        float i_c = ALPHA_F * i_ef - i_cr;
-        float i_b = i_e - i_c;
-
-        // KCL残差
-        float f1 = g_c1_ * (v_in - v_cap - v_c1_prev) - G3 * (v_cap - v_b);
-        float f2 = G2 * (v_in - v_b) + G3 * (v_cap - v_b) + i_b;
-        float f3 = G4 * (V_CC - v_e) - i_e - g_c2_ * (v_e - v_c2_prev);
-        float f4 = G5 * (V_COLL - v_c) + i_c;
-
-        // ヤコビアン要素
-        float j11 = -g_c1_ - G3;
-        float j12 = G3;
-        float j21 = G3;
-        float j22 = -G2 - G3 - (1.0f - ALPHA_F) * g_ef - (1.0f - ALPHA_R) * g_cr;
-        float j23 = (1.0f - ALPHA_F) * g_ef;
-        float j24 = (1.0f - ALPHA_R) * g_cr;
-        float j32 = g_ef - ALPHA_R * g_cr;
-        float j33 = -G4 - g_ef - g_c2_;
-        float j34 = ALPHA_R * g_cr;
-        float j42 = -ALPHA_F * g_ef + g_cr;
-        float j43 = ALPHA_F * g_ef;
-        float j44 = -G5 - g_cr;
-
-        // Newton更新
-        float dv0, dv1, dv2, dv3;
-        if (solve_sparse(j11, j12, j21, j22, j23, j24, j32, j33, j34, j42, j43, j44,
-                         -f1, -f2, -f3, -f4, dv0, dv1, dv2, dv3)) {
-            // 適応的ダンピング
-            float max_dv = std::max({std::abs(dv0), std::abs(dv1),
-                                     std::abs(dv2), std::abs(dv3)});
-            float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
-
-            v_cap += damp * dv0;
-            v_b += damp * dv1;
-            v_e = std::clamp(v_e + damp * dv2, 0.0f, V_CC + 0.5f);
-            v_c = std::clamp(v_c + damp * dv3, 0.0f, V_CC + 0.5f);
-        }
-    }
-
-    float v_c1_ = 0.0f, v_c2_ = 8.0f;
-    float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
-    float dt_ = 1.0f / 48000.0f;
-    float g_c1_ = C1 / dt_;
-    float g_c2_ = C2 / dt_;
-};
-
-// =============================================================================
-// Newton 2回反復（精度と速度のバランス）
-// =============================================================================
-class WaveShaperTwoIter {
-public:
-    void setSampleRate(float sampleRate) {
-        dt_ = 1.0f / sampleRate;
-        g_c1_ = C1 / dt_;
-        g_c2_ = C2 / dt_;
-    }
-
-    void reset() {
-        v_c1_ = 0.0f;
-        v_c2_ = 8.0f;
-        v_b_ = 8.0f;
-        v_e_ = 8.0f;
-        v_c_ = V_COLL;
-    }
-
-    float process(float v_in) {
-        const float v_c1_prev = v_c1_;
-        const float v_c2_prev = v_c2_;
-
-        // 初期推定: 前回の解
-        float v_cap = v_in - v_c1_prev;
-        float v_b = v_b_;
-        float v_e = v_c2_prev;
-        float v_c = v_c_;
-
-        // 2回Newton反復
-        for (int iter = 0; iter < 2; ++iter) {
-            newton_step(v_in, v_c1_prev, v_c2_prev, v_cap, v_b, v_e, v_c);
-        }
-
-        // 状態更新
-        v_c1_ = v_in - v_cap;
-        v_c2_ = v_e;
-        v_b_ = v_b;
-        v_e_ = v_e;
-        v_c_ = v_c;
-
-        return v_c;
-    }
-
-private:
-    void newton_step(float v_in, float v_c1_prev, float v_c2_prev,
-                     float& v_cap, float& v_b, float& v_e, float& v_c) {
-        float v_eb = v_e - v_b;
-        float v_cb = v_c - v_b;
-
-        float i_ef, g_ef, i_cr, g_cr;
-        diode_iv(v_eb, i_ef, g_ef);
-        diode_iv(v_cb, i_cr, g_cr);
-
-        float i_e = i_ef - ALPHA_R * i_cr;
-        float i_c = ALPHA_F * i_ef - i_cr;
-        float i_b = i_e - i_c;
-
-        float f1 = g_c1_ * (v_in - v_cap - v_c1_prev) - G3 * (v_cap - v_b);
-        float f2 = G2 * (v_in - v_b) + G3 * (v_cap - v_b) + i_b;
-        float f3 = G4 * (V_CC - v_e) - i_e - g_c2_ * (v_e - v_c2_prev);
-        float f4 = G5 * (V_COLL - v_c) + i_c;
-
-        float j11 = -g_c1_ - G3;
-        float j12 = G3;
-        float j21 = G3;
-        float j22 = -G2 - G3 - (1.0f - ALPHA_F) * g_ef - (1.0f - ALPHA_R) * g_cr;
-        float j23 = (1.0f - ALPHA_F) * g_ef;
-        float j24 = (1.0f - ALPHA_R) * g_cr;
-        float j32 = g_ef - ALPHA_R * g_cr;
-        float j33 = -G4 - g_ef - g_c2_;
-        float j34 = ALPHA_R * g_cr;
-        float j42 = -ALPHA_F * g_ef + g_cr;
-        float j43 = ALPHA_F * g_ef;
-        float j44 = -G5 - g_cr;
-
-        float dv0, dv1, dv2, dv3;
-        if (solve_sparse(j11, j12, j21, j22, j23, j24, j32, j33, j34, j42, j43, j44,
-                         -f1, -f2, -f3, -f4, dv0, dv1, dv2, dv3)) {
-            float max_dv = std::max({std::abs(dv0), std::abs(dv1),
-                                     std::abs(dv2), std::abs(dv3)});
-            float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
-
-            v_cap += damp * dv0;
-            v_b += damp * dv1;
-            v_e = std::clamp(v_e + damp * dv2, 0.0f, V_CC + 0.5f);
-            v_c = std::clamp(v_c + damp * dv3, 0.0f, V_CC + 0.5f);
-        }
-    }
-
-    float v_c1_ = 0.0f, v_c2_ = 8.0f;
-    float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
-    float dt_ = 1.0f / 48000.0f;
-    float g_c1_ = C1 / dt_;
-    float g_c2_ = C2 / dt_;
-};
-
-// =============================================================================
-// Newton 3回反復（高精度）
-// =============================================================================
-class WaveShaperThreeIter {
+template <int N>
+class WaveShaperNewton {
 public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
@@ -358,8 +169,8 @@ public:
         float v_e = v_c2_prev;
         float v_c = v_c_;
 
-        // 3回Newton反復
-        for (int iter = 0; iter < 3; ++iter) {
+        // N回Newton反復
+        for (int iter = 0; iter < N; ++iter) {
             newton_step(v_in, v_c1_prev, v_c2_prev, v_cap, v_b, v_e, v_c);
         }
 
@@ -425,28 +236,18 @@ private:
     float g_c2_ = C2 / dt_;
 };
 
+// 後方互換性のためのエイリアス
+using WaveShaperOneIter = WaveShaperNewton<1>;
+using WaveShaperTwoIter = WaveShaperNewton<2>;
+using WaveShaperThreeIter = WaveShaperNewton<3>;
+
 // =============================================================================
-// Schur補行列法 (4x4→2x2への代数的縮約)
+// Schur補行列法 N回反復 (テンプレート版)
 //
-// 従来の4x4疎行列ソルバーを使わず、ブロック消去により2x2に縮約。
-// 数学的には1回Newton反復と同等だが、より高速。
-//
-// 行列構造:
-//   [j11  j12   0    0 ] [dv_cap]   [-f1]
-//   [j21  j22  j23  j24] [dv_b  ] = [-f2]
-//   [ 0   j32  j33  j34] [dv_e  ]   [-f3]
-//   [ 0   j42  j43  j44] [dv_c  ]   [-f4]
-//
-// Step 1: 行1を行2に吸収 (j11はスカラー、定数なので事前計算可能)
-//   j22' = j22 - j21*j12/j11
-//   f2'  = f2  - j21*f1/j11
-//
-// Step 2: 行4を行2,3に吸収
-//   これで2x2システム (dv_b, dv_e) が得られる
-//
-// Step 3: Cramer公式で2x2を解く
-// Step 4: 後退代入で dv_cap, dv_c を求める
+// 4x4→2x2への代数的縮約によりNewton法を高速化。
+// j44ピボットで効率的に2x2システムに縮約。
 // =============================================================================
+template <int N>
 class WaveShaperSchur {
 public:
     void setSampleRate(float sampleRate) {
@@ -457,11 +258,8 @@ public:
         // Schur補行列の事前計算（j11は定数）
         float j11 = -g_c1_ - G3;
         inv_j11_ = 1.0f / j11;
-
-        // j21 = G3 なので、j21/j11 = G3 / (-g_c1 - G3)
-        // j12 = G3 なので、j21*j12/j11 = G3*G3/j11
-        schur_j11_factor_ = G3 * G3 * inv_j11_;  // j22への補正
-        schur_f1_factor_ = G3 * inv_j11_;        // f2への補正（j21/j11）
+        schur_j11_factor_ = G3 * G3 * inv_j11_;
+        schur_f1_factor_ = G3 * inv_j11_;
     }
 
     void reset() {
@@ -476,106 +274,16 @@ public:
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
-        // 初期推定: 前回の解
         float v_cap = v_in - v_c1_prev;
         float v_b = v_b_;
         float v_e = v_c2_prev;
         float v_c = v_c_;
 
-        // ダイオード評価
-        float v_eb = v_e - v_b;
-        float v_cb = v_c - v_b;
-
-        float i_ef, g_ef, i_cr, g_cr;
-        diode_iv(v_eb, i_ef, g_ef);
-        diode_iv(v_cb, i_cr, g_cr);
-
-        // Ebers-Moll電流
-        float i_e = i_ef - ALPHA_R * i_cr;
-        float i_c = ALPHA_F * i_ef - i_cr;
-        float i_b = i_e - i_c;
-
-        // KCL残差
-        float f1 = g_c1_ * (v_in - v_cap - v_c1_prev) - G3 * (v_cap - v_b);
-        float f2 = G2 * (v_in - v_b) + G3 * (v_cap - v_b) + i_b;
-        float f3 = G4 * (V_CC - v_e) - i_e - g_c2_ * (v_e - v_c2_prev);
-        float f4 = G5 * (V_COLL - v_c) + i_c;
-
-        // ヤコビアン（行1は定数: j11 = -g_c1 - G3, j12 = G3）
-        float j22 = -G2 - G3 - (1.0f - ALPHA_F) * g_ef - (1.0f - ALPHA_R) * g_cr;
-        float j23 = (1.0f - ALPHA_F) * g_ef;
-        float j24 = (1.0f - ALPHA_R) * g_cr;
-        float j32 = g_ef - ALPHA_R * g_cr;
-        float j33 = -G4 - g_ef - g_c2_;
-        float j34 = ALPHA_R * g_cr;
-        float j42 = -ALPHA_F * g_ef + g_cr;
-        float j43 = ALPHA_F * g_ef;
-        float j44 = -G5 - g_cr;
-
-        // ===== Step 1: 行1を行2に吸収 =====
-        // j22' = j22 - j21*j12/j11 = j22 - G3*G3/j11
-        float j22_p = j22 - schur_j11_factor_;
-        // f2' = f2 - j21*f1/j11 = f2 - G3*f1/j11
-        float f2_p = f2 - schur_f1_factor_ * f1;
-
-        // ===== Step 2: 行4を行2,3に吸収 =====
-        // 行4: j42*dv_b + j43*dv_e + j44*dv_c = -f4
-        // → dv_c = (-f4 - j42*dv_b - j43*dv_e) / j44
-        float inv_j44 = 1.0f / j44;
-
-        // 行2に行4を吸収:
-        // j22'' = j22' - j24*j42/j44
-        // j23'' = j23  - j24*j43/j44
-        // f2''  = f2'  - j24*(-f4)/j44
-        float j24_inv_j44 = j24 * inv_j44;
-        float j22_pp = j22_p - j24_inv_j44 * j42;
-        float j23_pp = j23 - j24_inv_j44 * j43;
-        float f2_pp = f2_p + j24_inv_j44 * f4;
-
-        // 行3に行4を吸収:
-        // j32'' = j32 - j34*j42/j44
-        // j33'' = j33 - j34*j43/j44
-        // f3''  = f3  - j34*(-f4)/j44
-        float j34_inv_j44 = j34 * inv_j44;
-        float j32_pp = j32 - j34_inv_j44 * j42;
-        float j33_pp = j33 - j34_inv_j44 * j43;
-        float f3_pp = f3 + j34_inv_j44 * f4;
-
-        // ===== Step 3: 2x2システムをCramer公式で解く =====
-        // [j22'' j23''] [dv_b]   [-f2'']
-        // [j32'' j33''] [dv_e] = [-f3'']
-        float det = j22_pp * j33_pp - j23_pp * j32_pp;
-        if (std::abs(det) < 1e-15f) {
-            // 特異行列 - 更新をスキップ
-            v_c1_ = v_in - v_cap;
-            v_c2_ = v_e;
-            return v_c;
+        // N回Newton反復
+        for (int iter = 0; iter < N; ++iter) {
+            schur_step(v_in, v_c1_prev, v_c2_prev, v_cap, v_b, v_e, v_c);
         }
 
-        float inv_det = 1.0f / det;
-        float neg_f2 = -f2_pp;
-        float neg_f3 = -f3_pp;
-        float dv_b = (j33_pp * neg_f2 - j23_pp * neg_f3) * inv_det;
-        float dv_e = (j22_pp * neg_f3 - j32_pp * neg_f2) * inv_det;
-
-        // ===== Step 4: 後退代入 =====
-        // dv_c = (-f4 - j42*dv_b - j43*dv_e) / j44
-        float dv_c = (-f4 - j42 * dv_b - j43 * dv_e) * inv_j44;
-
-        // dv_cap = (-f1 - j12*dv_b) / j11 = (-f1 - G3*dv_b) / j11
-        float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
-
-        // ===== 適応的ダンピング =====
-        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
-                                 std::abs(dv_e), std::abs(dv_c)});
-        float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
-
-        v_cap += damp * dv_cap;
-        v_b += damp * dv_b;
-        v_e = std::clamp(v_e + damp * dv_e, 0.0f, V_CC + 0.5f);
-        v_c = std::clamp(v_c + damp * dv_c, 0.0f, V_CC + 0.5f);
-
-        // 状態更新
         v_c1_ = v_in - v_cap;
         v_c2_ = v_e;
         v_b_ = v_b;
@@ -586,13 +294,72 @@ public:
     }
 
 private:
+    void schur_step(float v_in, float v_c1_prev, float v_c2_prev,
+                    float& v_cap, float& v_b, float& v_e, float& v_c) {
+        float i_ef, g_ef, i_cr, g_cr;
+        diode_iv(v_e - v_b, i_ef, g_ef);
+        diode_iv(v_c - v_b, i_cr, g_cr);
+
+        const float i_e = i_ef - ALPHA_R * i_cr;
+        const float i_c = ALPHA_F * i_ef - i_cr;
+        const float i_b = i_e - i_c;
+
+        const float f1 = g_c1_ * (v_in - v_cap - v_c1_prev) - G3 * (v_cap - v_b);
+        const float f2 = G2 * (v_in - v_b) + G3 * (v_cap - v_b) + i_b;
+        const float f3 = G4 * (V_CC - v_e) - i_e - g_c2_ * (v_e - v_c2_prev);
+        const float f4 = G5 * (V_COLL - v_c) + i_c;
+
+        const float j22 = -G2 - G3 - (1.0f - ALPHA_F) * g_ef - (1.0f - ALPHA_R) * g_cr;
+        const float j23 = (1.0f - ALPHA_F) * g_ef;
+        const float j24 = (1.0f - ALPHA_R) * g_cr;
+        const float j32 = g_ef - ALPHA_R * g_cr;
+        const float j33 = -G4 - g_ef - g_c2_;
+        const float j34 = ALPHA_R * g_cr;
+        const float j42 = -ALPHA_F * g_ef + g_cr;
+        const float j43 = ALPHA_F * g_ef;
+        const float j44 = -G5 - g_cr;
+
+        // v_capのSchur補完
+        const float j22_p = j22 - schur_j11_factor_;
+        const float f2_p = f2 - schur_f1_factor_ * f1;
+
+        // j44ピボット
+        const float inv_j44 = 1.0f / j44;
+        const float j24_inv = j24 * inv_j44;
+        const float j34_inv = j34 * inv_j44;
+
+        const float j22_pp = j22_p - j24_inv * j42;
+        const float j23_pp = j23 - j24_inv * j43;
+        const float f2_pp = f2_p + j24_inv * f4;
+
+        const float j32_pp = j32 - j34_inv * j42;
+        const float j33_pp = j33 - j34_inv * j43;
+        const float f3_pp = f3 + j34_inv * f4;
+
+        // 2x2 Cramer
+        const float det = j22_pp * j33_pp - j23_pp * j32_pp;
+        const float inv_det = 1.0f / det;
+
+        const float dv_b = (j33_pp * (-f2_pp) - j23_pp * (-f3_pp)) * inv_det;
+        const float dv_e = (j22_pp * (-f3_pp) - j32_pp * (-f2_pp)) * inv_det;
+        const float dv_c = (-f4 - j42 * dv_b - j43 * dv_e) * inv_j44;
+        const float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
+
+        float max_dv = std::max({std::abs(dv_b), std::abs(dv_e),
+                                 std::abs(dv_c), std::abs(dv_cap)});
+        float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
+
+        v_cap += damp * dv_cap;
+        v_b += damp * dv_b;
+        v_e = std::clamp(v_e + damp * dv_e, 0.0f, V_CC + 0.5f);
+        v_c = std::clamp(v_c + damp * dv_c, 0.0f, V_CC + 0.5f);
+    }
+
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
     float g_c1_ = C1 / dt_;
     float g_c2_ = C2 / dt_;
-
-    // Schur補行列事前計算値
     float inv_j11_ = 0.0f;
     float schur_j11_factor_ = 0.0f;
     float schur_f1_factor_ = 0.0f;
@@ -730,9 +497,139 @@ private:
     float i_cr_ = -I_S, g_cr_ = 1e-12f;  // B-Cダイオード遅延値
 };
 
-// エイリアス
-using WaveShaperZeroIter = WaveShaperOneIter;  // 互換性のため
-using WaveShaperOptimized = WaveShaperSchur;   // 最適化版エイリアス
+// =============================================================================
+// WaveShaper3Var: 3変数Newton法 N回反復 (テンプレート版)
+//
+// v_capをv_bの線形関数として消去し、3変数Newton法を適用
+// 4変数→3変数への縮約により計算量を削減
+// =============================================================================
+template <int N>
+class WaveShaper3Var {
+public:
+    void setSampleRate(float sampleRate) {
+        dt_ = 1.0f / sampleRate;
+        g_c1_ = C1 / dt_;
+        g_c2_ = C2 / dt_;
+
+        // v_cap消去用定数
+        // v_cap = (g_c1*(v_in - v_c1_prev) + G3*v_b) / (g_c1 + G3)
+        den_ = g_c1_ + G3;
+        inv_den_ = 1.0f / den_;
+        k_ = G3 * inv_den_;  // dv_cap/dv_b
+
+        // f2の定数部分: df2/dv_b の線形部分 = -G2 + G3*(k - 1)
+        j22_linear_ = -G2 + G3 * (k_ - 1.0f);
+    }
+
+    void reset() {
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
+    }
+
+    float process(float v_in) {
+        const float v_c1_prev = v_c1_;
+        const float v_c2_prev = v_c2_;
+
+        float v_b = v_b_;
+        float v_e = v_c2_prev;
+        float v_c = v_c_;
+
+        // B = g_c1 * (v_in - v_c1_prev)
+        const float B = g_c1_ * (v_in - v_c1_prev);
+
+        // N回Newton反復
+        for (int iter = 0; iter < N; ++iter) {
+            newton_step_3var(v_in, v_c2_prev, B, v_b, v_e, v_c);
+        }
+
+        // v_cap更新（新しいv_bから再計算）
+        const float v_cap_new = (B + G3 * v_b) * inv_den_;
+
+        // 状態更新
+        v_c1_ = v_in - v_cap_new;
+        v_c2_ = v_e;
+        v_b_ = v_b;
+        v_e_ = v_e;
+        v_c_ = v_c;
+
+        return v_c;
+    }
+
+private:
+    void newton_step_3var(float v_in, float v_c2_prev, float B,
+                          float& v_b, float& v_e, float& v_c) {
+        // ダイオード評価
+        float i_ef, g_ef, i_cr, g_cr;
+        diode_iv(v_e - v_b, i_ef, g_ef);
+        diode_iv(v_c - v_b, i_cr, g_cr);
+
+        // Ebers-Moll電流
+        const float i_e = i_ef - ALPHA_R * i_cr;
+        const float i_c = ALPHA_F * i_ef - i_cr;
+        const float i_b = i_e - i_c;
+
+        // 3変数残差
+        const float f2 = G2 * v_in + G3 * B * inv_den_ + j22_linear_ * v_b + i_b;
+        const float f3 = G4 * (V_CC - v_e) - i_e - g_c2_ * (v_e - v_c2_prev);
+        const float f4 = G5 * (V_COLL - v_c) + i_c;
+
+        // 3x3 ヤコビアン
+        const float j22 = j22_linear_ - (1.0f - ALPHA_F) * g_ef - (1.0f - ALPHA_R) * g_cr;
+        const float j23 = (1.0f - ALPHA_F) * g_ef;
+        const float j24 = (1.0f - ALPHA_R) * g_cr;
+        const float j32 = g_ef - ALPHA_R * g_cr;
+        const float j33 = -G4 - g_ef - g_c2_;
+        const float j34 = ALPHA_R * g_cr;
+        const float j42 = -ALPHA_F * g_ef + g_cr;
+        const float j43 = ALPHA_F * g_ef;
+        const float j44 = -G5 - g_cr;
+
+        // 3x3 Gauss消去
+        const float inv_j22 = 1.0f / j22;
+        const float m32 = j32 * inv_j22;
+        const float m42 = j42 * inv_j22;
+
+        const float j33_p = j33 - m32 * j23;
+        const float j34_p = j34 - m32 * j24;
+        const float f3_p = f3 + m32 * f2;
+
+        const float j43_p = j43 - m42 * j23;
+        const float j44_p = j44 - m42 * j24;
+        const float f4_p = f4 + m42 * f2;
+
+        // 2x2 Cramer
+        const float det = j33_p * j44_p - j34_p * j43_p;
+        const float inv_det = 1.0f / det;
+
+        const float dv_e = (j44_p * (-f3_p) - j34_p * (-f4_p)) * inv_det;
+        const float dv_c = (j33_p * (-f4_p) - j43_p * (-f3_p)) * inv_det;
+        const float dv_b = (-f2 - j23 * dv_e - j24 * dv_c) * inv_j22;
+
+        // ダンピング
+        float max_dv = std::max({std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
+        float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
+
+        v_b += damp * dv_b;
+        v_e = std::clamp(v_e + damp * dv_e, 0.0f, V_CC + 0.5f);
+        v_c = std::clamp(v_c + damp * dv_c, 0.0f, V_CC + 0.5f);
+    }
+
+    float v_c1_ = 0.0f, v_c2_ = 8.0f;
+    float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
+    float dt_ = 1.0f / 48000.0f;
+    float g_c1_ = C1 / dt_;
+    float g_c2_ = C2 / dt_;
+    float den_ = 0.0f, inv_den_ = 0.0f, k_ = 0.0f, j22_linear_ = 0.0f;
+};
+
+// 後方互換性のためのエイリアス
+using WaveShaperZeroIter = WaveShaperOneIter;
+using WaveShaperOptimized = WaveShaperSchur<1>;
+using WaveShaper3Var1Iter = WaveShaper3Var<1>;
+using WaveShaper3Var2Iter = WaveShaper3Var<2>;  // 正しく3変数Newton法2回反復
 
 }  // namespace fast
 
