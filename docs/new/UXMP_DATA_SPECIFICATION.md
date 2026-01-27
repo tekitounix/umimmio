@@ -1,6 +1,6 @@
 # UXMP-DATA User Data Exchange 詳細仕様書
 
-バージョン: 0.4.0 (Draft)
+バージョン: 0.6.0 (Draft)
 ステータス: 設計段階
 最終更新: 2026-01-28
 
@@ -30,9 +30,9 @@
 |------|------|
 | エンディアン | **リトルエンディアン** (x86/ARM互換) |
 | アラインメント | **パックド構造体** (1バイト境界、パディングなし) |
-| 文字列 | **UTF-8**、長さプレフィックス付き、NULL終端なし |
+| 文字列 | **UTF-8 NFC正規化**、長さプレフィックス付き、NULL終端なし |
 | 整数型 | 符号なし: uint8/16/32、符号付き: int8/16/32 |
-| CRC32 | **IEEE 802.3** (zlib互換)、ヘッダー先頭からCRCフィールド直前まで |
+| CRC32 | **IEEE 802.3** (zlib互換)、下記CRC計算規則参照 |
 
 ```c
 // コンパイラ指示 (パックド構造体)
@@ -49,10 +49,69 @@ uint16_t value = 0x1234;
 #pragma pack(pop)
 ```
 
+**CRC32計算規則 (★実装必須):**
+
+全フォーマットで統一された方式を使用する。
+
+1. **対象範囲**: ファイル先頭 (magic) から `total_size` バイト全体
+2. **CRCフィールドの扱い**: 計算時は `crc32` フィールドを **0x00000000** として計算
+3. **アルゴリズム**: IEEE 802.3 (zlib互換、初期値0xFFFFFFFF、最終XOR 0xFFFFFFFF)
+
+```c
+// CRC32計算例
+uint32_t calculate_crc32(const uint8_t* data, uint32_t total_size,
+                         uint32_t crc_field_offset) {
+    uint32_t crc = 0xFFFFFFFF;
+    for (uint32_t i = 0; i < total_size; i++) {
+        uint8_t byte = data[i];
+        // CRCフィールド位置 (4バイト) は0として計算
+        if (i >= crc_field_offset && i < crc_field_offset + 4) {
+            byte = 0x00;
+        }
+        crc = crc32_table[(crc ^ byte) & 0xFF] ^ (crc >> 8);
+    }
+    return crc ^ 0xFFFFFFFF;
+}
+```
+
 **バージョン互換ポリシー:**
 - メジャーバージョン変更: 後方互換性なし
 - マイナーバージョン変更: 後方互換あり（新フィールドは末尾追加）
 - 未知のフラグ/フィールドは無視して処理を継続
+
+### 1.2.1 受信側検証要件 (★実装必須)
+
+受信側は以下の検証を**必ず**実行すること。検証失敗時はデータを拒否する。
+
+| 検証項目 | 条件 |
+|---------|------|
+| Magic | 期待値と完全一致 |
+| total_size | 実受信サイズ以下 |
+| data_offset | < total_size |
+| vendor_offset | 0 または < total_size |
+| param_count × sizeof(ParamDef) | data_offset以内に収まる |
+| entry_count × param_size | total_size - data_offset 以内 |
+| 文字列長 | 残りバイト数を超えない |
+| CRC32 | 計算値と一致 |
+
+```c
+// 検証例
+bool validate_header(const DataBlockHeader* h, size_t received_size) {
+    // Magic確認
+    if (memcmp(h->magic, "UXDB", 4) != 0) return false;
+    // サイズ境界確認
+    if (h->total_size > received_size) return false;
+    if (h->data_offset >= h->total_size) return false;
+    if (h->vendor_offset != 0 && h->vendor_offset >= h->total_size) return false;
+    // ParamDef配列がdata_offsetより前に収まるか
+    size_t param_table_end = sizeof(DataBlockHeader) + h->param_count * sizeof(ParamDef);
+    if (param_table_end > h->data_offset) return false;
+    // CRC検証
+    uint32_t crc_offset = offsetof(DataBlockHeader, /* crc位置 */);
+    if (calculate_crc32((uint8_t*)h, h->total_size, crc_offset) != h->crc32) return false;
+    return true;
+}
+```
 
 ### 1.3 統一データブロック構造 (★核心)
 
@@ -65,12 +124,16 @@ uint16_t value = 0x1234;
 │  同じ基本構造を共有する。                                                    │
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐  │
-│  │  DataBlock Header                                                    │  │
+│  │  DataBlock Header (24バイト固定)                                     │  │
+│  │    magic[4]       : uint8×4 // "UXDB"                               │  │
 │  │    block_type     : uint8   // データ種別                           │  │
 │  │    param_count    : uint8   // パラメータ数                          │  │
 │  │    entry_count    : uint16  // エントリ数                            │  │
 │  │    flags          : uint16  // フラグ                                │  │
-│  │    reserved       : uint16  // 予約                                  │  │
+│  │    version        : uint16  // フォーマットバージョン                │  │
+│  │    data_offset    : uint32  // データセクションへのオフセット        │  │
+│  │    vendor_offset  : uint32  // ベンダー拡張へのオフセット (0=なし)  │  │
+│  │    total_size     : uint32  // 全体サイズ                            │  │
 │  └─────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐  │
@@ -127,14 +190,42 @@ struct ParamDef {
 static_assert(sizeof(ParamDef) == 10);
 
 // ParamDef.flags ビット定義
-// bit0: optional - このパラメータは省略可能
+// bit0: optional - 互換性用ヒント (下記参照)
 // bit1: signed   - 符号付き値 (min/maxの解釈に影響)
 // bit2: extended - 16bit拡張 (0=8bit, 1=16bit)
 // bit3-7: 予約
 
+// ★optional フラグの意味 (★実装必須):
+// optionalは「ParamDef自体を定義から省略してもよい」というヒント。
+// エントリ単位での欠損は許可しない。Data Sectionは常に固定サイズ配列。
+//
+// 用途:
+//   - 送信側: optional=1のパラメータはParamDef配列から省略可能
+//   - 受信側: 受信したParamDefに無いパラメータはデフォルト値を使用
+//   - 後方互換: 旧バージョンで未知のパラメータをoptional=1で定義
+//
+// 禁止事項:
+//   - エントリ単位で値を欠損させることは不可
+//   - すべてのエントリは param_count × entry_count の固定配列
+
 // データサイズは flags.extended で決定:
 //   extended=0 → 8bit (1バイト)
 //   extended=1 → 16bit (2バイト)
+
+// ★値型境界条件 (★実装必須):
+// ParamDefの min/max/default_val は以下の制約を満たすこと。
+// 違反した場合、受信側はデータを拒否してよい。
+//
+// | extended | signed | min範囲      | max範囲      | default_val |
+// |----------|--------|--------------|--------------|-------------|
+// | 0        | 0      | [0, 255]     | [0, 255]     | [min, max]  |
+// | 0        | 1      | [-128, 127]  | [-128, 127]  | [min, max]  |
+// | 1        | 0      | [0, 65535]   | [0, 65535]   | [min, max]  |
+// | 1        | 1      | [-32768, 32767] | [-32768, 32767] | [min, max] |
+//
+// 追加制約:
+//   - min <= max (等しい場合は固定値)
+//   - default_val は必ず [min, max] の範囲内
 
 // ★値の格納規則:
 // - min/max/default_val は常に int16_t で定義
@@ -146,6 +237,29 @@ static_assert(sizeof(ParamDef) == 10);
 //
 // 例: MICRO_TIMING (signed=1, extended=0, min=-64, max=+63)
 //     値 -10 → int8_t として 0xF6 を格納
+
+// ★検証コード例:
+bool validate_param_def(const ParamDef& p) {
+    bool is_signed = (p.flags & 0x02) != 0;
+    bool is_extended = (p.flags & 0x04) != 0;
+
+    int32_t type_min, type_max;
+    if (is_extended) {
+        type_min = is_signed ? -32768 : 0;
+        type_max = is_signed ? 32767 : 65535;
+    } else {
+        type_min = is_signed ? -128 : 0;
+        type_max = is_signed ? 127 : 255;
+    }
+
+    // 範囲チェック
+    if (p.min < type_min || p.min > type_max) return false;
+    if (p.max < type_min || p.max > type_max) return false;
+    if (p.min > p.max) return false;
+    if (p.default_val < p.min || p.default_val > p.max) return false;
+
+    return true;
+}
 
 // データブロックヘッダー
 struct DataBlockHeader {
@@ -163,15 +277,30 @@ struct DataBlockHeader {
     // uint8_t data[] follows at data_offset
 };
 
-// DataBlockHeader.flags / TrackHeader.flags 共通ビット定義:
-// bit0-1: (TrackHeader専用: muted, solo)
-// bit2: sparse/has_position - 疎表現 (POSITIONパラメータあり)
-// bit3: compressed          - 圧縮 (将来拡張)
-// bit4: has_vendor_ext      - ベンダー拡張セクションあり
-// bit5-15: 予約
+// ★flags ビット定義 (DataBlockHeader / TrackHeader 共通)
+//
+// | bit | DataBlockHeader | TrackHeader | 説明 |
+// |-----|-----------------|-------------|------|
+// | 0   | 予約 (0)        | muted       | ミュート |
+// | 1   | 予約 (0)        | solo        | ソロ |
+// | 2   | sparse          | sparse      | 疎表現 (★下記整合条件参照) |
+// | 3   | compressed      | compressed  | 圧縮 (将来拡張) |
+// | 4   | has_vendor_ext  | has_vendor_ext | ベンダー拡張あり |
+// | 5-15| 予約 (0)        | 予約 (0)    | 将来用 |
+//
+// ★sparse フラグと POSITION の整合条件 (必須):
+//   sparse=1 の場合: ParamDef[0].id == 0x8000 (POSITION) 必須
+//   sparse=0 の場合: ParamDef[0].id != 0x8000 必須
+//   整合しない場合、受信側はデータを拒否する
+//
+// ★vendor_offset と has_vendor_ext の整合条件 (必須):
+//   has_vendor_ext=1 の場合: vendor_offset != 0 必須
+//   has_vendor_ext=0 の場合: vendor_offset == 0 必須
+//   整合しない場合、受信側はデータを拒否する
 //
 // 注: TrackHeader使用時はDataBlockHeader省略可能。
 //     その場合TrackHeader.flagsがDataBlockHeader.flagsの役割を果たす。
+//     DataBlockHeader未使用時、bit0-1は実質無視される。
 ```
 
 ### 1.5 密表現と疎表現
@@ -209,6 +338,55 @@ struct DataBlockHeader {
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+#### 1.5.1 疎表現の厳密規則 (★実装必須)
+
+疎表現 (sparse=1) を使用する場合、以下の規則に**必ず**従うこと。
+
+| 項目 | 規則 |
+|------|------|
+| POSITION配置 | ParamDef配列の**先頭** (index 0) に必須 |
+| POSITION型 | `id=0x8000`, `extended=1` (uint16_t), `signed=0` |
+| POSITION範囲 | [0, length_steps - 1] |
+| 順序 | エントリはPOSITION**昇順**で格納 |
+| 重複 | 同一POSITIONの複数エントリを**許可** |
+| flags整合性 | `flags.sparse=1` と `ParamDef[0].id=0x8000` は必ず一致 |
+
+```c
+// 疎表現の検証
+bool validate_sparse(const TrackHeader* t, const ParamDef* defs) {
+    bool is_sparse = (t->flags & 0x04) != 0;
+
+    if (is_sparse) {
+        // POSITIONが先頭に必須
+        if (defs[0].id != 0x8000) return false;
+        // POSITIONはuint16 (extended=1, signed=0)
+        if ((defs[0].flags & 0x06) != 0x04) return false;
+    } else {
+        // 密表現ではPOSITIONが先頭にあってはならない
+        if (defs[0].id == 0x8000) return false;
+    }
+    return true;
+}
+
+// エントリ順序の検証
+bool validate_sparse_order(const uint8_t* data, uint32_t entry_count,
+                           uint32_t param_size) {
+    uint16_t prev_pos = 0;
+    for (uint32_t i = 0; i < entry_count; i++) {
+        // POSITIONは先頭2バイト (little-endian)
+        uint16_t pos = data[i * param_size] | (data[i * param_size + 1] << 8);
+        if (i > 0 && pos < prev_pos) return false;  // 昇順違反
+        prev_pos = pos;
+    }
+    return true;
+}
+```
+
+**同一POSITION複数エントリの用途:**
+- 和音 (同じステップに複数ノート)
+- ドラムの同時発音 (キック + ハイハット)
+- 受信側は入力順を保持するが、安定ソートで処理してもよい
+
 ### 1.6 ドキュメント構成
 
 | 章 | 内容 |
@@ -222,6 +400,7 @@ struct DataBlockHeader {
 | 8 | 参照とリンク |
 | 9 | 変換と互換性 |
 | 10 | MIDIマッピング仕様 |
+| 11 | JSON表現 (UXMP-JSON) |
 
 ---
 
@@ -313,7 +492,8 @@ void send_param_as_midi(uint8_t channel, uint16_t id, uint16_t value) {
 | 0xB000-0xBFFF | Tracker | インストゥルメント、エフェクト |
 | 0xC000-0xCFFF | Automation | オートメーション |
 | 0xD000-0xEFFF | Reserved | 将来の拡張用 |
-| 0xF000-0xFFFF | Vendor | ベンダー固有 (登録不要) |
+| 0xF000-0xFFFE | Vendor | ベンダー固有 (登録不要) |
+| 0xFFFF | INVALID | 無効/未定義 |
 
 ---
 
@@ -341,9 +521,10 @@ struct VendorExtension {
 
 // ベンダー固有パラメータ定義
 struct VendorParamDef {
-    uint16_t local_id;        // ローカルID (0x0000-0x0FFF)
+    uint16_t local_id;        // ローカルID (0x0000-0x0FFE) ★0x0FFFは禁止
                               // データ内でのIDは 0xF000 | local_id
-    uint16_t fallback_id;     // フォールバック先ID (0=なし)
+                              // 注: 0x0FFF は 0xFFFF (INVALID) と衝突するため禁止
+    uint16_t fallback_id;     // フォールバック先ID (0xFFFF=なし/無視)
                               // 非対応デバイスで使用される標準パラメータID
     uint8_t  flags;           // bit0: optional, bit1: signed, bit2: extended (16bit)
     uint8_t  name_len;        // パラメータ名の長さ
@@ -399,6 +580,39 @@ VendorParamDef params[] = {
     {0x002, 0xFFFF, 0, 6, 0, 127, 32},  // followed by "Warmth"
 };
 ```
+
+### 3.5 ParamDef と VendorExtension の関係 (★実装必須)
+
+ParamDef配列にベンダーID (0xF000-0xFFFE) を使用する場合の規則。
+
+| 条件 | 動作 |
+|------|------|
+| ParamDefに0xFxxxがあり、VendorExtensionに対応するVendorParamDefがある | VendorParamDefの情報 (名前、範囲) を表示に使用 |
+| ParamDefに0xFxxxがあり、VendorExtensionに対応がない | 受信側は値を保持するが、名前は "Unknown (0xFxxx)" と表示 |
+| VendorExtensionにVendorParamDefがあり、ParamDefに対応がない | VendorParamDefは無視される (表示用メタデータのみ) |
+
+```c
+// 検証: ParamDefのベンダーIDがVendorExtensionに存在するか
+const char* get_vendor_param_name(uint16_t param_id,
+                                   const VendorExtension* ext) {
+    if (param_id < 0xF000 || param_id > 0xFFFE) return NULL;
+    if (ext == NULL) return "Unknown";
+
+    uint16_t local_id = param_id & 0x0FFF;
+    // VendorParamDef配列を検索
+    for (uint16_t i = 0; i < ext->param_count; i++) {
+        if (ext->params[i].local_id == local_id) {
+            return ext->params[i].name;  // 名前を返す
+        }
+    }
+    return "Unknown";  // 対応なし
+}
+```
+
+**設計意図:**
+- VendorExtensionは**表示用メタデータ**であり、データ処理の必須条件ではない
+- ParamDefにベンダーIDがあれば、VendorExtensionが無くてもデータは有効
+- 受信側はベンダー値を保持し、再エクスポート時に復元可能にすること
 
 ---
 
@@ -499,7 +713,89 @@ const ParamDef TRACKER_STANDARD[] = {
     {0xB014, 0, 0, 0, 255, 0},     // FX3_CMD (0xB014)
     {0xB015, 0, 0, 0, 255, 0},     // FX3_VAL (0xB015)
 };
+
+// TRACKER_FULL: 拡張トラッカー (12パラメータ)
+// データサイズ: 12バイト/ステップ
+const ParamDef TRACKER_FULL[] = {
+    {0x0080, 0, 0, 0, 127, 0xFF},  // NOTE (0x80)
+    {0xB001, 0, 0, 0, 127, 0xFF},  // VOLUME (0xB001)
+    {0xB000, 0, 0, 0, 127, 0xFF},  // INSTRUMENT (0xB000)
+    {0xB010, 0, 0, 0, 255, 0},     // FX1_CMD
+    {0xB011, 0, 0, 0, 255, 0},     // FX1_VAL
+    {0xB012, 0, 0, 0, 255, 0},     // FX2_CMD
+    {0xB013, 0, 0, 0, 255, 0},     // FX2_VAL
+    {0xB014, 0, 0, 0, 255, 0},     // FX3_CMD
+    {0xB015, 0, 0, 0, 255, 0},     // FX3_VAL
+    {0x8004, 0, 0, 0, 127, 127},   // PROBABILITY (0x8004)
+    {0x8003, 0x02, 0, -64, 63, 0}, // MICRO_TIMING (0x8003): signed
+    {0x8005, 0, 0, 0, 255, 0},     // CONDITION (0x8005)
+};
 ```
+
+#### 4.1.4 拡張定義
+
+```c
+// MELODY_FULL: 完全メロディ (密表現、8パラメータ)
+// データサイズ: 8バイト/ステップ
+const ParamDef MELODY_FULL[] = {
+    {0x0080, 0,    0, 0,   127, 60},   // NOTE (0x80)
+    {0x0081, 0,    0, 0,   127, 100},  // VELOCITY (0x81)
+    {0x8001, 0,    0, 0,   127, 64},   // GATE (0x8001)
+    {0x8003, 0x02, 0, -64, 63,  0},    // MICRO_TIMING (0x8003): signed
+    {0x8004, 0,    0, 0,   127, 127},  // PROBABILITY (0x8004)
+    {0x8005, 0,    0, 0,   255, 0},    // CONDITION (0x8005)
+    {0x0083, 0x04, 0, -8192, 8191, 0}, // PITCH_BEND (0x83): extended=1
+    {0x0001, 0,    0, 0,   127, 0},    // CC#1 MOD_WHEEL
+};
+
+// SYNTH_FULL: 完全シンセ (16パラメータ)
+// データサイズ: 可変 (8bit×12 + 16bit×4 = 20バイト)
+const ParamDef SYNTH_FULL[] = {
+    {0x9000, 0,    0, 0, 7,     0},    // OSC_WAVEFORM
+    {0x9001, 0,    0, 0, 127,   64},   // OSC_PITCH
+    {0x9002, 0,    0, 0, 127,   0},    // OSC_DETUNE
+    {0x9003, 0,    0, 0, 127,   64},   // OSC_MIX
+    {0x9010, 0,    0, 0, 127,   100},  // FILTER_CUTOFF
+    {0x9011, 0,    0, 0, 127,   0},    // FILTER_RESO
+    {0x9012, 0,    0, 0, 7,     0},    // FILTER_TYPE
+    {0x9013, 0,    0, 0, 127,   0},    // FILTER_ENV_AMT
+    {0x9020, 0x04, 0, 0, 999,   10},   // ENV_ATTACK: extended=1
+    {0x9021, 0x04, 0, 0, 999,   100},  // ENV_DECAY: extended=1
+    {0x9022, 0,    0, 0, 127,   80},   // ENV_SUSTAIN
+    {0x9023, 0x04, 0, 0, 999,   200},  // ENV_RELEASE: extended=1
+    {0x9030, 0,    0, 0, 127,   32},   // LFO_RATE
+    {0x9031, 0,    0, 0, 127,   0},    // LFO_DEPTH
+    {0x9032, 0,    0, 0, 7,     0},    // LFO_WAVEFORM
+    {0x9033, 0,    0, 0, 127,   0},    // LFO_TARGET
+};
+
+// SAMPLE_BASIC: サンプル再生 (3パラメータ)
+// データサイズ: 3バイト/エントリ
+const ParamDef SAMPLE_BASIC[] = {
+    {0xA000, 0, 0, 0, 255, 0},    // SAMPLE_ID
+    {0x0081, 0, 0, 0, 127, 100},  // VELOCITY
+    {0x0080, 0, 0, 0, 127, 60},   // NOTE (ピッチ)
+};
+
+// SAMPLE_EXTENDED: サンプル拡張 (6パラメータ)
+// データサイズ: 8バイト/エントリ (8bit×4 + 16bit×2)
+const ParamDef SAMPLE_EXTENDED[] = {
+    {0xA000, 0,    0, 0, 255,   0},     // SAMPLE_ID
+    {0x0081, 0,    0, 0, 127,   100},   // VELOCITY
+    {0x0080, 0,    0, 0, 127,   60},    // NOTE
+    {0x8001, 0,    0, 0, 127,   64},    // GATE
+    {0xA001, 0x04, 0, 0, 65535, 0},     // START_OFFSET: extended=1
+    {0xA002, 0x04, 0, 0, 65535, 65535}, // END_OFFSET: extended=1
+};
+
+// CLIP_BASIC: クリップ再生 (4パラメータ)
+// データサイズ: 6バイト/エントリ (8bit×2 + 16bit×2)
+const ParamDef CLIP_BASIC[] = {
+    {0x8000, 0x04, 0, 0, 65535, 0},  // POSITION: extended=1
+    {0xA010, 0,    0, 0, 255,   0},  // CLIP_ID
+    {0x0081, 0,    0, 0, 127,   100},// VELOCITY
+    {0xA011, 0x04, 0, 0, 65535, 0},  // CLIP_OFFSET: extended=1
+};
 
 ### 4.2 標準定義ID
 
@@ -1029,6 +1325,29 @@ struct MappingEntry {
     int16_t  dst_max;
 };
 
+// ★MappingEntry.flags ビット定義:
+// bit0: invert   - 値を反転 (dst_max - (result - dst_min))
+// bit1: relative - 相対値モード (下記参照)
+// bit2-7: 予約 (0)
+
+// ★値変換規則 (★実装必須):
+//
+// 1. src_min == src_max の場合:
+//    - 無効なマッピング、受信側は無視してよい
+//    - 送信側はこの状態を生成しないこと
+//
+// 2. relativeフラグ (bit1) の意味:
+//    - relative=0: 絶対値モード (通常)
+//      入力値をsrc範囲からdst範囲に線形マッピング
+//    - relative=1: 相対値モード (エンコーダー向け)
+//      入力値は2の補数デルタとして解釈 (0x40基準)
+//      例: 入力0x41 → +1, 入力0x3F → -1
+//      デルタをdst_min/dst_maxでクランプして現在値に加算
+//
+// 3. bidirectional (MappingHeader.flags bit0):
+//    - bidirectional=1 の場合、dst→srcの逆マッピングも有効
+//    - 衝突 (同一dstに複数src) 時は最初のエントリを優先
+
 enum class MappingSourceType : uint8_t {
     CC          = 0x00,  // Control Change
     NOTE        = 0x01,  // Note On/Off
@@ -1133,6 +1452,412 @@ void process_midi_input(uint8_t channel, uint8_t type,
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 11. JSON表現 (UXMP-JSON)
+
+Web/プラグイン環境でのデータ交換を容易にするためのJSON表現を定義する。
+
+### 11.1 設計原則
+
+1. **バイナリ⇔JSON 1:1対応** - 情報の欠落なく相互変換可能
+2. **人間可読性** - デバッグ・手動編集が容易
+3. **Web標準準拠** - JSON Schema、Base64 (RFC 4648)
+4. **メタデータ拡張** - UUID、タイムスタンプ、作者情報
+
+### 11.2 共通メタデータ
+
+すべてのUXMP-JSONオブジェクトは以下のメタデータを持つことができる。
+
+```json
+{
+  "$schema": "https://uxmp.dev/schema/v1/pattern.json",
+  "uxmp_version": "1.0",
+  "meta": {
+    "uuid": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Funky Beat",
+    "author": "Artist Name",
+    "created_at": "2026-01-28T12:00:00Z",
+    "modified_at": "2026-01-28T15:30:00Z",
+    "source": {
+      "device": "GrooveBox X",
+      "vendor": "TechnoMaker",
+      "software": "UXMP Web Editor 1.0"
+    },
+    "tags": ["drum", "techno", "128bpm"]
+  }
+}
+```
+
+| フィールド | 型 | 必須 | 説明 |
+|-----------|-----|------|------|
+| $schema | string | 推奨 | JSON Schemaリファレンス |
+| uxmp_version | string | 必須 | UXMP-JSONバージョン |
+| meta.uuid | string | 推奨 | UUID v4 (RFC 4122) |
+| meta.name | string | 任意 | 表示名 |
+| meta.author | string | 任意 | 作者名 |
+| meta.created_at | string | 任意 | ISO 8601形式 |
+| meta.modified_at | string | 任意 | ISO 8601形式 |
+| meta.source | object | 任意 | 作成元情報 |
+| meta.tags | string[] | 任意 | 検索用タグ |
+
+### 11.3 パターンJSON (UXMP-PATTERN)
+
+```json
+{
+  "$schema": "https://uxmp.dev/schema/v1/pattern.json",
+  "uxmp_version": "1.0",
+  "type": "pattern",
+  "meta": { "..." },
+  "pattern": {
+    "length": 16,
+    "tempo": 120.00,
+    "time_signature": [4, 4],
+    "resolution": 24,
+    "swing": 0,
+    "tracks": [
+      {
+        "id": 0,
+        "name": "Kick",
+        "type": "drum",
+        "channel": 9,
+        "standard_def": "DRUM_STANDARD",
+        "muted": false,
+        "solo": false,
+        "length_steps": 16,
+        "params": ["NOTE", "VELOCITY", "GATE", "MICRO_TIMING"],
+        "data": [
+          [36, 100, 64, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [0, 0, 0, 0],
+          [36, 100, 64, 0]
+        ]
+      },
+      {
+        "id": 1,
+        "name": "Melody",
+        "type": "melodic",
+        "channel": 0,
+        "standard_def": "MELODY_SPARSE",
+        "sparse": true,
+        "length_steps": 64,
+        "params": ["POSITION", "NOTE", "VELOCITY", "GATE"],
+        "data": [
+          [0, 60, 100, 64],
+          [16, 64, 90, 64],
+          [32, 67, 85, 64],
+          [48, 72, 80, 64]
+        ]
+      }
+    ]
+  }
+}
+```
+
+#### パラメータ名対応表
+
+JSON内ではパラメータIDの代わりに名前を使用可能。
+
+| JSON名 | ID | 説明 |
+|--------|-----|------|
+| "NOTE" | 0x0080 | MIDIノート |
+| "VELOCITY" | 0x0081 | ベロシティ |
+| "GATE" | 0x8001 | ゲート長 |
+| "POSITION" | 0x8000 | ステップ位置 |
+| "MICRO_TIMING" | 0x8003 | マイクロタイミング |
+| "PROBABILITY" | 0x8004 | 確率 |
+| "CC:7" | 0x0007 | CC#7 (Volume) |
+| "CC:71" | 0x0047 | CC#71 (Cutoff) |
+| "VENDOR:0x001" | 0xF001 | ベンダーパラメータ |
+
+### 11.4 プリセットJSON (UXMP-PRESET)
+
+```json
+{
+  "$schema": "https://uxmp.dev/schema/v1/preset.json",
+  "uxmp_version": "1.0",
+  "type": "preset",
+  "meta": { "..." },
+  "preset": {
+    "device_family": 1,
+    "device_model": 2,
+    "standard_def": "SYNTH_BASIC",
+    "params": {
+      "OSC_WAVEFORM": 2,
+      "OSC_PITCH": 64,
+      "FILTER_CUTOFF": 100,
+      "FILTER_RESO": 20,
+      "ENV_ATTACK": 10,
+      "ENV_DECAY": 100,
+      "ENV_SUSTAIN": 80,
+      "ENV_RELEASE": 200,
+      "LFO_RATE": 32,
+      "LFO_DEPTH": 0
+    },
+    "vendor_params": {
+      "vendor": "TechnoMaker",
+      "product": "SynthX",
+      "params": {
+        "Warmth": { "value": 64, "fallback": "CC:71" },
+        "Drive": { "value": 32, "fallback": null }
+      }
+    }
+  }
+}
+```
+
+### 11.5 マッピングJSON (UXMP-MAP)
+
+```json
+{
+  "$schema": "https://uxmp.dev/schema/v1/mapping.json",
+  "uxmp_version": "1.0",
+  "type": "mapping",
+  "meta": { "..." },
+  "mapping": {
+    "bidirectional": false,
+    "entries": [
+      {
+        "source": {
+          "channel": "*",
+          "type": "CC",
+          "param": 1
+        },
+        "target": {
+          "param": "FILTER_CUTOFF",
+          "track": "*"
+        },
+        "transform": {
+          "src_range": [0, 127],
+          "dst_range": [0, 127],
+          "invert": false,
+          "relative": false
+        }
+      },
+      {
+        "source": {
+          "channel": 0,
+          "type": "NRPN",
+          "param": 100
+        },
+        "target": {
+          "param": "VENDOR:0x001",
+          "track": 0
+        },
+        "transform": {
+          "src_range": [0, 16383],
+          "dst_range": [0, 127]
+        }
+      }
+    ]
+  }
+}
+```
+
+### 11.5.1 JSON正規化規則 (★実装推奨)
+
+差分管理やハッシュ比較を安定させるための正規化規則。
+
+| 項目 | 規則 |
+|------|------|
+| 文字列エンコーディング | UTF-8 |
+| Unicode正規化 | **NFC** (Canonical Decomposition, followed by Canonical Composition) |
+| 数値 | 整数は整数として出力 (小数点なし)、範囲外は不正 |
+| params配列順序 | バイナリ定義テーブル (ParamDef) の順序と**一致**させる |
+| data配列順序 | エントリ順序を保持 (sparse時はPOSITION昇順) |
+| オブジェクトキー順序 | アルファベット順 (optional、差分安定性のため) |
+| 空白・インデント | 2スペースインデント推奨 (minified可) |
+
+```javascript
+// 正規化出力例
+function normalizeUxmpJson(obj) {
+  // キーをソートして再構築
+  return JSON.stringify(obj, Object.keys(obj).sort(), 2);
+}
+
+// params配列の順序チェック
+function validateParamsOrder(track) {
+  const expectedOrder = getStandardDefParams(track.standard_def);
+  for (let i = 0; i < track.params.length; i++) {
+    if (track.params[i] !== expectedOrder[i]) {
+      console.warn(`params order mismatch at index ${i}`);
+    }
+  }
+}
+```
+
+**バリデーション規則:**
+- data配列の各要素は params.length と同じ長さの配列
+- 数値は対応するParamDefのmin/max範囲内
+- sparse=true の場合、data[*][0] (POSITION) は昇順
+
+### 11.6 バイナリ⇔JSON変換
+
+#### JSON → バイナリ
+
+```javascript
+// Web環境での変換例
+function patternToUxmpBinary(json) {
+  const buffer = new ArrayBuffer(calculateSize(json));
+  const view = new DataView(buffer);
+  let offset = 0;
+
+  // Magic "UXPT"
+  view.setUint8(offset++, 0x55); // 'U'
+  view.setUint8(offset++, 0x58); // 'X'
+  view.setUint8(offset++, 0x50); // 'P'
+  view.setUint8(offset++, 0x54); // 'T'
+
+  // Version (little-endian)
+  view.setUint16(offset, 0x0100, true);
+  offset += 2;
+
+  // ... 以下、構造体に従って変換
+  return buffer;
+}
+```
+
+#### バイナリ → JSON
+
+```javascript
+function uxmpBinaryToPattern(buffer) {
+  const view = new DataView(buffer);
+  let offset = 0;
+
+  // Magic確認
+  const magic = String.fromCharCode(
+    view.getUint8(offset++),
+    view.getUint8(offset++),
+    view.getUint8(offset++),
+    view.getUint8(offset++)
+  );
+  if (magic !== 'UXPT') throw new Error('Invalid magic');
+
+  // Version (little-endian)
+  const version = view.getUint16(offset, true);
+  offset += 2;
+
+  // ... 以下、構造体に従って解析
+  return { type: 'pattern', pattern: { ... } };
+}
+```
+
+### 11.7 Base64エンコーディング
+
+URL共有やクリップボード経由でのデータ交換用。
+
+```
+uxmp://pattern/<base64url>
+uxmp://preset/<base64url>
+uxmp://mapping/<base64url>
+```
+
+#### エンコード規則
+
+1. バイナリデータをBase64url (RFC 4648 §5) でエンコード
+2. パディング `=` は省略可能
+3. 圧縮オプション: `uxmp://pattern/z/<deflate+base64url>`
+
+```javascript
+// Base64url エンコード
+function toUxmpUrl(type, binary) {
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(binary)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+  return `uxmp://${type}/${base64}`;
+}
+
+// Base64url デコード
+function fromUxmpUrl(url) {
+  const match = url.match(/^uxmp:\/\/(\w+)\/(.+)$/);
+  if (!match) throw new Error('Invalid UXMP URL');
+
+  const [, type, base64url] = match;
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+
+  return { type, binary };
+}
+```
+
+### 11.8 Diff/Merge規則
+
+パターンの差分管理・マージ用のガイドライン。
+
+#### 11.8.1 識別子
+
+- `meta.uuid` が同一 → 同一データの異なるバージョン
+- `meta.uuid` が異なる → 別データ
+
+#### 11.8.2 マージ戦略
+
+| 要素 | 戦略 |
+|------|------|
+| meta.modified_at | 新しい方を採用 |
+| track.data | ステップ単位で比較・マージ |
+| params | 後の値で上書き |
+| vendor_params | 保持 (未知のものも維持) |
+
+```javascript
+// 簡易マージ例
+function mergePatterns(base, theirs, mine) {
+  // 3-way merge
+  const result = JSON.parse(JSON.stringify(base));
+
+  for (let i = 0; i < result.pattern.tracks.length; i++) {
+    const baseTrack = base.pattern.tracks[i];
+    const theirTrack = theirs.pattern.tracks[i];
+    const myTrack = mine.pattern.tracks[i];
+
+    result.pattern.tracks[i].data = mergeTrackData(
+      baseTrack.data, theirTrack.data, myTrack.data
+    );
+  }
+
+  result.meta.modified_at = new Date().toISOString();
+  return result;
+}
+```
+
+### 11.9 Web API統合例
+
+```javascript
+// Fetch APIでパターンを取得
+async function fetchPattern(patternId) {
+  const res = await fetch(`/api/patterns/${patternId}`, {
+    headers: { 'Accept': 'application/vnd.uxmp+json' }
+  });
+  return await res.json();
+}
+
+// パターンをアップロード
+async function uploadPattern(pattern) {
+  const res = await fetch('/api/patterns', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/vnd.uxmp+json' },
+    body: JSON.stringify(pattern)
+  });
+  return await res.json();
+}
+
+// バイナリ形式でダウンロード
+async function downloadPatternBinary(patternId) {
+  const res = await fetch(`/api/patterns/${patternId}`, {
+    headers: { 'Accept': 'application/vnd.uxmp' }
+  });
+  return await res.arrayBuffer();
+}
+```
+
+### 11.10 MIME Type
+
+| 形式 | MIME Type |
+|------|-----------|
+| JSON | `application/vnd.uxmp+json` |
+| バイナリ | `application/vnd.uxmp` |
 
 ---
 
