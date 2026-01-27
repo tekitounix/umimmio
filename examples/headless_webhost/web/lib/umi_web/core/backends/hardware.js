@@ -2,7 +2,7 @@
  * UMI Web - Hardware Backend
  *
  * Connects to real UMI hardware via Web MIDI API.
- * Audio comes from the hardware, not browser synthesis.
+ * Audio comes from the hardware via USB Audio.
  * Shell interaction via SysEx messages.
  *
  * @module umi_web/core/backends/hardware
@@ -11,22 +11,37 @@
 import { BackendInterface } from '../backend.js';
 import { Command, buildMessage, parseMessage } from '../protocol.js';
 
+// Default parameters for hardware synth (matches umisynth/synth.hh)
+// ParamId: Attack=0, Decay=1, Sustain=2, Release=3, Cutoff=4, Resonance=5, Volume=6
+// CC: 21=Attack, 22=Decay, 23=Sustain, 24=Release, 25=Cutoff, 26=Resonance, 27=Volume
+const DEFAULT_HARDWARE_PARAMS = [
+    { id: 0, name: 'Attack', cc: 21, default: 0.1, unit: 'ms' },
+    { id: 1, name: 'Decay', cc: 22, default: 0.3, unit: 'ms' },
+    { id: 2, name: 'Sustain', cc: 23, default: 0.7, unit: '%' },
+    { id: 3, name: 'Release', cc: 24, default: 0.4, unit: 'ms' },
+    { id: 4, name: 'Cutoff', cc: 25, default: 0.5, unit: 'Hz' },
+    { id: 5, name: 'Resonance', cc: 26, default: 0.3, unit: '%' },
+    { id: 6, name: 'Volume', cc: 27, default: 0.8, unit: '%' },
+];
+
 /**
  * Hardware Backend
  *
  * Connects to UMI hardware via USB MIDI.
  * - MIDI IN/OUT for note/CC control
  * - SysEx for shell communication
- * - Audio from hardware (not browser)
+ * - USB Audio for waveform (via AudioContext)
  */
 export class HardwareBackend extends BackendInterface {
     /**
      * @param {object} options
      * @param {string} [options.deviceNameFilter='UMI'] - Filter for device names
+     * @param {string} [options.audioInputDeviceId] - Audio input device ID for USB Audio
      */
     constructor(options = {}) {
         super();
         this.deviceNameFilter = options.deviceNameFilter || 'UMI';
+        this.audioInputDeviceId = options.audioInputDeviceId || null;
 
         /** @type {MIDIAccess|null} */
         this.midiAccess = null;
@@ -35,9 +50,21 @@ export class HardwareBackend extends BackendInterface {
         /** @type {MIDIOutput|null} */
         this.output = null;
 
+        /** @type {AudioContext|null} */
+        this.audioContext = null;
+        /** @type {AnalyserNode|null} */
+        this.analyzerNode = null;
+        /** @type {MediaStreamAudioSourceNode|null} */
+        this.audioSource = null;
+        /** @type {MediaStream|null} */
+        this.audioStream = null;
+
         this.connected = false;
         this.txSequence = 0;
         this.deviceName = null;
+
+        // Parameters for hardware
+        this.params = [...DEFAULT_HARDWARE_PARAMS];
 
         // Callbacks for shell output
         /** @type {function|null} */
@@ -162,28 +189,127 @@ export class HardwareBackend extends BackendInterface {
         this.connected = true;
         console.log('[HardwareBackend] Connected to:', deviceName);
 
+        // Initialize USB Audio input for waveform
+        await this._initAudioInput();
+
         if (this.onReady) {
             this.onReady();
+        }
+
+        // Send params to UI
+        if (this.onMessage) {
+            this.onMessage({ type: 'params', params: this.params });
         }
 
         // Send initial command to trigger shell prompt
         this._sendShellInput('\r');
 
+        // Request initial kernel state
+        this.requestKernelState();
+
         return true;
+    }
+
+    /**
+     * Initialize USB Audio input for waveform display
+     * @private
+     */
+    async _initAudioInput() {
+        try {
+            // Find UMI audio input device
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const audioInputs = devices.filter(d => d.kind === 'audioinput');
+
+            // Try to find UMI audio device
+            let deviceId = this.audioInputDeviceId;
+            if (!deviceId) {
+                const umiAudio = audioInputs.find(d =>
+                    d.label && (d.label.includes('UMI') || d.label.includes('Synth'))
+                );
+                if (umiAudio) {
+                    deviceId = umiAudio.deviceId;
+                    console.log('[HardwareBackend] Found UMI audio input:', umiAudio.label);
+                }
+            }
+
+            if (!deviceId && audioInputs.length > 0) {
+                // Use first available if no UMI device found
+                console.log('[HardwareBackend] Using default audio input');
+            }
+
+            // Create AudioContext
+            this.audioContext = new AudioContext({ sampleRate: 48000 });
+
+            // Get audio stream
+            const constraints = {
+                audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+                video: false
+            };
+            this.audioStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+            // Create source and analyzer
+            this.audioSource = this.audioContext.createMediaStreamSource(this.audioStream);
+            this.analyzerNode = this.audioContext.createAnalyser();
+            this.analyzerNode.fftSize = 2048;
+
+            // Connect source to analyzer (not to destination to avoid feedback)
+            this.audioSource.connect(this.analyzerNode);
+
+            console.log('[HardwareBackend] Audio input initialized');
+        } catch (err) {
+            console.warn('[HardwareBackend] Failed to initialize audio input:', err);
+            // Continue without audio - MIDI still works
+        }
     }
 
     /**
      * Stop the backend
      */
     stop() {
+        // Stop MIDI
         if (this.input) {
             this.input.onmidimessage = null;
             this.input = null;
         }
         this.output = null;
+
+        // Stop audio
+        if (this.audioStream) {
+            this.audioStream.getTracks().forEach(t => t.stop());
+            this.audioStream = null;
+        }
+        if (this.audioSource) {
+            this.audioSource.disconnect();
+            this.audioSource = null;
+        }
+        if (this.analyzerNode) {
+            this.analyzerNode.disconnect();
+            this.analyzerNode = null;
+        }
+        if (this.audioContext) {
+            this.audioContext.close();
+            this.audioContext = null;
+        }
+
         this.connected = false;
         this.deviceName = null;
         console.log('[HardwareBackend] Disconnected');
+    }
+
+    /**
+     * Get AudioContext
+     * @returns {AudioContext|null}
+     */
+    getAudioContext() {
+        return this.audioContext;
+    }
+
+    /**
+     * Get AnalyserNode for waveform
+     * @returns {AnalyserNode|null}
+     */
+    getAnalyzer() {
+        return this.analyzerNode;
     }
 
     /**
@@ -214,11 +340,17 @@ export class HardwareBackend extends BackendInterface {
 
     /**
      * Set parameter value (CC)
-     * @param {number} id - CC number
-     * @param {number} value - CC value (0-127)
+     * @param {number} id - Parameter ID
+     * @param {number} value - Normalized value (0-1)
      */
     setParam(id, value) {
-        this.sendMidi([0xB0, id & 0x7F, value & 0x7F]);
+        // Find parameter definition
+        const param = this.params.find(p => p.id === id);
+        const cc = param?.cc ?? id;
+
+        // Convert 0-1 to 0-127
+        const ccValue = Math.round(Math.max(0, Math.min(1, value)) * 127);
+        this.sendMidi([0xB0, cc & 0x7F, ccValue]);
     }
 
     /**
@@ -282,10 +414,20 @@ export class HardwareBackend extends BackendInterface {
     }
 
     /**
-     * Get state - not available for hardware
+     * Get state - request via SysEx
      */
     getState() {
+        this.requestKernelState();
         return null;
+    }
+
+    /**
+     * Request kernel state via SysEx
+     */
+    requestKernelState() {
+        if (!this.connected || !this.output) return;
+        const msg = buildMessage(Command.STATUS_REQUEST, this.txSequence++, []);
+        this.output.send(msg);
     }
 
     /**
@@ -352,6 +494,31 @@ export class HardwareBackend extends BackendInterface {
                     const version = `${msg.payload[0]}.${msg.payload[1]}`;
                     if (this.onMessage) {
                         this.onMessage({ type: 'version', version });
+                    }
+                }
+                break;
+            }
+            case Command.STATUS_RESPONSE: {
+                // Parse kernel status from payload
+                // Format: [dspLoad_hi, dspLoad_lo, sampleRate/1000, bufferSize/16, uptime_bytes...]
+                if (msg.payload.length >= 4) {
+                    const dspLoad = (msg.payload[0] << 8) | msg.payload[1];
+                    const sampleRate = msg.payload[2] * 1000;
+                    const bufferSize = msg.payload[3] * 16;
+                    let uptime = 0;
+                    if (msg.payload.length >= 8) {
+                        uptime = (msg.payload[4] << 24) | (msg.payload[5] << 16) |
+                                 (msg.payload[6] << 8) | msg.payload[7];
+                    }
+                    if (this.onMessage) {
+                        this.onMessage({
+                            type: 'kernel-state',
+                            dspLoad,
+                            sampleRate,
+                            bufferSize,
+                            uptime,
+                            state: 'running'
+                        });
                     }
                 }
                 break;

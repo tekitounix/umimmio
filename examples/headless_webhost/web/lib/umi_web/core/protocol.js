@@ -36,6 +36,8 @@ export const Command = {
     PONG: 0x21,
     RESET: 0x22,
     VERSION: 0x23,
+    STATUS_REQUEST: 0x24,
+    STATUS_RESPONSE: 0x25,
 };
 
 /**
