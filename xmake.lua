@@ -268,6 +268,12 @@ stm32f4_target("bench_waveshaper", {
     renode_script = "tools/renode/bench_waveshaper.resc"
 })
 
+stm32f4_target("bench_waveshaper_fast", {
+    source = "tests/bench_waveshaper_fast.cc",
+    optimize = "fast",
+    renode_script = "tools/renode/bench_waveshaper_fast.resc"
+})
+
 stm32f4_target("umidi_test_renode", {
     source = "lib/umidi/test/test_renode.cc",
     group = "tests/umidi",
@@ -476,13 +482,10 @@ local has_python = os.getenv("PYTHON") ~= nil
 
 if has_python then
 
-add_requires("pybind11", {optional = true})
-
 target("tb303_waveshaper_py")
     set_kind("shared")
     set_group("python")
     set_default(false)
-    add_packages("pybind11")
     set_languages("c++17")
     add_files("docs/dsp/tb303/vco/code/waveshaper_pybind.cpp")
     add_includedirs("docs/dsp/tb303/vco/code")
@@ -491,8 +494,9 @@ target("tb303_waveshaper_py")
     set_prefixname("")  -- Remove lib prefix
 
     on_load(function (target)
-        -- Get Python extension suffix
         local python = os.getenv("PYTHON") or "python3"
+
+        -- Get Python extension suffix
         local suffix = os.iorun(python .. " -c \"import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))\"")
         if suffix then
             suffix = suffix:gsub("%s+", "")
@@ -511,6 +515,13 @@ target("tb303_waveshaper_py")
         if includes then
             includes = includes:gsub("%s+", "")
             target:add("includedirs", includes)
+        end
+
+        -- Get pybind11 include path (installed via pip)
+        local pybind_inc = os.iorun(python .. " -c \"import pybind11; print(pybind11.get_include())\"")
+        if pybind_inc then
+            pybind_inc = pybind_inc:gsub("%s+", "")
+            target:add("includedirs", pybind_inc)
         end
     end)
 
