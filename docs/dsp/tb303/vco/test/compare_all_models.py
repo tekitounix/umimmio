@@ -88,15 +88,30 @@ def run_comparison(ws_module, output_dir):
     ref.reset()
     output_ref = ref.process_array(input_signal.astype(np.float32))
 
-    # テスト対象
+    # テスト対象（全実装バリエーション）
     test_models = [
+        # 基本実装
+        ("Newton1", ws_module.WaveShaperNewton1),
         ("Newton2", ws_module.WaveShaperNewton2),
         ("Newton3", ws_module.WaveShaperNewton3),
-        ("Schur2", ws_module.WaveShaperSchur2),
-        ("SchurUltra", ws_module.WaveShaperSchurUltra),
+        # exp近似バリエーション
         ("LUT", ws_module.WaveShaperLUT),
         ("Pade22", ws_module.WaveShaperPade),
         ("Pade33", ws_module.WaveShaperPade33),
+        # Fast版（緩和ダンピング）
+        ("Fast1", ws_module.WaveShaperFast1),
+        ("Fast2", ws_module.WaveShaperFast2),
+        ("Fast3", ws_module.WaveShaperFast3),
+        # Hybrid版（1回目Fast + 2回目通常）
+        ("Hybrid", ws_module.WaveShaperHybrid),
+        # Ultra版（B-C遅延評価）
+        ("Ultra1", ws_module.WaveShaperUltra1),
+        ("Ultra2", ws_module.WaveShaperUltra2),
+        ("Ultra3", ws_module.WaveShaperUltra3),
+        # Predictor-Corrector版
+        ("Predictor", ws_module.WaveShaperPredictor),
+        # Turbo版（2反復、2回目E-B再利用）
+        ("Turbo", ws_module.WaveShaperTurbo),
     ]
 
     results = {}
@@ -179,11 +194,11 @@ def run_comparison(ws_module, output_dir):
     fig = plt.figure(figsize=(18, 12))
     fig.suptitle('TB-303 WaveShaper: Model Comparison', fontsize=14, fontweight='bold')
 
-    # 色の統一定義
-    model_colors = {
-        'Newton2': 'C0', 'Newton3': 'C1', 'Schur2': 'C2', 'SchurUltra': 'C3',
-        'LUT': 'C4', 'Pade22': 'C5', 'Pade33': 'C6'
-    }
+    # 色の統一定義（全モデル用）
+    import matplotlib.cm as cm
+    cmap = cm.get_cmap('tab20')
+    model_names = list(results.keys())
+    model_colors = {name: cmap(i / len(model_names)) for i, name in enumerate(model_names)}
 
     # 1. 波形比較（上段全体）- 全モデル表示
     ax1 = fig.add_subplot(3, 2, (1, 2))
