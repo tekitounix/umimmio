@@ -40,3 +40,6 @@ archive/
 .tools/
 .refs/
 lib/umidsp/include/filter_ref/
+
+# Third-party libraries
+third_party/
