@@ -2555,9 +2555,11 @@
       track.append(fill);
       el.append(labelEl, track);
 
+      const setProgress = (p) => { fill.style.width = `${Math.max(0, Math.min(100, p * 100))}%`; };
       return {
         el,
-        setProgress: (p) => { fill.style.width = `${Math.max(0, Math.min(100, p * 100))}%`; },
+        set: setProgress,
+        setProgress,
         setColor: (color) => { fill.style.background = color; },
       };
     }
@@ -4524,6 +4526,11 @@
       // renderMap: CC Map表示用（未使用だが参照されている）
       function renderMap() {
         // Synth DemoからMIDIセクションを削除したので空実装
+      }
+
+      // renderPresets: プリセット表示用（未使用だが参照されている）
+      function renderPresets() {
+        // プリセットUIを削除したので空実装
       }
 
       function setLearnBadge(text, ok = null) {
