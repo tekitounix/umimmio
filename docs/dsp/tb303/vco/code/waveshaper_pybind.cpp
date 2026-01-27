@@ -16,7 +16,8 @@
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 
-#include "tb303_waveshaper_fast.hpp"
+#include "tb303_waveshaper.hpp"
+#include "tb303_oscillator.hpp"
 
 namespace py = pybind11;
 
@@ -57,12 +58,13 @@ PYBIND11_MODULE(tb303_waveshaper, m) {
         Classes:
             WaveShaperReference: High-precision reference (100 iterations, std::exp)
             WaveShaperNewton1/2/3: Newton solver with N iterations
-            WaveShaperSchur1/2: Schur complement solver with N iterations
-            WaveShaperLUT/Pade/Pade33: Various exp approximation methods
+            WaveShaperFast1/2: Fast solver with relaxed damping
+            WaveShaperTurbo: 2 iterations with E-B junction reuse (3 exp calls)
+            WaveShaperTurboLite: Turbo with Jacobian element reuse
 
         Example:
             >>> import tb303_waveshaper as ws
-            >>> shaper = ws.WaveShaperSchur2()
+            >>> shaper = ws.WaveShaperTurbo()
             >>> shaper.set_sample_rate(48000.0)
             >>> shaper.reset()
             >>> output = shaper.process(9.0)
@@ -163,57 +165,6 @@ PYBIND11_MODULE(tb303_waveshaper, m) {
     m.attr("WaveShaperSchurUltra") = m.attr("WaveShaperNewton2");
 
     // =========================================================================
-    // WaveShaperLUT (LUTベース, 2回反復)
-    // =========================================================================
-    py::class_<tb303::WaveShaperLUT>(m, "WaveShaperLUT",
-        "LUT-based solver with j22 pivot (2 iterations)")
-        .def(py::init<>())
-        .def("set_sample_rate", &tb303::WaveShaperLUT::setSampleRate,
-             py::arg("sample_rate"))
-        .def("reset", &tb303::WaveShaperLUT::reset)
-        .def("process", py::overload_cast<float>(&tb303::WaveShaperLUT::process),
-             py::arg("v_in"))
-        .def("process_array",
-             [](tb303::WaveShaperLUT& self, py::array_t<float> input) {
-                 return process_array(self, input);
-             },
-             py::arg("input"));
-
-    // =========================================================================
-    // WaveShaperPade (パデ[2,2]近似, 2回反復)
-    // =========================================================================
-    py::class_<tb303::WaveShaperPade>(m, "WaveShaperPade",
-        "Pade[2,2] approximation solver with j22 pivot (2 iterations)")
-        .def(py::init<>())
-        .def("set_sample_rate", &tb303::WaveShaperPade::setSampleRate,
-             py::arg("sample_rate"))
-        .def("reset", &tb303::WaveShaperPade::reset)
-        .def("process", py::overload_cast<float>(&tb303::WaveShaperPade::process),
-             py::arg("v_in"))
-        .def("process_array",
-             [](tb303::WaveShaperPade& self, py::array_t<float> input) {
-                 return process_array(self, input);
-             },
-             py::arg("input"));
-
-    // =========================================================================
-    // WaveShaperPade33 (パデ[3,3]高精度, 2回反復)
-    // =========================================================================
-    py::class_<tb303::WaveShaperPade33>(m, "WaveShaperPade33",
-        "Pade[3,3] high-precision solver with j22 pivot (2 iterations)")
-        .def(py::init<>())
-        .def("set_sample_rate", &tb303::WaveShaperPade33::setSampleRate,
-             py::arg("sample_rate"))
-        .def("reset", &tb303::WaveShaperPade33::reset)
-        .def("process", py::overload_cast<float>(&tb303::WaveShaperPade33::process),
-             py::arg("v_in"))
-        .def("process_array",
-             [](tb303::WaveShaperPade33& self, py::array_t<float> input) {
-                 return process_array(self, input);
-             },
-             py::arg("input"));
-
-    // =========================================================================
     // WaveShaperFast (ダンピング除去版)
     // =========================================================================
     py::class_<tb303::WaveShaperFast1>(m, "WaveShaperFast1",
@@ -244,20 +195,6 @@ PYBIND11_MODULE(tb303_waveshaper, m) {
              },
              py::arg("input"));
 
-    py::class_<tb303::WaveShaperFast3>(m, "WaveShaperFast3",
-        "Fast solver (no damping, 3 iterations)")
-        .def(py::init<>())
-        .def("set_sample_rate", &tb303::WaveShaperFast3::setSampleRate,
-             py::arg("sample_rate"))
-        .def("reset", &tb303::WaveShaperFast3::reset)
-        .def("process", py::overload_cast<float>(&tb303::WaveShaperFast3::process),
-             py::arg("v_in"))
-        .def("process_array",
-             [](tb303::WaveShaperFast3& self, py::array_t<float> input) {
-                 return process_array(self, input);
-             },
-             py::arg("input"));
-
     // =========================================================================
     // WaveShaperHybrid (1回目固定ダンピング + 2回目通常ダンピング)
     // =========================================================================
@@ -271,68 +208,6 @@ PYBIND11_MODULE(tb303_waveshaper, m) {
              py::arg("v_in"))
         .def("process_array",
              [](tb303::WaveShaperHybrid& self, py::array_t<float> input) {
-                 return process_array(self, input);
-             },
-             py::arg("input"));
-
-    // =========================================================================
-    // WaveShaperUltra (B-Cジャンクション遅延評価版)
-    // =========================================================================
-    py::class_<tb303::WaveShaperUltra1>(m, "WaveShaperUltra1",
-        "Ultra solver (B-C delayed eval, 1 iteration)")
-        .def(py::init<>())
-        .def("set_sample_rate", &tb303::WaveShaperUltra1::setSampleRate,
-             py::arg("sample_rate"))
-        .def("reset", &tb303::WaveShaperUltra1::reset)
-        .def("process", py::overload_cast<float>(&tb303::WaveShaperUltra1::process),
-             py::arg("v_in"))
-        .def("process_array",
-             [](tb303::WaveShaperUltra1& self, py::array_t<float> input) {
-                 return process_array(self, input);
-             },
-             py::arg("input"));
-
-    py::class_<tb303::WaveShaperUltra2>(m, "WaveShaperUltra2",
-        "Ultra solver (B-C delayed eval, 2 iterations)")
-        .def(py::init<>())
-        .def("set_sample_rate", &tb303::WaveShaperUltra2::setSampleRate,
-             py::arg("sample_rate"))
-        .def("reset", &tb303::WaveShaperUltra2::reset)
-        .def("process", py::overload_cast<float>(&tb303::WaveShaperUltra2::process),
-             py::arg("v_in"))
-        .def("process_array",
-             [](tb303::WaveShaperUltra2& self, py::array_t<float> input) {
-                 return process_array(self, input);
-             },
-             py::arg("input"));
-
-    py::class_<tb303::WaveShaperUltra3>(m, "WaveShaperUltra3",
-        "Ultra solver (B-C delayed eval, 3 iterations)")
-        .def(py::init<>())
-        .def("set_sample_rate", &tb303::WaveShaperUltra3::setSampleRate,
-             py::arg("sample_rate"))
-        .def("reset", &tb303::WaveShaperUltra3::reset)
-        .def("process", py::overload_cast<float>(&tb303::WaveShaperUltra3::process),
-             py::arg("v_in"))
-        .def("process_array",
-             [](tb303::WaveShaperUltra3& self, py::array_t<float> input) {
-                 return process_array(self, input);
-             },
-             py::arg("input"));
-
-    // =========================================================================
-    // WaveShaperPredictor (予測子-補正子法)
-    // =========================================================================
-    py::class_<tb303::WaveShaperPredictor>(m, "WaveShaperPredictor",
-        "Predictor-Corrector solver (1 fast iteration with prediction)")
-        .def(py::init<>())
-        .def("set_sample_rate", &tb303::WaveShaperPredictor::setSampleRate,
-             py::arg("sample_rate"))
-        .def("reset", &tb303::WaveShaperPredictor::reset)
-        .def("process", py::overload_cast<float>(&tb303::WaveShaperPredictor::process),
-             py::arg("v_in"))
-        .def("process_array",
-             [](tb303::WaveShaperPredictor& self, py::array_t<float> input) {
                  return process_array(self, input);
              },
              py::arg("input"));
@@ -355,9 +230,81 @@ PYBIND11_MODULE(tb303_waveshaper, m) {
              py::arg("input"));
 
     // =========================================================================
+    // WaveShaperTurboLite (ヤコビアン再利用による高速化)
+    // =========================================================================
+    py::class_<tb303::WaveShaperTurboLite>(m, "WaveShaperTurboLite",
+        "TurboLite solver (2 iters with E-B reuse, Jacobian reuse, 3 exp calls)")
+        .def(py::init<>())
+        .def("set_sample_rate", &tb303::WaveShaperTurboLite::setSampleRate,
+             py::arg("sample_rate"))
+        .def("reset", &tb303::WaveShaperTurboLite::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperTurboLite::process),
+             py::arg("v_in"))
+        .def("process_array",
+             [](tb303::WaveShaperTurboLite& self, py::array_t<float> input) {
+                 return process_array(self, input);
+             },
+             py::arg("input"));
+
+    // =========================================================================
     // ユーティリティ関数
     // =========================================================================
     m.def("fast_exp", &tb303::exp_impl::schraudolph,
           py::arg("x"),
           "Fast exponential approximation (Schraudolph improved)");
+
+    // =========================================================================
+    // PolyBLEP Sawtooth Oscillator
+    // =========================================================================
+    py::class_<tb303::vco::SawOscillator>(m, "SawOscillator",
+        "PolyBLEP anti-aliased sawtooth oscillator (12V -> 5.5V)")
+        .def(py::init<>())
+        .def("set_sample_rate", &tb303::vco::SawOscillator::setSampleRate,
+             py::arg("sample_rate"))
+        .def("set_frequency", &tb303::vco::SawOscillator::setFrequency,
+             py::arg("freq"))
+        .def("get_frequency", &tb303::vco::SawOscillator::getFrequency)
+        .def("reset", &tb303::vco::SawOscillator::reset)
+        .def("process", &tb303::vco::SawOscillator::process,
+             "Process one sample (2nd order PolyBLEP)")
+        .def("process_hq", &tb303::vco::SawOscillator::processHQ,
+             "Process one sample (4th order PolyBLEP, higher quality)")
+        .def("process_naive", &tb303::vco::SawOscillator::processNaive,
+             "Process one sample (no antialiasing, for comparison)")
+        .def("process_array",
+             [](tb303::vco::SawOscillator& self, int n_samples) {
+                 auto result = py::array_t<float>(n_samples);
+                 auto buf = result.request();
+                 float* ptr = static_cast<float*>(buf.ptr);
+                 for (int i = 0; i < n_samples; ++i) {
+                     ptr[i] = self.process();
+                 }
+                 return result;
+             },
+             py::arg("n_samples"),
+             "Generate n_samples of sawtooth wave (2nd order PolyBLEP)")
+        .def("process_naive_array",
+             [](tb303::vco::SawOscillator& self, int n_samples) {
+                 auto result = py::array_t<float>(n_samples);
+                 auto buf = result.request();
+                 float* ptr = static_cast<float*>(buf.ptr);
+                 for (int i = 0; i < n_samples; ++i) {
+                     ptr[i] = self.processNaive();
+                 }
+                 return result;
+             },
+             py::arg("n_samples"),
+             "Generate n_samples of sawtooth wave (no antialiasing)")
+        .def("process_hq_array",
+             [](tb303::vco::SawOscillator& self, int n_samples) {
+                 auto result = py::array_t<float>(n_samples);
+                 auto buf = result.request();
+                 float* ptr = static_cast<float*>(buf.ptr);
+                 for (int i = 0; i < n_samples; ++i) {
+                     ptr[i] = self.processHQ();
+                 }
+                 return result;
+             },
+             py::arg("n_samples"),
+             "Generate n_samples of sawtooth wave (4th order PolyBLEP)");
 }
