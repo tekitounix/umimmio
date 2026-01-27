@@ -248,6 +248,74 @@ inline float mo_exp(float x) {
 }
 
 // =============================================================================
+// パデ近似 [2,2] + レンジリダクション
+// =============================================================================
+inline float pade_exp(float x) {
+    x = std::clamp(x, -87.0f, 88.0f);
+    constexpr float LOG2E = 1.4426950408889634f;
+    constexpr float LN2 = 0.6931471805599453f;
+
+    float n_f = std::floor(x * LOG2E + 0.5f);
+    int n = static_cast<int>(n_f);
+    float r = x - n_f * LN2;  // |r| < ln(2)/2
+
+    // パデ [2,2]: exp(r) ≈ (12 + 6r + r²) / (12 - 6r + r²)
+    float r2 = r * r;
+    float num = 12.0f + 6.0f * r + r2;
+    float den = 12.0f - 6.0f * r + r2;
+    float exp_r = num / den;
+
+    // 2^n をビット操作で計算
+    union { float f; int32_t i; } u;
+    u.i = (127 + n) << 23;
+
+    return u.f * exp_r;
+}
+
+// =============================================================================
+// LUT + 線形補間
+// =============================================================================
+class ExpLUT {
+public:
+    static constexpr int LUT_SIZE = 1024;
+    static constexpr float X_MIN = -10.0f;
+    static constexpr float X_MAX = 50.0f;
+    static constexpr float X_RANGE = X_MAX - X_MIN;
+    static constexpr float SCALE = static_cast<float>(LUT_SIZE - 1) / X_RANGE;
+    static constexpr float INV_SCALE = X_RANGE / static_cast<float>(LUT_SIZE - 1);
+
+    float lut_[LUT_SIZE];
+
+    ExpLUT() {
+        for (int i = 0; i < LUT_SIZE; ++i) {
+            float x = X_MIN + i * INV_SCALE;
+            lut_[i] = std::exp(x);
+        }
+    }
+
+    inline float operator()(float x) const {
+        if (x <= X_MIN) return lut_[0];
+        if (x >= X_MAX) return lut_[LUT_SIZE - 1];
+
+        float idx_f = (x - X_MIN) * SCALE;
+        int idx = static_cast<int>(idx_f);
+        float frac = idx_f - static_cast<float>(idx);
+
+        return lut_[idx] * (1.0f - frac) + lut_[idx + 1] * frac;
+    }
+};
+
+// グローバルLUTインスタンス
+inline ExpLUT& getExpLUT() {
+    static ExpLUT lut;
+    return lut;
+}
+
+inline float lut_exp(float x) {
+    return getExpLUT()(x);
+}
+
+// =============================================================================
 // ダイオード電流・コンダクタンス
 // =============================================================================
 inline void diode_iv(float v, float& i, float& g) {
@@ -276,6 +344,38 @@ inline void diode_iv_mo(float v, float& i, float& g) {
         g = 1e-12f;
     } else {
         float exp_v = mo_exp(v * V_T_INV);
+        i = I_S * (exp_v - 1.0f);
+        g = I_S * V_T_INV * exp_v + 1e-12f;
+    }
+}
+
+// パデ近似版
+inline void diode_iv_pade(float v, float& i, float& g) {
+    if (v > V_CRIT) {
+        float exp_crit = pade_exp(V_CRIT * V_T_INV);
+        g = I_S * V_T_INV * exp_crit;
+        i = I_S * (exp_crit - 1.0f) + g * (v - V_CRIT);
+    } else if (v < -10.0f * V_T) {
+        i = -I_S;
+        g = 1e-12f;
+    } else {
+        float exp_v = pade_exp(v * V_T_INV);
+        i = I_S * (exp_v - 1.0f);
+        g = I_S * V_T_INV * exp_v + 1e-12f;
+    }
+}
+
+// LUT版
+inline void diode_iv_lut(float v, float& i, float& g) {
+    if (v > V_CRIT) {
+        float exp_crit = lut_exp(V_CRIT * V_T_INV);
+        g = I_S * V_T_INV * exp_crit;
+        i = I_S * (exp_crit - 1.0f) + g * (v - V_CRIT);
+    } else if (v < -10.0f * V_T) {
+        i = -I_S;
+        g = 1e-12f;
+    } else {
+        float exp_v = lut_exp(v * V_T_INV);
         i = I_S * (exp_v - 1.0f);
         g = I_S * V_T_INV * exp_v + 1e-12f;
     }
@@ -471,6 +571,232 @@ public:
         v_c = std::clamp(v_c + damp * dv_c, 0.0f, V_CC + 0.5f);
 
         // 状態更新
+        v_c1_ = v_in - v_cap;
+        v_c2_ = v_e;
+        v_b_ = v_b;
+        v_e_ = v_e;
+        v_c_ = v_c;
+
+        return v_c;
+    }
+
+private:
+    float v_c1_ = 0.0f, v_c2_ = 8.0f;
+    float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
+    float dt_ = 1.0f / 48000.0f;
+    float g_c1_ = C1 / dt_;
+    float g_c2_ = C2 / dt_;
+    float inv_j11_ = 0.0f;
+    float schur_j11_factor_ = 0.0f;
+    float schur_f1_factor_ = 0.0f;
+};
+
+// =============================================================================
+// WaveShaperPade: パデ近似 [2,2] + Schur縮約
+// =============================================================================
+class WaveShaperPade {
+public:
+    void setSampleRate(float sampleRate) {
+        dt_ = 1.0f / sampleRate;
+        g_c1_ = C1 / dt_;
+        g_c2_ = C2 / dt_;
+
+        float j11 = -g_c1_ - G3;
+        inv_j11_ = 1.0f / j11;
+        schur_j11_factor_ = G3 * G3 * inv_j11_;
+        schur_f1_factor_ = G3 * inv_j11_;
+    }
+
+    void reset() {
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
+    }
+
+    __attribute__((noinline))
+    float process(float v_in) {
+        const float v_c1_prev = v_c1_;
+        const float v_c2_prev = v_c2_;
+
+        float v_cap = v_in - v_c1_prev;
+        float v_b = v_b_;
+        float v_e = v_c2_prev;
+        float v_c = v_c_;
+
+        float v_eb = v_e - v_b;
+        float v_cb = v_c - v_b;
+
+        float i_ef, g_ef, i_cr, g_cr;
+        diode_iv_pade(v_eb, i_ef, g_ef);
+        diode_iv_pade(v_cb, i_cr, g_cr);
+
+        float i_e = i_ef - ALPHA_R * i_cr;
+        float i_c = ALPHA_F * i_ef - i_cr;
+        float i_b = i_e - i_c;
+
+        float f1 = g_c1_ * (v_in - v_cap - v_c1_prev) - G3 * (v_cap - v_b);
+        float f2 = G2 * (v_in - v_b) + G3 * (v_cap - v_b) + i_b;
+        float f3 = G4 * (V_CC - v_e) - i_e - g_c2_ * (v_e - v_c2_prev);
+        float f4 = G5 * (V_COLL - v_c) + i_c;
+
+        float j22 = -G2 - G3 - (1.0f - ALPHA_F) * g_ef - (1.0f - ALPHA_R) * g_cr;
+        float j23 = (1.0f - ALPHA_F) * g_ef;
+        float j24 = (1.0f - ALPHA_R) * g_cr;
+        float j32 = g_ef - ALPHA_R * g_cr;
+        float j33 = -G4 - g_ef - g_c2_;
+        float j34 = ALPHA_R * g_cr;
+        float j42 = -ALPHA_F * g_ef + g_cr;
+        float j43 = ALPHA_F * g_ef;
+        float j44 = -G5 - g_cr;
+
+        float j22_p = j22 - schur_j11_factor_;
+        float f2_p = f2 - schur_f1_factor_ * f1;
+
+        float inv_j44 = 1.0f / j44;
+        float j24_inv = j24 * inv_j44;
+        float j34_inv = j34 * inv_j44;
+
+        float j22_pp = j22_p - j24_inv * j42;
+        float j23_pp = j23 - j24_inv * j43;
+        float f2_pp = f2_p + j24_inv * f4;
+
+        float j32_pp = j32 - j34_inv * j42;
+        float j33_pp = j33 - j34_inv * j43;
+        float f3_pp = f3 + j34_inv * f4;
+
+        float det = j22_pp * j33_pp - j23_pp * j32_pp;
+        float inv_det = 1.0f / det;
+
+        float dv_b = (j33_pp * (-f2_pp) - j23_pp * (-f3_pp)) * inv_det;
+        float dv_e = (j22_pp * (-f3_pp) - j32_pp * (-f2_pp)) * inv_det;
+
+        float dv_c = (-f4 - j42 * dv_b - j43 * dv_e) * inv_j44;
+        float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
+
+        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
+                                 std::abs(dv_e), std::abs(dv_c)});
+        float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
+
+        v_cap += damp * dv_cap;
+        v_b += damp * dv_b;
+        v_e = std::clamp(v_e + damp * dv_e, 0.0f, V_CC + 0.5f);
+        v_c = std::clamp(v_c + damp * dv_c, 0.0f, V_CC + 0.5f);
+
+        v_c1_ = v_in - v_cap;
+        v_c2_ = v_e;
+        v_b_ = v_b;
+        v_e_ = v_e;
+        v_c_ = v_c;
+
+        return v_c;
+    }
+
+private:
+    float v_c1_ = 0.0f, v_c2_ = 8.0f;
+    float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
+    float dt_ = 1.0f / 48000.0f;
+    float g_c1_ = C1 / dt_;
+    float g_c2_ = C2 / dt_;
+    float inv_j11_ = 0.0f;
+    float schur_j11_factor_ = 0.0f;
+    float schur_f1_factor_ = 0.0f;
+};
+
+// =============================================================================
+// WaveShaperLUT: LUT + 線形補間 + Schur縮約
+// =============================================================================
+class WaveShaperLUT {
+public:
+    void setSampleRate(float sampleRate) {
+        dt_ = 1.0f / sampleRate;
+        g_c1_ = C1 / dt_;
+        g_c2_ = C2 / dt_;
+
+        float j11 = -g_c1_ - G3;
+        inv_j11_ = 1.0f / j11;
+        schur_j11_factor_ = G3 * G3 * inv_j11_;
+        schur_f1_factor_ = G3 * inv_j11_;
+    }
+
+    void reset() {
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
+    }
+
+    __attribute__((noinline))
+    float process(float v_in) {
+        const float v_c1_prev = v_c1_;
+        const float v_c2_prev = v_c2_;
+
+        float v_cap = v_in - v_c1_prev;
+        float v_b = v_b_;
+        float v_e = v_c2_prev;
+        float v_c = v_c_;
+
+        float v_eb = v_e - v_b;
+        float v_cb = v_c - v_b;
+
+        float i_ef, g_ef, i_cr, g_cr;
+        diode_iv_lut(v_eb, i_ef, g_ef);
+        diode_iv_lut(v_cb, i_cr, g_cr);
+
+        float i_e = i_ef - ALPHA_R * i_cr;
+        float i_c = ALPHA_F * i_ef - i_cr;
+        float i_b = i_e - i_c;
+
+        float f1 = g_c1_ * (v_in - v_cap - v_c1_prev) - G3 * (v_cap - v_b);
+        float f2 = G2 * (v_in - v_b) + G3 * (v_cap - v_b) + i_b;
+        float f3 = G4 * (V_CC - v_e) - i_e - g_c2_ * (v_e - v_c2_prev);
+        float f4 = G5 * (V_COLL - v_c) + i_c;
+
+        float j22 = -G2 - G3 - (1.0f - ALPHA_F) * g_ef - (1.0f - ALPHA_R) * g_cr;
+        float j23 = (1.0f - ALPHA_F) * g_ef;
+        float j24 = (1.0f - ALPHA_R) * g_cr;
+        float j32 = g_ef - ALPHA_R * g_cr;
+        float j33 = -G4 - g_ef - g_c2_;
+        float j34 = ALPHA_R * g_cr;
+        float j42 = -ALPHA_F * g_ef + g_cr;
+        float j43 = ALPHA_F * g_ef;
+        float j44 = -G5 - g_cr;
+
+        float j22_p = j22 - schur_j11_factor_;
+        float f2_p = f2 - schur_f1_factor_ * f1;
+
+        float inv_j44 = 1.0f / j44;
+        float j24_inv = j24 * inv_j44;
+        float j34_inv = j34 * inv_j44;
+
+        float j22_pp = j22_p - j24_inv * j42;
+        float j23_pp = j23 - j24_inv * j43;
+        float f2_pp = f2_p + j24_inv * f4;
+
+        float j32_pp = j32 - j34_inv * j42;
+        float j33_pp = j33 - j34_inv * j43;
+        float f3_pp = f3 + j34_inv * f4;
+
+        float det = j22_pp * j33_pp - j23_pp * j32_pp;
+        float inv_det = 1.0f / det;
+
+        float dv_b = (j33_pp * (-f2_pp) - j23_pp * (-f3_pp)) * inv_det;
+        float dv_e = (j22_pp * (-f3_pp) - j32_pp * (-f2_pp)) * inv_det;
+
+        float dv_c = (-f4 - j42 * dv_b - j43 * dv_e) * inv_j44;
+        float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
+
+        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
+                                 std::abs(dv_e), std::abs(dv_c)});
+        float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
+
+        v_cap += damp * dv_cap;
+        v_b += damp * dv_b;
+        v_e = std::clamp(v_e + damp * dv_e, 0.0f, V_CC + 0.5f);
+        v_c = std::clamp(v_c + damp * dv_c, 0.0f, V_CC + 0.5f);
+
         v_c1_ = v_in - v_cap;
         v_c2_ = v_e;
         v_b_ = v_b;
