@@ -2,7 +2,7 @@
 // TB-303 WaveShaper Python Bindings (pybind11)
 //
 // C++実装をPythonから直接使用可能にするバインディング
-// ビルド: clang++ -std=c++17 -O3 -shared -fPIC -undefined dynamic_lookup \
+// ビルド: clang++ -std=c++20 -O3 -shared -fPIC -undefined dynamic_lookup \
 //         $(python3 -m pybind11 --includes) waveshaper_pybind.cpp \
 //         -o tb303_waveshaper$(python3-config --extension-suffix)
 //
@@ -58,6 +58,7 @@ PYBIND11_MODULE(tb303_waveshaper, m) {
             WaveShaperReference: High-precision reference (100 iterations, std::exp)
             WaveShaperNewton1/2/3: Newton solver with N iterations
             WaveShaperSchur1/2: Schur complement solver with N iterations
+            WaveShaperLUT/Pade/Pade33: Various exp approximation methods
 
         Example:
             >>> import tb303_waveshaper as ws
@@ -70,191 +71,144 @@ PYBIND11_MODULE(tb303_waveshaper, m) {
     // =========================================================================
     // 回路定数エクスポート (TB-303 回路図準拠)
     // =========================================================================
-    m.attr("V_T") = tb303::fast::V_T;
-    m.attr("I_S") = tb303::fast::I_S;
-    m.attr("BETA_F") = tb303::fast::BETA_F;
-    m.attr("ALPHA_F") = tb303::fast::ALPHA_F;
-    m.attr("BETA_R") = tb303::fast::BETA_R;
-    m.attr("ALPHA_R") = tb303::fast::ALPHA_R;
-    m.attr("V_CC") = tb303::fast::V_CC;
-    m.attr("V_BIAS") = tb303::fast::V_BIAS;  // コレクタバイアス電圧 (5.33V)
-    m.attr("R34") = tb303::fast::R34;    // 10kΩ (Input)
-    m.attr("R35") = tb303::fast::R35;    // 100kΩ (Input)
-    m.attr("R36") = tb303::fast::R36;    // 10kΩ
-    m.attr("R45") = tb303::fast::R45;    // 22kΩ
-    m.attr("C10") = tb303::fast::C10;    // 0.01μF
-    m.attr("C11") = tb303::fast::C11;    // 1μF
+    m.attr("V_T") = tb303::bjt::V_T;
+    m.attr("I_S") = tb303::bjt::I_S;
+    m.attr("BETA_F") = tb303::bjt::BETA_F;
+    m.attr("ALPHA_F") = tb303::bjt::ALPHA_F;
+    m.attr("BETA_R") = tb303::bjt::BETA_R;
+    m.attr("ALPHA_R") = tb303::bjt::ALPHA_R;
+    m.attr("V_CC") = tb303::circuit::V_CC;
+    m.attr("V_BIAS") = tb303::circuit::V_BIAS;
+    m.attr("R34") = tb303::circuit::R34;
+    m.attr("R35") = tb303::circuit::R35;
+    m.attr("R36") = tb303::circuit::R36;
+    m.attr("R45") = tb303::circuit::R45;
+    m.attr("C10") = tb303::circuit::C10;
+    m.attr("C11") = tb303::circuit::C11;
 
     // =========================================================================
     // WaveShaperReference (高精度リファレンス: 100回反復, std::exp)
     // =========================================================================
-    py::class_<tb303::fast::WaveShaperReference>(m, "WaveShaperReference",
+    py::class_<tb303::WaveShaperReference>(m, "WaveShaperReference",
         "High-precision reference solver (100 iterations, std::exp)")
         .def(py::init<>())
-        .def("set_sample_rate", &tb303::fast::WaveShaperReference::setSampleRate,
+        .def("set_sample_rate", &tb303::WaveShaperReference::setSampleRate,
              py::arg("sample_rate"),
              "Set the sample rate in Hz")
-        .def("reset", &tb303::fast::WaveShaperReference::reset,
+        .def("reset", &tb303::WaveShaperReference::reset,
              "Reset internal state to initial values")
-        .def("process", &tb303::fast::WaveShaperReference::process,
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperReference::process),
              py::arg("v_in"),
              "Process a single sample, returns output voltage")
         .def("process_array",
-             [](tb303::fast::WaveShaperReference& self, py::array_t<float> input) {
+             [](tb303::WaveShaperReference& self, py::array_t<float> input) {
                  return process_array(self, input);
              },
              py::arg("input"),
              "Process an array of samples, returns output array");
 
     // =========================================================================
-    // WaveShaperNewton<1> (1回反復)
+    // WaveShaperNewton<N> (Newton法 N回反復)
     // =========================================================================
-    py::class_<tb303::fast::WaveShaperNewton<1>>(m, "WaveShaperNewton1",
+    py::class_<tb303::WaveShaperNewton<1>>(m, "WaveShaperNewton1",
         "Newton solver with 1 iteration")
         .def(py::init<>())
-        .def("set_sample_rate", &tb303::fast::WaveShaperNewton<1>::setSampleRate,
+        .def("set_sample_rate", &tb303::WaveShaperNewton<1>::setSampleRate,
              py::arg("sample_rate"))
-        .def("reset", &tb303::fast::WaveShaperNewton<1>::reset)
-        .def("process", &tb303::fast::WaveShaperNewton<1>::process,
+        .def("reset", &tb303::WaveShaperNewton<1>::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperNewton<1>::process),
              py::arg("v_in"))
         .def("process_array",
-             [](tb303::fast::WaveShaperNewton<1>& self, py::array_t<float> input) {
+             [](tb303::WaveShaperNewton<1>& self, py::array_t<float> input) {
                  return process_array(self, input);
              },
              py::arg("input"));
 
-    // =========================================================================
-    // WaveShaperNewton<2> (2回反復)
-    // =========================================================================
-    py::class_<tb303::fast::WaveShaperNewton<2>>(m, "WaveShaperNewton2",
+    py::class_<tb303::WaveShaperNewton<2>>(m, "WaveShaperNewton2",
         "Newton solver with 2 iterations")
         .def(py::init<>())
-        .def("set_sample_rate", &tb303::fast::WaveShaperNewton<2>::setSampleRate,
+        .def("set_sample_rate", &tb303::WaveShaperNewton<2>::setSampleRate,
              py::arg("sample_rate"))
-        .def("reset", &tb303::fast::WaveShaperNewton<2>::reset)
-        .def("process", &tb303::fast::WaveShaperNewton<2>::process,
+        .def("reset", &tb303::WaveShaperNewton<2>::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperNewton<2>::process),
              py::arg("v_in"))
         .def("process_array",
-             [](tb303::fast::WaveShaperNewton<2>& self, py::array_t<float> input) {
+             [](tb303::WaveShaperNewton<2>& self, py::array_t<float> input) {
                  return process_array(self, input);
              },
              py::arg("input"));
 
-    // =========================================================================
-    // WaveShaperNewton<3> (3回反復)
-    // =========================================================================
-    py::class_<tb303::fast::WaveShaperNewton<3>>(m, "WaveShaperNewton3",
+    py::class_<tb303::WaveShaperNewton<3>>(m, "WaveShaperNewton3",
         "Newton solver with 3 iterations")
         .def(py::init<>())
-        .def("set_sample_rate", &tb303::fast::WaveShaperNewton<3>::setSampleRate,
+        .def("set_sample_rate", &tb303::WaveShaperNewton<3>::setSampleRate,
              py::arg("sample_rate"))
-        .def("reset", &tb303::fast::WaveShaperNewton<3>::reset)
-        .def("process", &tb303::fast::WaveShaperNewton<3>::process,
+        .def("reset", &tb303::WaveShaperNewton<3>::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperNewton<3>::process),
              py::arg("v_in"))
         .def("process_array",
-             [](tb303::fast::WaveShaperNewton<3>& self, py::array_t<float> input) {
+             [](tb303::WaveShaperNewton<3>& self, py::array_t<float> input) {
                  return process_array(self, input);
              },
              py::arg("input"));
 
     // =========================================================================
-    // WaveShaperSchur<1> (Schur補行列法 1回反復)
+    // WaveShaperSchur<N> はNewton<N>と同じ型なので登録不要
+    // エイリアスとしてSchur2を追加（推奨設定）
     // =========================================================================
-    py::class_<tb303::fast::WaveShaperSchur<1>>(m, "WaveShaperSchur1",
-        "Schur complement solver with 1 iteration")
-        .def(py::init<>())
-        .def("set_sample_rate", &tb303::fast::WaveShaperSchur<1>::setSampleRate,
-             py::arg("sample_rate"))
-        .def("reset", &tb303::fast::WaveShaperSchur<1>::reset)
-        .def("process", &tb303::fast::WaveShaperSchur<1>::process,
-             py::arg("v_in"))
-        .def("process_array",
-             [](tb303::fast::WaveShaperSchur<1>& self, py::array_t<float> input) {
-                 return process_array(self, input);
-             },
-             py::arg("input"));
+    m.attr("WaveShaperSchur1") = m.attr("WaveShaperNewton1");
+    m.attr("WaveShaperSchur2") = m.attr("WaveShaperNewton2");
+
+    // SchurUltra は Newton<2> と同一型
+    m.attr("WaveShaperSchurUltra") = m.attr("WaveShaperNewton2");
 
     // =========================================================================
-    // WaveShaperSchur<2> (Schur補行列法 2回反復)
+    // WaveShaperLUT (LUTベース, 2回反復)
     // =========================================================================
-    py::class_<tb303::fast::WaveShaperSchur<2>>(m, "WaveShaperSchur2",
-        "Schur complement solver with 2 iterations (recommended)")
-        .def(py::init<>())
-        .def("set_sample_rate", &tb303::fast::WaveShaperSchur<2>::setSampleRate,
-             py::arg("sample_rate"))
-        .def("reset", &tb303::fast::WaveShaperSchur<2>::reset)
-        .def("process", &tb303::fast::WaveShaperSchur<2>::process,
-             py::arg("v_in"))
-        .def("process_array",
-             [](tb303::fast::WaveShaperSchur<2>& self, py::array_t<float> input) {
-                 return process_array(self, input);
-             },
-             py::arg("input"));
-
-    // =========================================================================
-    // WaveShaperSchurUltra (B-C diode 1-sample delay, 1 iteration)
-    // =========================================================================
-    py::class_<tb303::fast::WaveShaperSchurUltra>(m, "WaveShaperSchurUltra",
-        "Schur solver with B-C diode 1-sample delay (exp once per sample)")
-        .def(py::init<>())
-        .def("set_sample_rate", &tb303::fast::WaveShaperSchurUltra::setSampleRate,
-             py::arg("sample_rate"))
-        .def("reset", &tb303::fast::WaveShaperSchurUltra::reset)
-        .def("process", &tb303::fast::WaveShaperSchurUltra::process,
-             py::arg("v_in"))
-        .def("process_array",
-             [](tb303::fast::WaveShaperSchurUltra& self, py::array_t<float> input) {
-                 return process_array(self, input);
-             },
-             py::arg("input"));
-
-    // =========================================================================
-    // WaveShaperLUT (LUTベース, j22ピボット, 2回反復)
-    // =========================================================================
-    py::class_<tb303::lut::WaveShaperLUT>(m, "WaveShaperLUT",
+    py::class_<tb303::WaveShaperLUT>(m, "WaveShaperLUT",
         "LUT-based solver with j22 pivot (2 iterations)")
         .def(py::init<>())
-        .def("set_sample_rate", &tb303::lut::WaveShaperLUT::setSampleRate,
+        .def("set_sample_rate", &tb303::WaveShaperLUT::setSampleRate,
              py::arg("sample_rate"))
-        .def("reset", &tb303::lut::WaveShaperLUT::reset)
-        .def("process", &tb303::lut::WaveShaperLUT::process,
+        .def("reset", &tb303::WaveShaperLUT::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperLUT::process),
              py::arg("v_in"))
         .def("process_array",
-             [](tb303::lut::WaveShaperLUT& self, py::array_t<float> input) {
+             [](tb303::WaveShaperLUT& self, py::array_t<float> input) {
                  return process_array(self, input);
              },
              py::arg("input"));
 
     // =========================================================================
-    // WaveShaperPade (パデ[2,2]近似, j22ピボット, 2回反復)
+    // WaveShaperPade (パデ[2,2]近似, 2回反復)
     // =========================================================================
-    py::class_<tb303::lut::WaveShaperPade>(m, "WaveShaperPade",
+    py::class_<tb303::WaveShaperPade>(m, "WaveShaperPade",
         "Pade[2,2] approximation solver with j22 pivot (2 iterations)")
         .def(py::init<>())
-        .def("set_sample_rate", &tb303::lut::WaveShaperPade::setSampleRate,
+        .def("set_sample_rate", &tb303::WaveShaperPade::setSampleRate,
              py::arg("sample_rate"))
-        .def("reset", &tb303::lut::WaveShaperPade::reset)
-        .def("process", &tb303::lut::WaveShaperPade::process,
+        .def("reset", &tb303::WaveShaperPade::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperPade::process),
              py::arg("v_in"))
         .def("process_array",
-             [](tb303::lut::WaveShaperPade& self, py::array_t<float> input) {
+             [](tb303::WaveShaperPade& self, py::array_t<float> input) {
                  return process_array(self, input);
              },
              py::arg("input"));
 
     // =========================================================================
-    // WaveShaperPade33 (パデ[3,3]高精度, j22ピボット, 2回反復)
+    // WaveShaperPade33 (パデ[3,3]高精度, 2回反復)
     // =========================================================================
-    py::class_<tb303::lut::WaveShaperPade33>(m, "WaveShaperPade33",
+    py::class_<tb303::WaveShaperPade33>(m, "WaveShaperPade33",
         "Pade[3,3] high-precision solver with j22 pivot (2 iterations)")
         .def(py::init<>())
-        .def("set_sample_rate", &tb303::lut::WaveShaperPade33::setSampleRate,
+        .def("set_sample_rate", &tb303::WaveShaperPade33::setSampleRate,
              py::arg("sample_rate"))
-        .def("reset", &tb303::lut::WaveShaperPade33::reset)
-        .def("process", &tb303::lut::WaveShaperPade33::process,
+        .def("reset", &tb303::WaveShaperPade33::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperPade33::process),
              py::arg("v_in"))
         .def("process_array",
-             [](tb303::lut::WaveShaperPade33& self, py::array_t<float> input) {
+             [](tb303::WaveShaperPade33& self, py::array_t<float> input) {
                  return process_array(self, input);
              },
              py::arg("input"));
@@ -262,7 +216,7 @@ PYBIND11_MODULE(tb303_waveshaper, m) {
     // =========================================================================
     // ユーティリティ関数
     // =========================================================================
-    m.def("fast_exp", &tb303::fast::fast_exp,
+    m.def("fast_exp", &tb303::exp_impl::schraudolph,
           py::arg("x"),
           "Fast exponential approximation (Schraudolph improved)");
 }
