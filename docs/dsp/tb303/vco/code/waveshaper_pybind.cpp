@@ -214,6 +214,147 @@ PYBIND11_MODULE(tb303_waveshaper, m) {
              py::arg("input"));
 
     // =========================================================================
+    // WaveShaperFast (ダンピング除去版)
+    // =========================================================================
+    py::class_<tb303::WaveShaperFast1>(m, "WaveShaperFast1",
+        "Fast solver (no damping, 1 iteration)")
+        .def(py::init<>())
+        .def("set_sample_rate", &tb303::WaveShaperFast1::setSampleRate,
+             py::arg("sample_rate"))
+        .def("reset", &tb303::WaveShaperFast1::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperFast1::process),
+             py::arg("v_in"))
+        .def("process_array",
+             [](tb303::WaveShaperFast1& self, py::array_t<float> input) {
+                 return process_array(self, input);
+             },
+             py::arg("input"));
+
+    py::class_<tb303::WaveShaperFast2>(m, "WaveShaperFast2",
+        "Fast solver (no damping, 2 iterations)")
+        .def(py::init<>())
+        .def("set_sample_rate", &tb303::WaveShaperFast2::setSampleRate,
+             py::arg("sample_rate"))
+        .def("reset", &tb303::WaveShaperFast2::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperFast2::process),
+             py::arg("v_in"))
+        .def("process_array",
+             [](tb303::WaveShaperFast2& self, py::array_t<float> input) {
+                 return process_array(self, input);
+             },
+             py::arg("input"));
+
+    py::class_<tb303::WaveShaperFast3>(m, "WaveShaperFast3",
+        "Fast solver (no damping, 3 iterations)")
+        .def(py::init<>())
+        .def("set_sample_rate", &tb303::WaveShaperFast3::setSampleRate,
+             py::arg("sample_rate"))
+        .def("reset", &tb303::WaveShaperFast3::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperFast3::process),
+             py::arg("v_in"))
+        .def("process_array",
+             [](tb303::WaveShaperFast3& self, py::array_t<float> input) {
+                 return process_array(self, input);
+             },
+             py::arg("input"));
+
+    // =========================================================================
+    // WaveShaperHybrid (1回目固定ダンピング + 2回目通常ダンピング)
+    // =========================================================================
+    py::class_<tb303::WaveShaperHybrid>(m, "WaveShaperHybrid",
+        "Hybrid solver (fast 1st iter + normal 2nd iter)")
+        .def(py::init<>())
+        .def("set_sample_rate", &tb303::WaveShaperHybrid::setSampleRate,
+             py::arg("sample_rate"))
+        .def("reset", &tb303::WaveShaperHybrid::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperHybrid::process),
+             py::arg("v_in"))
+        .def("process_array",
+             [](tb303::WaveShaperHybrid& self, py::array_t<float> input) {
+                 return process_array(self, input);
+             },
+             py::arg("input"));
+
+    // =========================================================================
+    // WaveShaperUltra (B-Cジャンクション遅延評価版)
+    // =========================================================================
+    py::class_<tb303::WaveShaperUltra1>(m, "WaveShaperUltra1",
+        "Ultra solver (B-C delayed eval, 1 iteration)")
+        .def(py::init<>())
+        .def("set_sample_rate", &tb303::WaveShaperUltra1::setSampleRate,
+             py::arg("sample_rate"))
+        .def("reset", &tb303::WaveShaperUltra1::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperUltra1::process),
+             py::arg("v_in"))
+        .def("process_array",
+             [](tb303::WaveShaperUltra1& self, py::array_t<float> input) {
+                 return process_array(self, input);
+             },
+             py::arg("input"));
+
+    py::class_<tb303::WaveShaperUltra2>(m, "WaveShaperUltra2",
+        "Ultra solver (B-C delayed eval, 2 iterations)")
+        .def(py::init<>())
+        .def("set_sample_rate", &tb303::WaveShaperUltra2::setSampleRate,
+             py::arg("sample_rate"))
+        .def("reset", &tb303::WaveShaperUltra2::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperUltra2::process),
+             py::arg("v_in"))
+        .def("process_array",
+             [](tb303::WaveShaperUltra2& self, py::array_t<float> input) {
+                 return process_array(self, input);
+             },
+             py::arg("input"));
+
+    py::class_<tb303::WaveShaperUltra3>(m, "WaveShaperUltra3",
+        "Ultra solver (B-C delayed eval, 3 iterations)")
+        .def(py::init<>())
+        .def("set_sample_rate", &tb303::WaveShaperUltra3::setSampleRate,
+             py::arg("sample_rate"))
+        .def("reset", &tb303::WaveShaperUltra3::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperUltra3::process),
+             py::arg("v_in"))
+        .def("process_array",
+             [](tb303::WaveShaperUltra3& self, py::array_t<float> input) {
+                 return process_array(self, input);
+             },
+             py::arg("input"));
+
+    // =========================================================================
+    // WaveShaperPredictor (予測子-補正子法)
+    // =========================================================================
+    py::class_<tb303::WaveShaperPredictor>(m, "WaveShaperPredictor",
+        "Predictor-Corrector solver (1 fast iteration with prediction)")
+        .def(py::init<>())
+        .def("set_sample_rate", &tb303::WaveShaperPredictor::setSampleRate,
+             py::arg("sample_rate"))
+        .def("reset", &tb303::WaveShaperPredictor::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperPredictor::process),
+             py::arg("v_in"))
+        .def("process_array",
+             [](tb303::WaveShaperPredictor& self, py::array_t<float> input) {
+                 return process_array(self, input);
+             },
+             py::arg("input"));
+
+    // =========================================================================
+    // WaveShaperTurbo (2反復だが2回目E-Bスキップ)
+    // =========================================================================
+    py::class_<tb303::WaveShaperTurbo>(m, "WaveShaperTurbo",
+        "Turbo solver (2 iters with E-B reuse on 2nd, 3 exp calls)")
+        .def(py::init<>())
+        .def("set_sample_rate", &tb303::WaveShaperTurbo::setSampleRate,
+             py::arg("sample_rate"))
+        .def("reset", &tb303::WaveShaperTurbo::reset)
+        .def("process", py::overload_cast<float>(&tb303::WaveShaperTurbo::process),
+             py::arg("v_in"))
+        .def("process_array",
+             [](tb303::WaveShaperTurbo& self, py::array_t<float> input) {
+                 return process_array(self, input);
+             },
+             py::arg("input"));
+
+    // =========================================================================
     // ユーティリティ関数
     // =========================================================================
     m.def("fast_exp", &tb303::exp_impl::schraudolph,
