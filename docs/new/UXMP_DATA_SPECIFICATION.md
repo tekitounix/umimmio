@@ -1,7 +1,8 @@
 # UXMP-DATA User Data Exchange 詳細仕様書
 
-バージョン: 0.3.0 (Draft)
+バージョン: 0.4.0 (Draft)
 ステータス: 設計段階
+最終更新: 2026-01-28
 
 ## 1. 概要
 
@@ -19,8 +20,41 @@
 6. **完全な独立性** - 各データ型は単体で完結し、他への依存なしに使用可能
 7. **前方/後方互換性** - 定義テーブルの拡張で新パラメータに対応
 8. **自己記述型ベンダー拡張** - 登録不要、情報表示によるユーザー判断
+9. **厳密なバイナリ規約** - エンディアン、アラインメント、文字列を明文化
 
-### 1.2 統一データブロック構造 (★核心)
+### 1.2 バイナリ表現規約 (★実装必須)
+
+本仕様のすべてのバイナリデータは以下の規約に従う。
+
+| 項目 | 規約 |
+|------|------|
+| エンディアン | **リトルエンディアン** (x86/ARM互換) |
+| アラインメント | **パックド構造体** (1バイト境界、パディングなし) |
+| 文字列 | **UTF-8**、長さプレフィックス付き、NULL終端なし |
+| 整数型 | 符号なし: uint8/16/32、符号付き: int8/16/32 |
+| CRC32 | **IEEE 802.3** (zlib互換)、ヘッダー先頭からCRCフィールド直前まで |
+
+```c
+// コンパイラ指示 (パックド構造体)
+#pragma pack(push, 1)
+
+// 16bit値のバイト順序例
+uint16_t value = 0x1234;
+// メモリ: [0x34, 0x12] (リトルエンディアン)
+
+// 文字列の格納例: "Hello"
+// length: 5 (uint8_t)
+// data: 'H', 'e', 'l', 'l', 'o' (NULL終端なし)
+
+#pragma pack(pop)
+```
+
+**バージョン互換ポリシー:**
+- メジャーバージョン変更: 後方互換性なし
+- マイナーバージョン変更: 後方互換あり（新フィールドは末尾追加）
+- 未知のフラグ/フィールドは無視して処理を継続
+
+### 1.3 統一データブロック構造 (★核心)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -66,7 +100,7 @@
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.3 構造体定義
+### 1.4 構造体定義
 
 ```c
 // ブロック種別
@@ -92,7 +126,7 @@ struct ParamDef {
 };
 static_assert(sizeof(ParamDef) == 10);
 
-// flags ビット定義
+// ParamDef.flags ビット定義
 // bit0: optional - このパラメータは省略可能
 // bit1: signed   - 符号付き値 (min/maxの解釈に影響)
 // bit2: extended - 16bit拡張 (0=8bit, 1=16bit)
@@ -102,13 +136,24 @@ static_assert(sizeof(ParamDef) == 10);
 //   extended=0 → 8bit (1バイト)
 //   extended=1 → 16bit (2バイト)
 
+// ★値の格納規則:
+// - min/max/default_val は常に int16_t で定義
+// - 8bitデータ格納時:
+//   - 符号なし (signed=0): 値を uint8_t にキャスト (0-255)
+//   - 符号付き (signed=1): 値を int8_t にキャスト (-128..+127)
+//   - 範囲外の場合はクランプ (min/maxで制限)
+// - 16bitデータ格納時: そのまま int16_t/uint16_t で格納
+//
+// 例: MICRO_TIMING (signed=1, extended=0, min=-64, max=+63)
+//     値 -10 → int8_t として 0xF6 を格納
+
 // データブロックヘッダー
 struct DataBlockHeader {
     uint8_t  magic[4];       // "UXDB" (UXmp Data Block)
     uint8_t  block_type;     // BlockType
     uint8_t  param_count;    // パラメータ定義数
     uint16_t entry_count;    // エントリ数
-    uint16_t flags;          // bit0: has_position, bit1: compressed, bit2: has_vendor_ext
+    uint16_t flags;          // 下記参照
     uint16_t version;        // フォーマットバージョン
     uint32_t data_offset;    // データセクションへのオフセット
     uint32_t vendor_offset;  // ベンダー拡張へのオフセット (0=なし)
@@ -117,9 +162,19 @@ struct DataBlockHeader {
     // VendorExtension follows at vendor_offset (if has_vendor_ext)
     // uint8_t data[] follows at data_offset
 };
+
+// DataBlockHeader.flags / TrackHeader.flags 共通ビット定義:
+// bit0-1: (TrackHeader専用: muted, solo)
+// bit2: sparse/has_position - 疎表現 (POSITIONパラメータあり)
+// bit3: compressed          - 圧縮 (将来拡張)
+// bit4: has_vendor_ext      - ベンダー拡張セクションあり
+// bit5-15: 予約
+//
+// 注: TrackHeader使用時はDataBlockHeader省略可能。
+//     その場合TrackHeader.flagsがDataBlockHeader.flagsの役割を果たす。
 ```
 
-### 1.4 密表現と疎表現
+### 1.5 密表現と疎表現
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -154,16 +209,19 @@ struct DataBlockHeader {
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.5 ドキュメント構成
+### 1.6 ドキュメント構成
 
 | 章 | 内容 |
 |----|------|
-| 2 | 標準パラメータ定義 |
-| 3 | パターン仕様 |
-| 4 | プリセット仕様 |
-| 5 | オートメーション仕様 |
-| 6 | 参照とリンク |
-| 7 | 変換と互換性 |
+| 2 | パラメータID名前空間 |
+| 3 | ベンダー拡張 |
+| 4 | 標準パラメータ定義テンプレート |
+| 5 | パターン仕様 |
+| 6 | プリセット仕様 |
+| 7 | オートメーション仕様 |
+| 8 | 参照とリンク |
+| 9 | 変換と互換性 |
+| 10 | MIDIマッピング仕様 |
 
 ---
 
@@ -556,13 +614,30 @@ struct TrackHeader {
     uint8_t  track_type;        // TrackType
     uint8_t  midi_channel;      // MIDIチャンネル (0-15)
     uint8_t  standard_def_id;   // StandardDefId (0=custom)
-    uint16_t flags;             // bit0: muted, bit1: solo, bit2: polyrhythm
-    uint16_t length_steps;      // トラック長 (ステップ)
+    uint16_t flags;             // bit0: muted, bit1: solo, bit2: sparse
+    uint16_t length_steps;      // パターン全体のステップ数 (論理長)
+    uint16_t entry_count;       // 実際のデータエントリ数
+                                // 密表現: entry_count == length_steps
+                                // 疎表現: entry_count <= length_steps
+    uint16_t reserved;          // 予約
     uint32_t data_offset;       // DataBlock へのオフセット
     uint8_t  time_scale;        // クロック倍率 (0x40=1x)
     uint8_t  direction;         // PlayDirection
-    uint8_t  reserved[2];       // 予約
+    uint8_t  param_count;       // パラメータ数 (standard_def_id=0時に参照)
+    uint8_t  reserved2;         // 予約
 };
+// sizeof(TrackHeader) == 20
+
+// flags ビット定義 (★DataBlockHeader.flagsと統一):
+// bit0: muted          - ミュート (トラック固有)
+// bit1: solo           - ソロ (トラック固有)
+// bit2: sparse         - 疎表現 (= has_position, POSITIONパラメータあり)
+// bit3: compressed     - 圧縮 (将来拡張)
+// bit4: has_vendor_ext - ベンダー拡張あり (カスタム定義時のみ有効)
+// bit5-15: 予約
+
+// 注: standard_def_id != CUSTOM の場合、TrackHeader.flags が
+//     DataBlockHeader.flags の代わりとなる
 
 enum class TrackType : uint8_t {
     DRUM     = 0x00,  // ドラム/パーカッション
@@ -588,26 +663,40 @@ enum class PlayDirection : uint8_t {
 
 各トラックは統一DataBlockフォーマットを使用。
 
+**標準定義使用時のデータ構造:**
+
+| standard_def_id | ParamDef配列 | DataBlockHeader | 備考 |
+|----------------|--------------|-----------------|------|
+| != CUSTOM | 省略 | 省略 | TrackHeaderで情報を持つ |
+| == CUSTOM | 必須 | 必須 | 完全なDataBlock構造 |
+
 ```c
-// トラックデータの構造
-// standard_def_id != CUSTOM の場合:
-//   - ParamDef配列は省略可能 (標準定義を使用)
-//   - データセクションのみ
+// ★標準定義使用時 (standard_def_id != CUSTOM):
+//   TrackHeader が entry_count, param_count, flags(sparse) を持つ
+//   data_offset から直接データが始まる (ヘッダー/定義なし)
 //
-// standard_def_id == CUSTOM の場合:
-//   - DataBlockHeader
-//   - ParamDef × param_count
-//   - Data Section
+//   メモリレイアウト:
+//   [TrackHeader] → [Data Section: entry_count × param_size bytes]
+
+// ★カスタム定義使用時 (standard_def_id == CUSTOM):
+//   data_offset に DataBlockHeader が配置される
+//
+//   メモリレイアウト:
+//   [TrackHeader] → [DataBlockHeader] → [ParamDef × param_count] → [Data]
 
 // 例: DRUM_STANDARD を使用する16ステップトラック
-// TrackHeader.standard_def_id = DRUM_STANDARD
-// TrackHeader.length_steps = 16
-//
+TrackHeader track = {
+    .standard_def_id = DRUM_STANDARD,
+    .flags = 0,                // 密表現
+    .length_steps = 16,        // パターン長
+    .entry_count = 16,         // = length_steps (密表現)
+    .param_count = 4,          // DRUM_STANDARDは4パラメータ
+};
+
 // Data Section (16 × 4 = 64 bytes):
 // step 0:  [36, 100, 64, 0]   // kick, vel=100, gate=50%, timing=0
 // step 1:  [0,  0,   0,  0]   // rest
 // step 2:  [38, 80,  64, 0]   // snare
-// step 3:  [0,  0,   0,  0]   // rest
 // ...
 ```
 
@@ -683,15 +772,18 @@ TrackHeader melody_track = {
     .track_id = 0,
     .track_type = MELODIC,
     .standard_def_id = MELODY_SPARSE,
-    .length_steps = 4,  // 実際のエントリ数
+    .flags = 0x04,           // sparse=1
+    .length_steps = 64,      // パターン全体のステップ数
+    .entry_count = 4,        // 実際のデータエントリ数
 };
 
-// [POSITION(2byte), NOTE, VEL, GATE] × 4
-uint8_t melody_data[4][5] = {
-    {0, 0,  60, 100, 64},   // step 0: C4
-    {0, 16, 64, 90,  64},   // step 16: E4
-    {0, 32, 67, 85,  64},   // step 32: G4
-    {0, 48, 72, 80,  64},   // step 48: C5
+// [POSITION(2byte, little-endian), NOTE, VEL, GATE] × 4
+// POSITION は uint16_t リトルエンディアン
+uint8_t melody_data[] = {
+    0x00, 0x00, 60, 100, 64,   // step 0: C4  (POSITION=0x0000)
+    0x10, 0x00, 64, 90,  64,   // step 16: E4 (POSITION=0x0010)
+    0x20, 0x00, 67, 85,  64,   // step 32: G4 (POSITION=0x0020)
+    0x30, 0x00, 72, 80,  64,   // step 48: C5 (POSITION=0x0030)
 };
 // データサイズ: 20バイト (vs 密表現: 64 × 4 = 256バイト)
 ```
@@ -903,6 +995,147 @@ struct ResourceRef {
 
 ---
 
+## 10. MIDIマッピング仕様 (UXMP-MAP)
+
+MIDI Learn機能で作成したパラメータマッピングを標準化し、デバイス間で共有可能にする。
+
+### 10.1 マッピング構造
+
+```c
+struct MappingHeader {
+    uint8_t  magic[4];          // "UXMP"
+    uint16_t version;           // フォーマットバージョン
+    uint16_t mapping_count;     // マッピング数
+    uint16_t flags;             // bit0: bidirectional
+    uint16_t reserved;
+    // MappingEntry entries[mapping_count] follows
+};
+
+struct MappingEntry {
+    // ソース (MIDIコントローラー側)
+    uint8_t  src_channel;       // MIDIチャンネル (0-15, 0xFF=any)
+    uint8_t  src_type;          // MappingSourceType
+    uint16_t src_param;         // CC番号/NRPN番号等
+
+    // ターゲット (内部パラメータ)
+    uint16_t dst_param;         // ターゲットパラメータID
+    uint8_t  dst_track;         // トラック番号 (0xFF=global)
+    uint8_t  flags;             // bit0: invert, bit1: relative
+
+    // 値変換
+    int16_t  src_min;           // ソース範囲
+    int16_t  src_max;
+    int16_t  dst_min;           // ターゲット範囲
+    int16_t  dst_max;
+};
+
+enum class MappingSourceType : uint8_t {
+    CC          = 0x00,  // Control Change
+    NOTE        = 0x01,  // Note On/Off
+    VELOCITY    = 0x02,  // Note Velocity
+    AFTERTOUCH  = 0x03,  // Channel Pressure
+    POLY_AT     = 0x04,  // Polyphonic Aftertouch
+    PITCH_BEND  = 0x05,  // Pitch Bend
+    PROGRAM     = 0x06,  // Program Change
+    RPN         = 0x10,  // RPN (14bit)
+    NRPN        = 0x11,  // NRPN (14bit)
+};
+```
+
+### 10.2 使用例
+
+```c
+// CC#1 (ModWheel) → フィルターカットオフ (全トラック)
+MappingEntry mod_to_cutoff = {
+    .src_channel = 0xFF,        // Any channel
+    .src_type    = CC,
+    .src_param   = 0x01,        // CC#1
+    .dst_param   = 0x9010,      // FILTER_CUTOFF
+    .dst_track   = 0xFF,        // Global
+    .flags       = 0,
+    .src_min = 0, .src_max = 127,
+    .dst_min = 0, .dst_max = 127,
+};
+
+// CC#74 → LFO Rate (トラック0のみ、値反転)
+MappingEntry cc74_to_lfo = {
+    .src_channel = 0,
+    .src_type    = CC,
+    .src_param   = 0x4A,        // CC#74
+    .dst_param   = 0x9030,      // LFO_RATE
+    .dst_track   = 0,
+    .flags       = 0x01,        // invert
+    .src_min = 0, .src_max = 127,
+    .dst_min = 127, .dst_max = 0,  // 反転
+};
+
+// NRPN#100 → ベンダーパラメータ
+MappingEntry nrpn_to_vendor = {
+    .src_channel = 0,
+    .src_type    = NRPN,
+    .src_param   = 100,
+    .dst_param   = 0xF001,      // Vendor param
+    .dst_track   = 0xFF,
+    .flags       = 0,
+    .src_min = 0, .src_max = 16383,
+    .dst_min = 0, .dst_max = 127,
+};
+```
+
+### 10.3 マッピング処理
+
+```c
+void process_midi_input(uint8_t channel, uint8_t type,
+                        uint16_t param, uint16_t value) {
+    for (const auto& map : mappings) {
+        // チャンネルマッチ
+        if (map.src_channel != 0xFF && map.src_channel != channel)
+            continue;
+        // タイプ・パラメータマッチ
+        if (map.src_type != type || map.src_param != param)
+            continue;
+
+        // 値変換 (線形補間)
+        int32_t normalized = (value - map.src_min) * 65536
+                           / (map.src_max - map.src_min);
+        int16_t dst_value = map.dst_min
+                          + normalized * (map.dst_max - map.dst_min) / 65536;
+
+        // 反転フラグ
+        if (map.flags & 0x01)
+            dst_value = map.dst_max - (dst_value - map.dst_min);
+
+        // パラメータ適用
+        apply_param(map.dst_track, map.dst_param, dst_value);
+    }
+}
+```
+
+### 10.4 MIDI Learnフロー
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    MIDI Learn フロー                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. ユーザーが「Learn」ボタンを押す                              │
+│  2. ターゲットパラメータを選択 (UIで操作)                        │
+│  3. MIDIコントローラーを操作                                     │
+│  4. 受信したMIDIメッセージを記録:                                │
+│       src_channel, src_type, src_param                          │
+│  5. MappingEntryを生成:                                         │
+│       - dst_param = 選択されたパラメータID                       │
+│       - src/dst_min/max = パラメータの定義から取得               │
+│  6. マッピングリストに追加                                       │
+│                                                                 │
+│  ★エクスポート時はMappingHeader + entries[]として保存           │
+│  ★インポート時は既存マッピングとマージまたは置換                 │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 付録A: パラメータID定義 (C++コード)
 
 ```c++
@@ -1047,10 +1280,12 @@ ext.param_count = 2;
 // followed by: "MyCompany" "MySynth"
 
 // 2. ベンダーパラメータを定義
+// {local_id, fallback_id, flags, name_len, min, max, default_val}
 VendorParamDef params[] = {
-    {0x001, 1, 0, 0, 127, 0, strlen("Warmth")},  // "Warmth"
-    {0x002, 1, 0, 0, 127, 64, strlen("Drive")},  // "Drive"
+    {0x001, 0x47,   0, 6, 0, 127, 0},   // "Warmth" (fallback=CC#71)
+    {0x002, 0xFFFF, 0, 5, 0, 127, 64},  // "Drive" (fallback=無視)
 };
+// followed by: "Warmth" "Drive"
 
 // 3. ParamDefでベンダーパラメータを参照
 // {id, flags, reserved, min, max, default_val}
