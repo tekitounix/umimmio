@@ -38,16 +38,6 @@ enum class Core : std::uint8_t {
     Any = 0xFF,  ///< Can run on any core
 };
 
-/// FPU usage policy for deterministic context switching
-enum class FpuPolicy : std::uint8_t {
-    /// FPU usage forbidden (default)
-    Forbidden = 0,
-
-    /// Traditional lazy stacking (for compatibility)
-    /// Hardware handles save/restore via LSPACT
-    LazyStack = 2,
-};
-
 /// Task identifier (opaque handle)
 struct TaskId {
     std::uint16_t value {0xFFFF};
@@ -60,11 +50,8 @@ struct TaskConfig {
     void* arg {nullptr};             ///< Argument passed to entry
     Priority prio {Priority::Idle};  ///< Task priority
     std::uint8_t core_affinity {static_cast<std::uint8_t>(Core::Any)};
-    FpuPolicy fpu_policy {FpuPolicy::Forbidden};  ///< FPU handling strategy
+    bool uses_fpu {true};            ///< Whether this task uses FPU (default: safe)
     const char* name {"<unnamed>"};  ///< Task name for debugging/shell
-
-    /// Check if task uses FPU
-    bool uses_fpu() const { return fpu_policy != FpuPolicy::Forbidden; }
 };
 
 /// Event bits for wait() syscall

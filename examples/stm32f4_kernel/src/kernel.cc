@@ -723,7 +723,7 @@ void start_rtos(void* app_entry) {
         .entry = audio_task_entry,
         .arg = nullptr,
         .prio = umi::Priority::Realtime,
-        .fpu_policy = umi::FpuPolicy::LazyStack,
+        .uses_fpu = true,
         .name = "audio",
     });
 
@@ -731,7 +731,7 @@ void start_rtos(void* app_entry) {
         .entry = system_task_entry,
         .arg = nullptr,
         .prio = umi::Priority::Server,
-        .fpu_policy = umi::FpuPolicy::Forbidden,
+        .uses_fpu = false,
         .name = "system",
     });
 
@@ -739,7 +739,7 @@ void start_rtos(void* app_entry) {
         .entry = control_task_entry,
         .arg = app_entry,
         .prio = umi::Priority::User,
-        .fpu_policy = umi::FpuPolicy::LazyStack,
+        .uses_fpu = true,
         .name = "control",
     });
 
@@ -747,7 +747,7 @@ void start_rtos(void* app_entry) {
         .entry = idle_task_entry,
         .arg = nullptr,
         .prio = umi::Priority::Idle,
-        .fpu_policy = umi::FpuPolicy::Forbidden,
+        .uses_fpu = false,
         .name = "idle",
     });
 
