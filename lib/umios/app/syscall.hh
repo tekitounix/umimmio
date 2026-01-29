@@ -11,42 +11,35 @@ namespace umi::syscall {
 // ============================================================================
 // Syscall Numbers
 // ============================================================================
-// Must match kernel's syscall_handler.hh
+// Number layout:
+//   0–15:   Core API (process control, scheduling, info)
+//   16–31:  Reserved (core API expansion)
+//   32–47:  Filesystem
+//   48–63:  Reserved (storage expansion)
+//   64–255: Reserved
 
 namespace nr {
-    // Process control
-    inline constexpr uint32_t Exit          = 0;
-    inline constexpr uint32_t RegisterProc  = 1;
+    // --- Core API (0–15) ---
+    inline constexpr uint32_t exit             = 0;   ///< Terminate application (unload trigger)
+    inline constexpr uint32_t yield            = 1;   ///< Return control to kernel
+    inline constexpr uint32_t wait_event       = 2;   ///< Wait for event with optional timeout
+    inline constexpr uint32_t get_time         = 3;   ///< Get monotonic time in microseconds
+    inline constexpr uint32_t get_shared       = 4;   ///< Get SharedMemory pointer
+    inline constexpr uint32_t register_proc    = 5;   ///< Register audio processor
+    inline constexpr uint32_t unregister_proc  = 6;   ///< Unregister audio processor (future)
+    // 7–15: reserved
 
-    // Event handling
-    inline constexpr uint32_t WaitEvent     = 2;
-    inline constexpr uint32_t SendEvent     = 3;
-    inline constexpr uint32_t PeekEvent     = 4;
-    inline constexpr uint32_t Yield         = 5;   // Return control to kernel
-
-    // Time
-    inline constexpr uint32_t GetTime       = 10;
-    inline constexpr uint32_t Sleep         = 11;
-    
-    // Debug/Log
-    inline constexpr uint32_t Log           = 20;
-    inline constexpr uint32_t Panic         = 21;
-    
-    // Parameters
-    inline constexpr uint32_t GetParam      = 30;
-    inline constexpr uint32_t SetParam      = 31;
-    
-    // Shared memory
-    inline constexpr uint32_t GetShared     = 40;
-
-    // MIDI
-    inline constexpr uint32_t MidiSend      = 50;
-    inline constexpr uint32_t MidiRecv      = 51;
-
-    // LED/Button
-    inline constexpr uint32_t SetLed        = 60;
-    inline constexpr uint32_t GetLed        = 61;
-    inline constexpr uint32_t GetButton     = 62;
+    // --- Filesystem (32–47) ---
+    inline constexpr uint32_t file_open        = 32;  ///< Open file (future)
+    inline constexpr uint32_t file_read        = 33;  ///< Read from file (future)
+    inline constexpr uint32_t file_write       = 34;  ///< Write to file (future)
+    inline constexpr uint32_t file_close       = 35;  ///< Close file (future)
+    inline constexpr uint32_t file_seek        = 36;  ///< Seek within file (future)
+    inline constexpr uint32_t file_stat        = 37;  ///< Get file info (future)
+    inline constexpr uint32_t dir_open         = 38;  ///< Open directory (future)
+    inline constexpr uint32_t dir_read         = 39;  ///< Read directory entry (future)
+    inline constexpr uint32_t dir_close        = 40;  ///< Close directory (future)
+    // 41–47: reserved
 }
 
 // ============================================================================
@@ -79,14 +72,14 @@ inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0,
     register uint32_t r2 __asm__("r2") = a1;
     register uint32_t r3 __asm__("r3") = a2;
     register uint32_t r4 __asm__("r4") = a3;
-    
+
     __asm__ volatile(
         "svc #0"
         : "+r"(r0)
         : "r"(r1), "r"(r2), "r"(r3), "r"(r4)
         : "memory"
     );
-    
+
     return static_cast<int32_t>(r0);
 }
 
@@ -107,109 +100,33 @@ inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0,
 
 /// Terminate application with exit code
 [[noreturn]] inline void exit(int code) noexcept {
-    call(nr::Exit, static_cast<uint32_t>(code));
-    // Should not return, but compiler doesn't know that
+    call(nr::exit, static_cast<uint32_t>(code));
     while (true) {
         __asm__ volatile("");
     }
 }
 
-/// Get current time in microseconds (lower 31 bits)
-inline uint32_t get_time_usec() noexcept {
-    return static_cast<uint32_t>(call(nr::GetTime));
-}
-
-/// Sleep for specified microseconds
-inline void sleep_usec(uint32_t usec) noexcept {
-    call(nr::Sleep, usec);
-}
-
-/// Output debug log message
-inline void log(const char* msg, uint32_t len) noexcept {
-    call(nr::Log, reinterpret_cast<uint32_t>(msg), len);
-}
-
-/// Output debug log message (null-terminated)
-inline void log(const char* msg) noexcept {
-    uint32_t len = 0;
-    while (msg[len]) ++len;
-    log(msg, len);
-}
-
-/// Panic with message
-[[noreturn]] inline void panic(const char* msg) noexcept {
-    call(nr::Panic, reinterpret_cast<uint32_t>(msg));
-    while (true) {
-        __asm__ volatile("");
-    }
-}
-
-/// Yield control back to kernel (used after initialization)
+/// Yield control back to kernel
 inline void yield() noexcept {
-    call(nr::Yield);
+    call(nr::yield);
+}
+
+/// Wait for events with timeout
+/// @param mask Event mask to wait for (OR of event:: bits)
+/// @param timeout_usec Timeout in microseconds (0 = wait indefinitely)
+/// @return Events that occurred (bitmask)
+inline uint32_t wait_event(uint32_t mask, uint32_t timeout_usec = 0) noexcept {
+    return static_cast<uint32_t>(call(nr::wait_event, mask, timeout_usec));
+}
+
+/// Get current time in microseconds (lower 32 bits)
+inline uint32_t get_time_usec() noexcept {
+    return static_cast<uint32_t>(call(nr::get_time));
 }
 
 /// Get shared memory pointer
 inline void* get_shared() noexcept {
-    // GetShared syscall returns the shared memory address directly in r0
-    return reinterpret_cast<void*>(call(nr::GetShared));
-}
-
-/// Get parameter value
-inline float get_param(uint32_t index) noexcept {
-    float value = 0.0f;
-    call(nr::GetParam, index, reinterpret_cast<uint32_t>(&value));
-    return value;
-}
-
-/// Set parameter value
-inline void set_param(uint32_t index, float value) noexcept {
-    uint32_t bits;
-    __builtin_memcpy(&bits, &value, sizeof(bits));
-    call(nr::SetParam, index, bits);
-}
-
-// ============================================================================
-// LED/Button API
-// ============================================================================
-
-/// Set LED state
-/// @param index LED index (0-3)
-/// @param on true to turn on, false to turn off
-inline void led_set(uint8_t index, bool on) noexcept {
-    call(nr::SetLed, index, on ? 1 : 0);
-}
-
-/// Toggle LED state
-/// @param index LED index (0-3)
-inline void led_toggle(uint8_t index) noexcept {
-    call(nr::SetLed, index, 2);  // 2 = toggle
-}
-
-/// Get LED state bitmap
-/// @return Bitmap of LED states (bit0-3 = LED0-3)
-inline uint8_t led_get() noexcept {
-    return static_cast<uint8_t>(call(nr::GetLed));
-}
-
-/// Check if button was pressed (clears the flag)
-/// @return true if button was pressed since last call
-inline bool button_pressed() noexcept {
-    return call(nr::GetButton, 0) != 0;
-}
-
-/// Get current button state
-/// @return true if button is currently pressed
-inline bool button_state() noexcept {
-    return call(nr::GetButton, 1) != 0;
-}
-
-/// Wait for events with timeout
-/// @param mask Event mask to wait for
-/// @param timeout_usec Timeout in microseconds (0 = no timeout)
-/// @return Events that occurred
-inline uint32_t wait_event(uint32_t mask, uint32_t timeout_usec = 0) noexcept {
-    return static_cast<uint32_t>(call(nr::WaitEvent, mask, timeout_usec));
+    return reinterpret_cast<void*>(call(nr::get_shared));
 }
 
 // ============================================================================
