@@ -60,63 +60,29 @@ extern "C" void svc_dispatch(ExceptionFrame* frame, uint8_t svc_num);
 
 namespace impl {
 
-// Use max_shared_regions from syscall_numbers.hh
-using syscall::max_shared_regions;
-
-// Shared memory region table (registered during kernel init)
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays)
-extern void* shared_regions[max_shared_regions];
-
 // System time counter
 extern uint64_t system_time_us;
 
 // Current task ID
 extern uint32_t current_task_id;
 
-/// Register a shared region
-inline void register_shared(uint8_t region_id, void* ptr) {
-    if (region_id < max_shared_regions) {
-        shared_regions[region_id] = ptr;
-    }
-}
-
-/// Handle SYS_GET_SHARED
-inline uintptr_t handle_get_shared(uint32_t region_id) {
-    if (region_id < max_shared_regions) {
-        return reinterpret_cast<uintptr_t>(shared_regions[region_id]);
-    }
+/// Handle sys_get_shared
+inline uintptr_t handle_get_shared(uint32_t /*region_id*/) {
+    // TODO: Implement with SharedMemory pointer
     return 0;
 }
 
-/// Handle SYS_GET_TIME
+/// Handle sys_get_time
 inline void handle_get_time(ExceptionFrame* frame) {
     frame->r0 = static_cast<uint32_t>(system_time_us);
     frame->r1 = static_cast<uint32_t>(system_time_us >> 32);
 }
 
-/// Handle SYS_YIELD
+/// Handle sys_yield
 inline void handle_yield() {
     // Trigger PendSV for context switch
     volatile uint32_t& ICSR = *reinterpret_cast<volatile uint32_t*>(0xE000ED04);
     ICSR = (1U << 28);  // Set PENDSVSET
-}
-
-// Forward declaration for UART output (defined in uart_driver.hh)
-extern "C" void uart_puts(const char*);
-
-/// Handle SYS_DEBUG_PRINT
-inline void handle_debug_print(const char* msg) {
-    uart_puts(msg);
-}
-
-/// Handle SYS_PANIC
-[[noreturn]] inline void handle_panic(const char* msg) {
-    handle_debug_print("PANIC: ");
-    handle_debug_print(msg);
-    handle_debug_print("\n");
-    while (true) {
-        asm volatile("bkpt #0");
-    }
 }
 
 }  // namespace impl
@@ -126,39 +92,20 @@ extern "C" inline void svc_dispatch(ExceptionFrame* frame, uint8_t svc_num) {
     using namespace syscall;
 
     switch (svc_num) {
-        case SYS_GET_SHARED:
+        case sys_get_shared:
             frame->r0 = impl::handle_get_shared(frame->r0);
             break;
 
-        case SYS_GET_TIME:
+        case sys_get_time:
             impl::handle_get_time(frame);
             break;
 
-        case SYS_GET_TASK_ID:
-            frame->r0 = impl::current_task_id;
-            break;
-
-        case SYS_YIELD:
+        case sys_yield:
             impl::handle_yield();
             break;
 
-        case SYS_DEBUG_PRINT:
-            impl::handle_debug_print(reinterpret_cast<const char*>(frame->r0));
-            break;
-
-        case SYS_PANIC:
-            impl::handle_panic(reinterpret_cast<const char*>(frame->r0));
-            break;
-
-        case SYS_WAIT:
-        case SYS_WAIT_TIMEOUT:
-        case SYS_NOTIFY:
-            // TODO: Implement with task scheduler
-            frame->r0 = static_cast<uint32_t>(SyscallError::Ok);
-            break;
-
         default:
-            frame->r0 = static_cast<uint32_t>(SyscallError::InvalidSyscall);
+            frame->r0 = static_cast<uint32_t>(SyscallError::INVALID_SYSCALL);
             break;
     }
 }

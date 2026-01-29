@@ -7,18 +7,16 @@
 
 // Forward declarations - implemented by WASM kernel
 namespace umi::kernel {
-void* kernel_get_shared(uint32_t id);
-uint32_t kernel_wait(uint32_t mask);
-uint32_t kernel_wait_timeout(uint32_t mask, uint32_t timeout_us);
+void kernel_exit(int32_t code);
 void kernel_yield();
-void kernel_notify(uint32_t task_id, uint32_t events);
+uint32_t kernel_wait_event(uint32_t mask, uint32_t timeout_us);
 uint64_t kernel_get_time();
-uint32_t kernel_get_task_id();
-void kernel_debug_print(const char* msg);
-[[noreturn]] void kernel_panic(const char* msg);
+void* kernel_get_shared(uint32_t region_id);
+int32_t kernel_register_proc(uint32_t instance, uint32_t func);
+int32_t kernel_unregister_proc(uint32_t instance);
 }  // namespace umi::kernel
 
-namespace umi::syscall {
+namespace umi::platform {
 
 // ============================================================================
 // WASM Syscall Implementation (direct function calls)
@@ -27,40 +25,33 @@ namespace umi::syscall {
 // implemented as direct function calls to the kernel module.
 // The WASM sandbox provides isolation.
 
-inline void* sys_get_shared(SharedRegionId id) {
-    return kernel::kernel_get_shared(static_cast<uint32_t>(id));
-}
-
-inline uint32_t sys_wait(uint32_t event_mask) {
-    return kernel::kernel_wait(event_mask);
-}
-
-inline uint32_t sys_wait_timeout(uint32_t event_mask, uint32_t timeout_us) {
-    return kernel::kernel_wait_timeout(event_mask, timeout_us);
+[[noreturn]] inline void sys_exit(int32_t code) {
+    kernel::kernel_exit(code);
+    __builtin_unreachable();
 }
 
 inline void sys_yield() {
     kernel::kernel_yield();
 }
 
-inline void sys_notify(uint32_t task_id, uint32_t events) {
-    kernel::kernel_notify(task_id, events);
+inline uint32_t sys_wait_event(uint32_t mask, uint32_t timeout_us = 0) {
+    return kernel::kernel_wait_event(mask, timeout_us);
 }
 
 inline uint64_t sys_get_time() {
     return kernel::kernel_get_time();
 }
 
-inline uint32_t sys_get_task_id() {
-    return kernel::kernel_get_task_id();
+inline void* sys_get_shared(uint32_t region_id = 0) {
+    return kernel::kernel_get_shared(region_id);
 }
 
-inline void sys_debug_print(const char* msg) {
-    kernel::kernel_debug_print(msg);
+inline int32_t sys_register_proc(uint32_t instance, uint32_t func = 0) {
+    return kernel::kernel_register_proc(instance, func);
 }
 
-[[noreturn]] inline void sys_panic(const char* msg) {
-    kernel::kernel_panic(msg);
+inline int32_t sys_unregister_proc(uint32_t instance) {
+    return kernel::kernel_unregister_proc(instance);
 }
 
-}  // namespace umi::syscall
+}  // namespace umi::platform

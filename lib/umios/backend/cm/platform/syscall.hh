@@ -5,45 +5,12 @@
 #include <cstdint>
 #include "../../../kernel/syscall/syscall_numbers.hh"
 
-namespace umi::syscall {
-
-// ============================================================================
-// Low-level SVC wrappers (inline assembly)
-// ============================================================================
-// These functions issue SVC instructions with the syscall number encoded
-// in the immediate field. Arguments are passed via r0-r3 per AAPCS.
-
-namespace detail {
-
-[[gnu::always_inline]] inline uint32_t svc0(uint8_t num) {
-    register uint32_t r0 asm("r0");
-    asm volatile("svc %[num]" : "=r"(r0) : [num] "I"(0) : "memory");
-    // Note: immediate must be compile-time constant, so we use a dispatcher
-    (void)num;
-    return r0;
-}
-
-[[gnu::always_inline]] inline uint32_t svc1(uint8_t num, uint32_t arg0) {
-    register uint32_t r0 asm("r0") = arg0;
-    asm volatile("svc %[num]" : "+r"(r0) : [num] "I"(0) : "memory");
-    (void)num;
-    return r0;
-}
-
-[[gnu::always_inline]] inline uint32_t svc2(uint8_t num, uint32_t arg0, uint32_t arg1) {
-    register uint32_t r0 asm("r0") = arg0;
-    register uint32_t r1 asm("r1") = arg1;
-    asm volatile("svc %[num]" : "+r"(r0) : [num] "I"(0), "r"(r1) : "memory");
-    (void)num;
-    return r0;
-}
-
-}  // namespace detail
+namespace umi::platform {
 
 // ============================================================================
 // Generic SVC caller with runtime syscall number
 // ============================================================================
-// Since SVC immediate must be compile-time, we use a fixed SVC #0 and
+// SVC immediate must be compile-time, so we use a fixed SVC #0 and
 // pass the actual syscall number in r12. The SVC handler extracts it.
 
 [[gnu::always_inline]] inline uint32_t syscall0(uint8_t num) {
@@ -92,60 +59,55 @@ namespace detail {
 // ============================================================================
 // Type-safe Syscall API
 // ============================================================================
+// Syscall numbers from kernel/syscall/syscall_numbers.hh
 
-/// Get shared memory region pointer
-/// Returns: pointer to shared region, or nullptr on error
-inline void* sys_get_shared(SharedRegionId id) {
-    uint32_t result = syscall1(SYS_GET_SHARED, static_cast<uint32_t>(id));
-    return reinterpret_cast<void*>(result);
-}
+namespace nr = umi::syscall;
 
-/// Wait for events (blocking)
-/// Returns: event mask that was triggered
-inline uint32_t sys_wait(uint32_t event_mask) {
-    return syscall1(SYS_WAIT, event_mask);
-}
-
-/// Wait for events with timeout
-/// Returns: event mask, or 0 on timeout (check SyscallError::Timeout)
-inline uint32_t sys_wait_timeout(uint32_t event_mask, uint32_t timeout_us) {
-    return syscall2(SYS_WAIT_TIMEOUT, event_mask, timeout_us);
+/// Terminate application
+[[noreturn]] inline void sys_exit(int32_t code) {
+    syscall1(nr::sys_exit, static_cast<uint32_t>(code));
+    __builtin_unreachable();
 }
 
 /// Yield to scheduler
 inline void sys_yield() {
-    syscall0(SYS_YIELD);
+    syscall0(nr::sys_yield);
 }
 
-/// Notify task with events
-inline void sys_notify(uint32_t task_id, uint32_t events) {
-    syscall2(SYS_NOTIFY, task_id, events);
+/// Wait for events with optional timeout
+/// @param mask Event mask (OR of event bits)
+/// @param timeout_us Timeout in microseconds (0 = indefinite)
+/// @return Events that occurred (bitmask)
+inline uint32_t sys_wait_event(uint32_t mask, uint32_t timeout_us = 0) {
+    return syscall2(nr::sys_wait_event, mask, timeout_us);
 }
 
-/// Get system time in microseconds
+/// Get system time in microseconds (64-bit)
 inline uint64_t sys_get_time() {
-    // Low 32 bits in r0, high 32 bits in r1
     register uint32_t r0 asm("r0");
     register uint32_t r1 asm("r1");
-    register uint32_t r12 asm("r12") = SYS_GET_TIME;
+    register uint32_t r12 asm("r12") = nr::sys_get_time;
     asm volatile("svc #0" : "=r"(r0), "=r"(r1) : "r"(r12) : "memory");
     return (static_cast<uint64_t>(r1) << 32) | r0;
 }
 
-/// Get current task ID
-inline uint32_t sys_get_task_id() {
-    return syscall0(SYS_GET_TASK_ID);
+/// Get shared memory region pointer
+/// @param region_id Region identifier
+inline void* sys_get_shared(uint32_t region_id = 0) {
+    uint32_t result = syscall1(nr::sys_get_shared, region_id);
+    return reinterpret_cast<void*>(result);
 }
 
-/// Debug print (DEBUG builds only)
-inline void sys_debug_print(const char* msg) {
-    syscall1(SYS_DEBUG_PRINT, reinterpret_cast<uint32_t>(msg));
+/// Register audio processor
+/// @param instance Processor instance pointer
+/// @param func Process function pointer (optional, for C-style registration)
+inline int32_t sys_register_proc(uint32_t instance, uint32_t func = 0) {
+    return static_cast<int32_t>(syscall2(nr::sys_register_proc, instance, func));
 }
 
-/// Trigger kernel panic
-[[noreturn]] inline void sys_panic(const char* msg) {
-    syscall1(SYS_PANIC, reinterpret_cast<uint32_t>(msg));
-    __builtin_unreachable();
+/// Unregister audio processor
+inline int32_t sys_unregister_proc(uint32_t instance) {
+    return static_cast<int32_t>(syscall1(nr::sys_unregister_proc, instance));
 }
 
-}  // namespace umi::syscall
+}  // namespace umi::platform
