@@ -1,109 +1,17 @@
-# UMI-OS システムアーキテクチャ詳細ドキュメント
+# UMI-OS Kernel アーキテクチャ
 
-## 1. 概要
-
-UMI-OSは組み込みオーディオ/MIDI処理のためのリアルタイムオペレーティングシステムです。
-
-### 1.1 システム構成図
-
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                           Web Browser                                     │
-│  ┌─────────────┐  ┌──────────────────────────────────────────────────┐  │
-│  │ Shell UI    │  │ HardwareBackend (Web MIDI API)                   │  │
-│  │ (custom)    │  │ - SysEx encode/decode (protocol.js)              │  │
-│  └─────────────┘  └──────────────────────────────────────────────────┘  │
-└────────────────────────────────┬─────────────────────────────────────────┘
-                                 │ USB MIDI (SysEx)
-                                 ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                    STM32F4-Discovery Kernel                               │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │                    Interrupt Handlers                               │  │
-│  │  DMA1_Stream3 (PDM)  │  DMA1_Stream5 (I2S)  │  OTG_FS (USB)        │  │
-│  │  SysTick (1ms)       │  SVC (Syscall)       │  PendSV (Switch)     │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-│                                    │                                      │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │                    RTOS Scheduler (4-Priority)                      │  │
-│  ├────────────┬────────────┬──────────────────┬───────────────────────┤  │
-│  │ Priority 0 │ Priority 1 │    Priority 2    │      Priority 3       │  │
-│  │ (Realtime) │  (Server)  │      (User)      │        (Idle)         │  │
-│  ├────────────┼────────────┼──────────────────┼───────────────────────┤  │
-│  │ Audio Task │System Task │  Control Task    │     Idle Task         │  │
-│  │            │            │                  │                       │  │
-│  │ - DMA通知  │ - SysEx    │  - App main()    │  - WFI (sleep)        │  │
-│  │ - Audio処理│ - Shell    │  - Syscall処理   │                       │  │
-│  │ - USB IN   │            │                  │                       │  │
-│  └────────────┴────────────┴──────────────────┴───────────────────────┘  │
-│                                    │                                      │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │                    Shared Memory (16KB)                             │  │
-│  │  sample_rate  │  dt  │  sample_position  │  event_queue  │  params │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-│                                    │                                      │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │                    Application (.umia)                            │  │
-│  │  - Unprivileged mode (Thread/PSP)                                   │  │
-│  │  - Processor登録 → オーディオコールバック                           │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+UMI-OS Kernel の詳細なアーキテクチャドキュメントです。本文書では、RTOS コア、割り込みハンドラ、Syscall インターフェース、共有メモリ構造、アプリケーション構成、Web構成、シェルシステム、オーディオシステム、デバッグ機能について解説します。
 
 ---
 
-## 2. STM32F4カーネル詳細
+## 1. RTOS Core
 
-### 2.1 メモリレイアウト
-
-```
-Flash (1MB):
-  0x08000000 ┬─────────────────────┐
-             │ Kernel (.text)      │ 384KB
-  0x08060000 ├─────────────────────┤
-             │ App Image (.umia) │ 128KB
-  0x080A0000 ├─────────────────────┤
-             │ Reserved            │
-  0x08100000 └─────────────────────┘
-
-SRAM (128KB):
-  0x20000000 ┬─────────────────────┐
-             │ Kernel Data/BSS     │ 48KB
-  0x2000C000 ├─────────────────────┤
-             │ App RAM             │ 48KB
-  0x20018000 ├─────────────────────┤
-             │ Shared Memory       │ 16KB
-  0x2001C000 ├─────────────────────┤
-             │ DMA Buffers         │ 16KB
-  0x20020000 └─────────────────────┘
-
-CCM (64KB - DMAアクセス不可):
-  0x10000000 ┬─────────────────────┐
-             │ Audio Task Stack    │ 4KB
-             │ System Task Stack   │ 2KB
-             │ Control Task Stack  │ 8KB
-             │ Idle Task Stack     │ 256B
-             │ Debug Buffers       │ 残り
-  0x10010000 └─────────────────────┘
-```
-
-### 2.2 タスク構成
-
-| タスク | 優先度 | スタック | FPUポリシー | 役割 |
-|--------|--------|----------|-------------|------|
-| Audio Task | 0 (Realtime) | 4KB | Exclusive | DMA割り込み処理、オーディオバッファ処理、USB Audio IN送信 |
-| System Task | 1 (Server) | 2KB | Forbidden | SysEx受信、シェルコマンド処理、USB MIDIハンドリング |
-| Control Task | 2 (User) | 8KB | Forbidden | アプリケーション実行、Syscall処理、イベントディスパッチ |
-| Idle Task | 3 (Idle) | 256B | Forbidden | WFI（Wait For Interrupt）によるスリープ |
-
-### 2.3 カーネル最適化
-
-#### 2.3.1 O(1) ビットマップスケジューラ
+### 1.1 O(1) ビットマップスケジューラ
 
 従来のO(n)線形探索スケジューラから、O(1)ビットマップベースに最適化:
 
 ```cpp
-// 優先度ビットマップ（4ビット = 4優先度レベル）
+// 優先度ビットマップ(4ビット = 4優先度レベル)
 std::atomic<uint8_t> ready_bitmap_ {0};
 
 // 各優先度のタスクキュー
@@ -125,31 +33,42 @@ std::optional<uint16_t> get_next_task() {
 }
 ```
 
-**効果**: スケジューラ選択 ~50サイクル → ~5サイクル
+### 1.2 FPUポリシー
 
-#### 2.3.2 FPUポリシー
-
-FPUコンテキストスイッチの変動を排除:
+タスクは`uses_fpu`フラグのみを宣言する。FPUコンテキストスイッチの方式はカーネルがコンパイル時に自動決定する:
 
 ```cpp
-enum class FpuPolicy : uint8_t {
-    Forbidden = 0,  // FPU使用禁止（Shell, MIDI, UI）
-    Exclusive = 1,  // FPU独占（Audio DSPタスク）
-    LazyStack = 2,  // 従来の遅延保存（互換性用）
+struct TaskConfig {
+    // ...
+    bool uses_fpu {true};  // デフォルト: FPU使用可能（安全側）
 };
 ```
 
-| ポリシー | 用途 | コンテキストスイッチ時のFPU処理 |
-|---------|------|-------------------------------|
-| Forbidden | 非FPUタスク | なし（0サイクル） |
-| Exclusive | オーディオDSP | なし（独占所有） |
-| LazyStack | 複数FPUタスク | ハードウェア遅延保存 |
+カーネルは全タスクの`uses_fpu`を集計し、内部ポリシーを`constexpr`で決定する:
 
-**Exclusiveモード**: Audio Taskが FPU を独占所有。他タスクは Forbidden のため、コンテキストスイッチ時の FPU save/restore が完全に不要。
+```cpp
+enum class FpuPolicy : uint8_t {
+    Forbidden = 0,  // FPU使用禁止
+    Exclusive = 1,  // FPU独占（save/restore不要）
+    LazyStack = 2,  // ハードウェア遅延保存
+};
 
-**効果**: FPUスイッチ ~100サイクル → 0サイクル（Exclusiveモード）
+constexpr FpuPolicy resolve_fpu_policy(bool uses_fpu, int total_fpu_tasks) {
+    if (!uses_fpu) return FpuPolicy::Forbidden;
+    if (total_fpu_tasks == 1) return FpuPolicy::Exclusive;
+    return FpuPolicy::LazyStack;
+}
+```
 
-#### 2.3.3 Tickless電力管理
+| 条件 | 自動決定されるポリシー | FPU処理 |
+|------|----------------------|---------|
+| `uses_fpu = false` | Forbidden | なし |
+| FPUタスクが1つだけ | Exclusive | なし（独占所有） |
+| FPUタスクが複数 | LazyStack | ハードウェア遅延保存（LSPACT） |
+
+`FpuPolicy`はカーネル内部の実装詳細であり、タスク作成者が直接指定する必要はない。
+
+### 1.3 Tickless電力管理
 
 アイドル時の消費電力を最小化:
 
@@ -167,17 +86,15 @@ SleepMode recommend_sleep_mode(uint64_t next_wakeup, uint64_t now, bool audio_ac
 }
 ```
 
-**効果**: アイドル時消費電力 ~50-80%削減（Stop mode使用時）
-
-#### 2.3.4 MPU抽象化レイヤー
+### 1.4 MPU抽象化レイヤー
 
 MPU有無に関わらず同一APIで動作:
 
 ```cpp
 enum class ProtectionMode : uint8_t {
-    Full,            // MPU有効、非特権モード（本番）
-    Privileged,      // MPU無効、特権モード（MPUなしMCU）
-    PrivilegedWithMpu, // MPU有効、特権モード（デバッグ）
+    Full,            // MPU有効、非特権モード(本番)
+    Privileged,      // MPU無効、特権モード(MPUなしMCU)
+    PrivilegedWithMpu, // MPU有効、特権モード(デバッグ)
 };
 
 // コンパイル時選択
@@ -188,9 +105,7 @@ class Protection {
 };
 ```
 
-**効果**: MPUなしMCU（STM32F0等）でも同一アプリが動作
-
-#### 2.3.5 パフォーマンス計測
+### 1.5 パフォーマンス計測
 
 DWT (Data Watchpoint and Trace) を使用したサイクル精度計測:
 
@@ -215,7 +130,9 @@ struct KernelMetrics {
 
 シェルコマンド `show cpu` で確認可能。
 
-### 2.4 割り込みハンドラ
+---
+
+## 2. 割り込みハンドラ
 
 ```cpp
 // Audio DMA (優先度5 - 高)
@@ -231,32 +148,38 @@ extern "C" void SVC_Handler();              // Syscall (SVC #0)
 extern "C" void PendSV_Handler();           // Context Switch
 ```
 
-**割り込み優先度設計:**
+### 2.1 割り込み優先度設計
+
 ```
 優先度 5: Audio DMA (I2S, PDM) - 最高優先度
 優先度 6: USB OTG FS
 優先度 F0: SysTick
-優先度 FF: PendSV - 最低優先度（Context Switch用）
+優先度 FF: PendSV - 最低優先度(Context Switch用)
 ```
 
-**クリティカルセクション:**
-- BASEPRI方式を採用（PRIMASK全禁止ではなく優先度ベース）
+### 2.2 クリティカルセクション
+
+- BASEPRI方式を採用(PRIMASK全禁止ではなく優先度ベース)
 - Audio DMA割り込みはクリティカルセクション中も実行可能
 
-### 2.5 Syscall一覧
+---
+
+## 3. Syscallインターフェース
+
+### 3.1 Syscall一覧
 
 | Nr | 名前 | 引数 | 説明 |
 |----|------|------|------|
 | 0 | Exit | code | アプリケーション終了 |
 | 1 | RegisterProc | proc_ptr | オーディオプロセッサ登録 |
-| 2 | WaitEvent | mask, timeout_us | イベント待機（ブロッキング） |
+| 2 | WaitEvent | mask, timeout_us | イベント待機(ブロッキング) |
 | 3 | SendEvent | bits | カーネルへイベント送信 |
-| 4 | PeekEvent | mask | イベント確認（ノンブロッキング） |
+| 4 | PeekEvent | mask | イベント確認(ノンブロッキング) |
 | 5 | Yield | - | CPU制御を自発的に手放す |
-| 10 | GetTime | - | 現在時刻（マイクロ秒）取得 |
+| 10 | GetTime | - | 現在時刻(マイクロ秒)取得 |
 | 11 | Sleep | usec | 指定時間スリープ |
 | 20 | Log | msg, len | デバッグログ出力 |
-| 21 | Panic | msg | パニック（致命的エラー） |
+| 21 | Panic | msg | パニック(致命的エラー) |
 | 30 | GetParam | index | パラメータ値取得 |
 | 31 | SetParam | index, value | パラメータ値設定 |
 | 40 | GetShared | - | 共有メモリポインタ取得 |
@@ -266,75 +189,22 @@ extern "C" void PendSV_Handler();           // Context Switch
 | 61 | GetLed | - | LED状態取得 |
 | 62 | GetButton | - | ボタン状態取得 |
 
-### 2.6 イベントフラグ
+### 3.2 イベントフラグ
 
 ```cpp
 namespace umi::syscall::event {
     constexpr uint32_t Audio    = (1 << 0);   // オーディオバッファ準備完了
     constexpr uint32_t Midi     = (1 << 1);   // MIDIデータ利用可能
-    constexpr uint32_t VSync    = (1 << 2);   // 画面リフレッシュ（将来用）
+    constexpr uint32_t VSync    = (1 << 2);   // 画面リフレッシュ(将来用)
     constexpr uint32_t Timer    = (1 << 3);   // タイマーティック
     constexpr uint32_t Button   = (1 << 4);   // ボタン押下
     constexpr uint32_t Shutdown = (1 << 31);  // シャットダウン要求
 }
 ```
 
-### 2.7 初期化シーケンス
-
-```
-Reset_Handler()
-    │
-    ├── 1. .data セクション初期化（Flash → RAM）
-    ├── 2. .bss セクション初期化（ゼロクリア）
-    ├── 3. グローバルコンストラクタ呼び出し
-    │
-    ├── init_gpio()
-    │   ├── LED (PD12-15)
-    │   ├── User Button (PA0)
-    │   ├── I2C1 (PB6, PB9)
-    │   ├── I2S3 (PC7, PC10, PC12, PA4)
-    │   ├── SPI2/PDM (PB10, PC3)
-    │   └── USB OTG FS (PA11, PA12)
-    │
-    ├── init_audio()
-    │   ├── I2C1 初期化
-    │   ├── CS43L22 Codec 初期化（24-bit mode）
-    │   ├── PLLI2S 設定（47,991Hz）
-    │   ├── I2S3 初期化
-    │   └── DMA1_Stream5 設定
-    │
-    ├── init_pdm_mic()
-    │   ├── SPI2/I2S 初期化（PDM mode）
-    │   ├── CIC Decimator 初期化（64x）
-    │   └── DMA1_Stream3 設定
-    │
-    ├── init_usb()
-    │   ├── USB OTG FS 初期化
-    │   ├── Audio Interface 設定
-    │   ├── MIDI Callback 設定
-    │   └── SysEx Callback 設定
-    │
-    ├── init_systick()
-    │   └── 1ms (168MHz / 168000)
-    │
-    ├── App Loading
-    │   ├── AppHeader 検証
-    │   ├── CRC32 チェック
-    │   └── メモリマッピング
-    │
-    ├── Task Context 初期化
-    │   ├── audio_task_entry
-    │   ├── system_task_entry
-    │   ├── control_task_entry
-    │   └── idle_task_entry
-    │
-    └── Start RTOS
-        └── control_task_entry() 実行開始
-```
-
 ---
 
-## 3. Shared Memory 構造
+## 4. Shared Memory 構造
 
 ```cpp
 struct SharedMemory {
@@ -378,9 +248,9 @@ struct SharedMemory {
 
 ---
 
-## 4. アプリケーション構成
+## 5. アプリケーション構成
 
-### 4.1 AppHeader フォーマット (128 bytes)
+### 5.1 AppHeader フォーマット (128 bytes)
 
 ```cpp
 struct AppHeader {
@@ -409,14 +279,14 @@ struct AppHeader {
     uint32_t total_size;         // 全体サイズ
 
     // Signature (64 bytes)
-    uint8_t signature[64];       // Ed25519署名（Release版）
+    uint8_t signature[64];       // Ed25519署名(Release版)
 
     // Reserved (8 bytes)
     uint8_t reserved[8];
 };
 ```
 
-### 4.2 crt0.cc スタートアップ
+### 5.2 crt0.cc スタートアップ
 
 ```cpp
 extern "C" void _start() {
@@ -444,7 +314,7 @@ extern "C" void _start() {
 }
 ```
 
-### 4.3 アプリケーション例
+### 5.3 アプリケーション例
 
 ```cpp
 #include <umi_app.hh>
@@ -487,9 +357,9 @@ int main() {
 
 ---
 
-## 5. Web構成
+## 6. Web構成
 
-### 5.1 ディレクトリ構成
+### 6.1 ディレクトリ構成
 
 ```
 examples/headless_webhost/web/
@@ -503,19 +373,19 @@ examples/headless_webhost/web/
 │   │   ├── manager.js         # BackendManager
 │   │   ├── protocol.js        # SysExエンコーディング
 │   │   └── backends/
-│   │       ├── hardware.js    # WebMIDI（実機）
+│   │       ├── hardware.js    # WebMIDI(実機)
 │   │       ├── umim.js        # UMIM/WASMバックエンド
 │   │       ├── umios.js       # UMI-OS直接制御
 │   │       └── renode.js      # Renodeシミュレータ
 │   │
 │   ├── components/
 │   │   ├── index.js           # コンポーネントエクスポート
-│   │   ├── shell/             # シェルUI（カスタム実装）
+│   │   ├── shell/             # シェルUI(カスタム実装)
 │   │   ├── keyboard/          # 仮想MIDIキーボード
 │   │   ├── param-control/     # パラメータスライダー
 │   │   ├── waveform/          # 波形表示
 │   │   ├── midi-monitor/      # MIDIモニタ
-│   │   ├── device-selector/   # デバイス選択（MIDI/Audio）
+│   │   ├── device-selector/   # デバイス選択(MIDI/Audio)
 │   │   └── backend-selector/  # バックエンド選択
 │   │
 │   └── theme/
@@ -524,9 +394,10 @@ examples/headless_webhost/web/
 └── index.html
 ```
 
-### 5.2 SysExプロトコル (protocol.js)
+### 6.2 SysExプロトコル
 
-**メッセージフォーマット:**
+#### 6.2.1 メッセージフォーマット
+
 ```
 F0              SysEx Start
 7E 7F 00        UMI Manufacturer ID
@@ -537,7 +408,8 @@ CHECKSUM        XOR checksum (7-bit)
 F7              SysEx End
 ```
 
-**コマンド定義:**
+#### 6.2.2 コマンド定義
+
 ```javascript
 const Command = {
     // Standard IO (0x01-0x0F)
@@ -567,10 +439,11 @@ const Command = {
 };
 ```
 
-**7-bitエンコーディング:**
+#### 6.2.3 7-bitエンコーディング
+
 ```javascript
 // 7バイト入力 → 8バイト出力
-// MSBバイト + 7データバイト（上位ビットクリア）
+// MSBバイト + 7データバイト(上位ビットクリア)
 function encode7bit(data) {
     const result = [];
     let i = 0;
@@ -589,7 +462,7 @@ function encode7bit(data) {
 }
 ```
 
-### 5.3 HardwareBackend (hardware.js)
+### 6.3 HardwareBackend
 
 ```javascript
 class HardwareBackend extends BackendInterface {
@@ -620,11 +493,12 @@ class HardwareBackend extends BackendInterface {
 
 ---
 
-## 6. シェルシステム
+## 7. シェルシステム
 
-### 6.1 コマンド一覧
+### 7.1 コマンド一覧
 
-**基本コマンド:**
+#### 7.1.1 基本コマンド
+
 | コマンド | 説明 |
 |----------|------|
 | `help` | ヘルプ表示 |
@@ -634,7 +508,8 @@ class HardwareBackend extends BackendInterface {
 | `auth <level> <pw>` | 認証 |
 | `logout` | ログアウト |
 
-**Showコマンド:**
+#### 7.1.2 Showコマンド
+
 | コマンド | 説明 |
 |----------|------|
 | `show system` | システム概要 |
@@ -649,7 +524,8 @@ class HardwareBackend extends BackendInterface {
 | `show errors` | エラーログ |
 | `show config` | 現在設定 |
 
-**管理者コマンド (ADMIN):**
+#### 7.1.3 管理者コマンド (ADMIN)
+
 | コマンド | 説明 |
 |----------|------|
 | `config midi channel <1-16>` | MIDIチャンネル設定 |
@@ -659,15 +535,16 @@ class HardwareBackend extends BackendInterface {
 | `diag watchdog [feed\|enable\|disable]` | ウォッチドッグ制御 |
 | `diag reset` | システムリセット |
 
-**工場コマンド (FACTORY):**
+#### 7.1.4 工場コマンド (FACTORY)
+
 | コマンド | 説明 |
 |----------|------|
 | `factory info` | 工場情報表示 |
 | `factory serial set <sn>` | シリアル番号設定 |
 | `factory test` | 工場テスト実行 |
-| `factory lock` | 工場ロック（不可逆） |
+| `factory lock` | 工場ロック(不可逆) |
 
-### 6.2 認証システム
+### 7.2 認証システム
 
 ```cpp
 enum class AccessLevel : uint8_t {
@@ -676,7 +553,7 @@ enum class AccessLevel : uint8_t {
     Factory = 2,   // 全機能アクセス
 };
 
-// デフォルトパスワード（開発用）
+// デフォルトパスワード(開発用)
 // Admin: "admin"
 // Factory: "factory"
 
@@ -684,7 +561,7 @@ enum class AccessLevel : uint8_t {
 // ロックアウト: 3回失敗で30秒
 ```
 
-### 6.3 StateProvider インターフェース
+### 7.3 StateProvider インターフェース
 
 ```cpp
 /// ShellCommandsが要求するインターフェース
@@ -702,13 +579,13 @@ struct StateProvider {
 
 ---
 
-## 7. オーディオシステム
+## 8. オーディオシステム
 
-### 7.1 オーディオフロー（実装）
+### 8.1 オーディオフロー
 
-**2つの独立した系統**で構成されています：
+**2つの独立した系統**で構成されています:
 
-#### 系統1: USB Audio OUT → I2S DAC（パススルー再生）
+#### 8.1.1 系統1: USB Audio OUT → I2S DAC(パススルー再生)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -737,7 +614,7 @@ struct StateProvider {
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-#### 系統2: App + Mic → USB Audio IN（デバイス→ホスト送信）
+#### 8.1.2 系統2: App + Mic → USB Audio IN(デバイス→ホスト送信)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -782,11 +659,11 @@ struct StateProvider {
 ```
 
 **Note:**
-- 2つの系統は**完全に独立**（USB OUT の音声はアプリに渡されない）
-- アプリの入力は**MIDI**のみ（シンセサイザー用途）
+- 2つの系統は**完全に独立**(USB OUT の音声はアプリに渡されない)
+- アプリの入力は**MIDI**のみ(シンセサイザー用途)
 - SharedMemory.audio_input/output は定義済みだが現在未使用
 
-### 7.2 サンプルレート
+### 8.2 サンプルレート
 
 ```
 目標: 48,000 Hz
@@ -803,7 +680,7 @@ PLLI2S設定:
   Fs = 86MHz / (256 × (2×3 + 1)) = 47,991 Hz
 ```
 
-### 7.3 DMAダブルバッファリング
+### 8.3 DMAダブルバッファリング
 
 ```cpp
 // I2S DMA (64フレーム × 4ワード = 256ワード)
@@ -817,15 +694,15 @@ uint16_t pdm_buf1[256];    // DMA Buffer 1
 // 処理フロー:
 // 1. DMA完了割り込み発生
 // 2. Audio Taskに通知
-// 3. Audio Taskが処理（別バッファを使用中）
+// 3. Audio Taskが処理(別バッファを使用中)
 // 4. 処理完了、次のバッファを待機
 ```
 
 ---
 
-## 8. デバッグ機能
+## 9. デバッグ機能
 
-### 8.1 デバッグカウンタ（GDB経由で参照）
+### 9.1 デバッグカウンタ(GDB経由で参照)
 
 ```cpp
 // Audio Debug
@@ -849,7 +726,7 @@ uint32_t dbg_glitch_count;         // グリッチ検出回数
 int32_t dbg_glitch_window[256];    // キャプチャバッファ
 ```
 
-### 8.2 GDBコマンド例
+### 9.2 GDBコマンド例
 
 ```bash
 # PyOCD GDBサーバー起動
@@ -870,122 +747,14 @@ arm-none-eabi-gdb build/stm32f4_kernel/release/stm32f4_kernel.elf
 
 ---
 
-## 9. ビルドとデプロイ
+## 関連ドキュメント
 
-### 9.1 ビルドコマンド
-
-```bash
-# カーネルビルド
-xmake build stm32f4_kernel
-
-# アプリケーションビルド
-xmake build synth_app
-
-# 全ターゲットビルド
-xmake build
-```
-
-### 9.2 フラッシュ書き込み
-
-```bash
-# PyOCD経由
-pyocd flash --target stm32f407vg build/stm32f4_kernel/release/stm32f4_kernel.bin
-
-# OpenOCD経由
-openocd -f board/stm32f4discovery.cfg \
-    -c "program build/stm32f4_kernel/release/stm32f4_kernel.bin verify reset exit"
-```
-
-### 9.3 Web UI起動
-
-```bash
-cd examples/headless_webhost
-npm install
-npm run dev
-# ブラウザで http://localhost:5173 を開く
-```
+- [OVERVIEW.md](OVERVIEW.md) — カーネル概要
+- [STM32F4_IMPLEMENTATION.md](STM32F4_IMPLEMENTATION.md) — STM32F4実装詳細
+- [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) — 設計判断の根拠
 
 ---
 
-## 10. ファイル一覧
-
-### 10.1 カーネル
-
-| ファイル | 説明 |
-|----------|------|
-| `examples/stm32f4_kernel/src/main.cc` | カーネルメイン |
-| `examples/stm32f4_kernel/kernel.ld` | リンカスクリプト |
-| `lib/umios/kernel/umi_kernel.hh` | カーネルコア（O(1)スケジューラ、FPUポリシー含む） |
-| `lib/umios/kernel/shared_memory.hh` | 共有メモリ |
-| `lib/umios/kernel/shell_commands.hh` | シェルコマンド |
-| `lib/umios/kernel/loader.hh` | アプリローダー |
-| `lib/umios/kernel/protection.hh` | MPU抽象化レイヤー |
-| `lib/umios/kernel/metrics.hh` | パフォーマンス計測（DWT） |
-| `lib/umios/kernel/port/cm4/switch.hh` | Cortex-M4 コンテキストスイッチ |
-| `lib/umios/kernel/port/cm4/context.hh` | Cortex-M4 コンテキスト管理 |
-
-### 10.2 アプリケーション
-
-| ファイル | 説明 |
-|----------|------|
-| `lib/umios/app/syscall.hh` | Syscall API |
-| `lib/umios/app/crt0.cc` | スタートアップ |
-| `lib/umios/app/app_header.hh` | ヘッダーフォーマット |
-
-### 10.3 Web
-
-| ファイル | 説明 |
-|----------|------|
-| `examples/headless_webhost/web/lib/umi_web/core/protocol.js` | SysExプロトコル |
-| `examples/headless_webhost/web/lib/umi_web/core/backends/hardware.js` | WebMIDIバックエンド |
-| `examples/headless_webhost/web/lib/umi_web/components/shell/index.js` | シェルUI |
-
-### 10.4 プラットフォームドライバ
-
-| ファイル | 説明 |
-|----------|------|
-| `lib/umios/backend/cm/stm32f4/gpio.hh` | GPIO |
-| `lib/umios/backend/cm/stm32f4/i2s.hh` | I2S Audio |
-| `lib/umios/backend/cm/stm32f4/i2c.hh` | I2C |
-| `lib/umios/backend/cm/stm32f4/cs43l22.hh` | Audio Codec |
-| `lib/umios/backend/cm/stm32f4/pdm_mic.hh` | PDM Microphone |
-| `lib/umios/backend/cm/stm32f4/rcc.hh` | クロック制御 |
-| `lib/umios/backend/cm/stm32f4/power.hh` | 電力管理・Tickless |
-| `lib/umiusb/include/audio_interface.hh` | USB Audio |
-
----
-
-## 11. ビルドサイズ
-
-### 11.1 stm32f4_kernel
-
-```
-Flash: 41,776 / 1,048,576 bytes (4.0%)
-RAM:   77,820 / 131,072 bytes (59.4%)
-```
-
-| セクション | サイズ | 説明 |
-|-----------|--------|------|
-| .text | 41,692 B | コード（Flash） |
-| .data | 84 B | 初期化済みデータ |
-| .bss | 77,736 B | 未初期化データ（RAM） |
-
-### 11.2 主要RAM消費
-
-| シンボル | サイズ | 説明 |
-|---------|--------|------|
-| usb_audio | 28,320 B | USB Audio Class バッファ |
-| g_shared | 6,824 B | 共有メモリ領域 |
-| g_app_event_queue | 6,152 B | アプリイベントキュー |
-| usb_hal | 3,032 B | USB HAL状態 |
-| タスクスタック | 14,336 B | CCM RAM（4K+2K+8K） |
-
-カーネル自体はヘッダーオンリー（テンプレート）でインライン展開されるため、
-独立したサイズは計測困難。主要関数：
-- PendSV_Handler: ~96 bytes
-- umi_cm4_switch_context: ~192 bytes
-
----
-
-*Document Version: 1.1*
-*Last Updated: 2025-01-25*
+*Document Version: 1.0*
+*Created: 2025-01-29*
+*Based on: UMI_SYSTEM_ARCHITECTURE.md v1.1*

@@ -49,12 +49,12 @@ int main() {
 
         umi::TaskConfig idle_cfg{
             .prio = umi::Priority::Idle,
-            .fpu_policy = umi::FpuPolicy::LazyStack,
+            .uses_fpu = true,
             .name = "idle_fpu",
         };
         umi::TaskConfig audio_cfg{
             .prio = umi::Priority::Realtime,
-            .fpu_policy = umi::FpuPolicy::LazyStack,
+            .uses_fpu = true,
             .name = "audio_fpu",
         };
 
