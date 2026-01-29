@@ -97,7 +97,7 @@ xmake test                                     # Run host unit tests
 
 # ARM embedded targets (auto-detects toolchain)
 xmake build stm32f4_kernel    # STM32F4 kernel
-xmake build synth_app         # Synth application (.umiapp)
+xmake build synth_app         # Synth application (.umia)
 xmake build firmware          # Basic embedded example
 xmake flash-kernel            # Build and flash kernel via pyOCD
 xmake flash-synth-app         # Build and flash synth app
@@ -164,7 +164,7 @@ xmake info                     # Show build configuration
 
 ### OS/Application Architecture (Embedded)
 
-Complete binary separation between OS and application (`.umiapp`):
+Complete binary separation between OS and application (`.umia`):
 
 **Task Priorities:**
 - Realtime (0): Audio processing, DMA callbacks

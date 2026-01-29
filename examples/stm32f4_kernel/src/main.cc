@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // STM32F4-Discovery Kernel Entry Point
-// Loads and runs .umiapp applications
+// Loads and runs .umia applications
 
 #include "arch.hh"
 #include "bsp.hh"

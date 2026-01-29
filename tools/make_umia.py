@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-make_umiapp.py - Create .umiapp binary with header
+make_umia.py - Create .umia binary with header
 
 Usage:
-    python3 make_umiapp.py input.bin output.umiapp [options]
+    python3 make_umia.py input.bin output.umia [options]
 
 Options:
     --name NAME         Application name (for display, max 32 chars)
@@ -13,7 +13,7 @@ Options:
     --entry OFFSET      Entry point offset (default: 0, auto-detect)
     --sign KEY_FILE     Sign with Ed25519 private key (required for release)
 
-The tool creates a .umiapp file with the following structure:
+The tool creates a .umia file with the following structure:
     - 128-byte AppHeader
     - Raw binary content
 
@@ -124,7 +124,7 @@ def create_app_header(
     target: int = 0,
     entry_offset: int = 0,
 ) -> bytes:
-    """Create 128-byte AppHeader for .umiapp binary"""
+    """Create 128-byte AppHeader for .umia binary"""
 
     # Constants
     MAGIC = 0x414D4955  # 'UMIA'
@@ -206,12 +206,12 @@ def parse_size(s: str) -> int:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Create .umiapp binary with header',
+        description='Create .umia binary with header',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
     parser.add_argument('input', help='Input binary file')
-    parser.add_argument('output', help='Output .umiapp file')
+    parser.add_argument('output', help='Output .umia file')
     parser.add_argument('--name', default='UmiApp', help='Application name')
     parser.add_argument('--stack', type=parse_size, default=8192, help='Stack size')
     parser.add_argument('--heap', type=parse_size, default=0, help='Heap size')

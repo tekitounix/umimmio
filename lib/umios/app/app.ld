@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: MIT */
 /* UMI-OS Application Linker Script */
-/* For .umiapp binaries loaded by kernel */
+/* For .umia binaries loaded by kernel */
 
 /* Memory regions - must match kernel's APP_FLASH address */
 MEMORY {
-    /* .umiapp header lives at the start of APP_FLASH in kernel.ld */
+    /* .umia header lives at the start of APP_FLASH in kernel.ld */
     APP_HDR   (rx)  : ORIGIN = 0x08060000, LENGTH = 128   /* AppHeader (128 bytes) */
     /* Application runs XIP after header */
     APP_FLASH (rx)  : ORIGIN = 0x08060080, LENGTH = (128K - 128)

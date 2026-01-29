@@ -1,4 +1,4 @@
--- Synth Application (.umiapp)
+-- Synth Application (.umia)
 -- Example application that runs on STM32F4 kernel
 -- Uses embedded rule from arm-embedded package
 
@@ -34,29 +34,29 @@ target("synth_app")
     -- Additional linker flags for minimal runtime
     add_ldflags("-nodefaultlibs", {force = true})
     
-    -- Post-build: generate .umiapp with header
+    -- Post-build: generate .umia with header
     -- Note: embedded rule generates .bin, .hex, .map automatically
     after_build(function (target)
         local targetdir = target:targetdir()
         local targetname = target:name()
         local binfile = path.join(targetdir, targetname .. ".bin")
-        local umiappfile = path.join(targetdir, targetname .. ".umiapp")
+        local umiafile = path.join(targetdir, targetname .. ".umia")
         
         -- Wait for embedded rule to create .bin file
         if not os.isfile(binfile) then
-            print("Warning: .bin file not found, skipping .umiapp generation")
+            print("Warning: .bin file not found, skipping .umia generation")
             return
         end
         
-        -- Create .umiapp using Python tool
-        local make_umiapp = path.join(os.projectdir(), "tools", "make_umiapp.py")
-        if os.isfile(make_umiapp) then
-            os.execv("python3", {make_umiapp, binfile, umiappfile, "--name", "SynthApp"})
-            print("App: " .. umiappfile)
+        -- Create .umia using Python tool
+        local make_umia = path.join(os.projectdir(), "tools", "make_umia.py")
+        if os.isfile(make_umia) then
+            os.execv("python3", {make_umia, binfile, umiafile, "--name", "SynthApp"})
+            print("App: " .. umiafile)
         else
             -- Fallback: just copy binary (no header)
-            os.cp(binfile, umiappfile)
-            print("Warning: make_umiapp.py not found, using raw binary")
+            os.cp(binfile, umiafile)
+            print("Warning: make_umia.py not found, using raw binary")
         end
     end)
 
@@ -65,12 +65,12 @@ task("flash-synth-app")
     on_run(function ()
         print("Building synth app...")
         os.exec("xmake build synth_app")
-        local umiapp = path.join(os.projectdir(), "build", "synth_app", "release", "synth_app.umiapp")
-        if not os.isfile(umiapp) then
-            raise(".umiapp not found: " .. umiapp)
+        local umia = path.join(os.projectdir(), "build", "synth_app", "release", "synth_app.umia")
+        if not os.isfile(umia) then
+            raise(".umia not found: " .. umia)
         end
         print("Flashing synth app to APP_FLASH via pyOCD...")
-        os.execv("pyocd", {"flash", "-t", "stm32f407vg", "-a", "0x08060000", "--format", "bin", umiapp})
+        os.execv("pyocd", {"flash", "-t", "stm32f407vg", "-a", "0x08060000", "--format", "bin", umia})
     end)
-    set_menu {usage = "xmake flash-synth-app", description = "Build and flash synth app (.umiapp) to APP_FLASH"}
+    set_menu {usage = "xmake flash-synth-app", description = "Build and flash synth app (.umia) to APP_FLASH"}
 task_end()

@@ -40,7 +40,7 @@ main()
   ├─ Phase 2: カーネル初期化
   │   ├─ init_shared_memory() SharedMemory 構造体初期化
   │   ├─ init_loader()        AppLoader 初期化 (RAM境界設定)
-  │   └─ load_app()           .umiapp バイナリロード
+  │   └─ load_app()           .umia バイナリロード
   │       ├─ AppHeader検証 (magic, ABI)
   │       └─ エントリポイント取得 (Thumbビット付き)
   │

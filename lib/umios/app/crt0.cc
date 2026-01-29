@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // UMI-OS Application C Runtime Startup (crt0)
-// Entry point for .umiapp binaries
+// Entry point for .umia binaries
 
 #include "syscall.hh"
 

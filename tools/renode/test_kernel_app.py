@@ -42,18 +42,18 @@ def main():
         header = f.read(16)
     
     # First 4 bytes should be initial SP (pointing to RAM)
-    # Or if using .umiapp format, check for header
+    # Or if using .umia format, check for header
     print(f"App header (first 16 bytes): {header.hex()}")
     
-    # Check app's .umiapp file
-    app_umiapp = project_root / "build/synth_app/release/synth_app.umiapp"
-    if app_umiapp.exists():
-        with open(app_umiapp, "rb") as f:
+    # Check app's .umia file
+    app_umia = project_root / "build/synth_app/release/synth_app.umia"
+    if app_umia.exists():
+        with open(app_umia, "rb") as f:
             magic = f.read(8)
         if magic == b"UMIAPP\x00\x00":
-            print("App .umiapp header: OK (valid magic)")
+            print("App .umia header: OK (valid magic)")
         else:
-            print(f"App .umiapp header: {magic}")
+            print(f"App .umia header: {magic}")
     
     print("\n" + "="*60)
     print("Build artifacts verified successfully!")

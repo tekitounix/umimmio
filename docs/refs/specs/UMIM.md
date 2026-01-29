@@ -1,7 +1,7 @@
 # UMI-Module (UMIM) 仕様書
 
 **バージョン:** 3.0.0-draft
-**拡張子:** `.umim` (Web), `.umiapp` (組込み)
+**拡張子:** `.umim` (Web), `.umia` (組込み)
 **ステータス:** ドラフト
 
 ## 概要
@@ -11,7 +11,7 @@ UMI-Module は、UMIアプリケーションのバイナリ配布形式です。
 | 形式 | 拡張子 | 対象環境 | 実行方式 |
 |------|--------|----------|----------|
 | **WASM** | `.umim` | Web、Node.js | AudioWorklet |
-| **Native** | `.umiapp` | 組込み | カーネルロード |
+| **Native** | `.umia` | 組込み | カーネルロード |
 
 **アプリコードは共通**。ビルドターゲットでバイナリ形式が変わる。
 
@@ -26,7 +26,7 @@ UMI-Module は、UMIアプリケーションのバイナリ配布形式です。
 │       while (umi::wait_event()) { ... }                     │
 │   }                                                         │
 ├───────────────────────┬─────────────────────────────────────┤
-│   Native (.umiapp)    │           WASM (.umim)              │
+│   Native (.umia)    │           WASM (.umim)              │
 │   syscall ABI         │           WASM imports              │
 │   Kernel + MPU        │           AudioWorklet + Asyncify   │
 └───────────────────────┴─────────────────────────────────────┘
@@ -38,7 +38,7 @@ UMI-Module は、UMIアプリケーションのバイナリ配布形式です。
 |------|------|--------|-----|
 | **UMIP** | DSP処理（Processor） | ネイティブ | WASM |
 | **UMIC** | UIロジック（Controller） | ネイティブ | WASM |
-| **UMIM** | バイナリ形式 | ELF (.umiapp) | WASM (.umim) |
+| **UMIM** | バイナリ形式 | ELF (.umia) | WASM (.umim) |
 
 ## Web版 (.umim)
 
@@ -86,7 +86,7 @@ class UmiProcessor extends AudioWorkletProcessor {
 }
 ```
 
-## 組込み版 (.umiapp)
+## 組込み版 (.umia)
 
 ### バイナリヘッダ
 
@@ -191,7 +191,7 @@ target("my_synth_common")
 target("my_synth_app")
     set_kind("binary")
     add_deps("my_synth_common", "umi_app_embedded")
-    set_extension(".umiapp")
+    set_extension(".umia")
     set_toolchains("arm-none-eabi")
 
 -- Web版

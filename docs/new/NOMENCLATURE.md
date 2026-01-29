@@ -20,7 +20,7 @@
 │  │              (仕様・インターフェース定義)                             │ │
 │  │                                                                      │ │
 │  │  • Syscall ABI (番号、引数、戻り値)                                  │ │
-│  │  • .umiapp バイナリ形式                                              │ │
+│  │  • .umia バイナリ形式                                              │ │
 │  │  • メモリレイアウト (MPUリージョン定義)                               │ │
 │  │  • Event/IPC プロトコル                                              │ │
 │  │  • ProcessorLike Concept                                            │ │
@@ -34,7 +34,7 @@
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │ │
 │  │  │  RTOS Core   │  │ Syscall      │  │ App Loader   │              │ │
 │  │  │              │  │ Handler      │  │              │              │ │
-│  │  │ • Scheduler  │  │              │  │ • .umiapp    │              │ │
+│  │  │ • Scheduler  │  │              │  │ • .umia    │              │ │
 │  │  │ • Context SW │  │ • SVC Handler│  │ • 署名検証    │              │ │
 │  │  │ • Task Mgmt  │  │ • Dispatch   │  │ • MPU設定    │              │ │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘              │ │
@@ -78,7 +78,7 @@
 │  │  • umi/app.hh        - register_processor, wait_event              │ │
 │  │  • umi/coro.hh       - コルーチンサポート                            │ │
 │  │  • syscall.hh        - カーネルへのsyscallインターフェース            │ │
-│  │  • make_umiapp.py    - ビルドツール                                  │ │
+│  │  • make_umia.py    - ビルドツール                                  │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -97,7 +97,7 @@
 | **UMI-OS Kernel** | 仕様を実装したカーネル本体。アプリをホストする**ファームウェア全体** | `lib/umios/kernel/`, `examples/stm32f4_kernel/` |
 | **UMI HAL** | MCU固有のハードウェアドライバ群 | `lib/umios/backend/` |
 | **UMI Libraries** | OS非依存の再利用可能ライブラリ | `lib/umidsp/`, `lib/umidi/`, `lib/umiusb/` |
-| **UMI App SDK** | アプリケーション開発者向けAPI・ツール | `lib/umios/app/`, `tools/make_umiapp.py` |
+| **UMI App SDK** | アプリケーション開発者向けAPI・ツール | `lib/umios/app/`, `tools/make_umia.py` |
 
 ### カーネル内部コンポーネント
 
@@ -105,7 +105,7 @@
 |------|------|-------------|
 | **RTOS Core** | タスクスケジューリング機構。4優先度プリエンプティブスケジューラ、コンテキストスイッチ | `lib/umios/kernel/scheduler.hh`, `lib/umios/kernel/task.hh` |
 | **Syscall Handler** | SVC例外ハンドラ。アプリからのsyscallをディスパッチ | `lib/umios/kernel/syscall_handler.hh` |
-| **App Loader** | `.umiapp`バイナリのロード、署名検証、MPU設定 | `lib/umios/kernel/loader.cc` |
+| **App Loader** | `.umia`バイナリのロード、署名検証、MPU設定 | `lib/umios/kernel/loader.cc` |
 | **Device Drivers** | ハードウェアデバイスドライバ群 | `lib/umiusb/`, `lib/umios/backend/` |
 | **Shell** | 管理用CLIインターフェース | `lib/umios/kernel/shell_commands.hh` |
 
@@ -123,7 +123,7 @@
 
 | 用語 | 定義 |
 |------|------|
-| **UMI Application** | `.umiapp`形式のアプリケーションバイナリ |
+| **UMI Application** | `.umia`形式のアプリケーションバイナリ |
 | **Processor Task** | オーディオ処理タスク。`process()`を実行。Realtime優先度 |
 | **Control Task** | イベント処理タスク。`main()`を実行。User優先度 |
 | **ProcessorLike** | `process(AudioContext&)`を持つ型の制約 (C++20 Concept) |
@@ -215,7 +215,7 @@ examples/
 |-----|----------|--------|--------|
 | 分離方式 | ライブラリ統合 | ビルド時統合 | バイナリ分離 |
 | タスク保護 | なし (同一権限) | MPU (オプション) | MPU (必須) |
-| アプリ形式 | 同一バイナリ | 同一バイナリ | `.umiapp` |
+| アプリ形式 | 同一バイナリ | 同一バイナリ | `.umia` |
 | syscall | なし (直接呼出) | なし (直接呼出) | SVC命令 |
 
 ---

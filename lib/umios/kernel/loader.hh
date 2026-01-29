@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // UMI-OS Application Loader
-// Validates and loads .umiapp binaries into protected memory regions
+// Validates and loads .umia binaries into protected memory regions
 
 #pragma once
 
@@ -81,7 +81,7 @@ struct AppRuntime {
 // Application Loader
 // ============================================================================
 
-/// Application loader - validates and loads .umiapp binaries
+/// Application loader - validates and loads .umia binaries
 /// 
 /// Usage:
 /// @code
@@ -117,7 +117,7 @@ public:
     // --- Loading ---
     
     /// Load application from image
-    /// @param image Pointer to .umiapp binary
+    /// @param image Pointer to .umia binary
     /// @param size Size of image in bytes
     /// @return LoadResult::Ok on success, error code otherwise
     LoadResult load(const uint8_t* image, size_t size) noexcept;
