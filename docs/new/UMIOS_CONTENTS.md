@@ -11,7 +11,7 @@
 
 ### app/ (アプリ側ランタイム／ビルド支援)
 - `umi_app.hh`, `syscall.hh`, `crt0.cc`, `app.ld`, `xmake.lua`
-- 目的: `.umiapp` 向けのスタートアップやリンクスクリプト、アプリ側API。
+- 目的: `.umia` 向けのスタートアップやリンクスクリプト、アプリ側API。
 - 備考: `examples/synth_app/xmake.lua` で `lib/umios/app/crt0.cc` を `add_files` している（アプリ側ビルド向け）。
 
 ### backend/ (プラットフォーム実装)
@@ -31,7 +31,7 @@
 
 ### crypto/ (署名検証などの暗号基盤)
 - `sha512.*`, `ed25519.*`, `public_key.hh`
-- 目的: `.umiapp` 等の署名検証・ハッシュ計算。
+- 目的: `.umia` 等の署名検証・ハッシュ計算。
 
 ### kernel/ (UMI OSカーネル本体)
 - コア: `umi_kernel.hh`, `umi_audio.hh`, `umi_midi.hh`, `umi_shell.hh`

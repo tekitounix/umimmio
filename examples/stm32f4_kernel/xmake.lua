@@ -1,5 +1,5 @@
 -- STM32F4-Discovery Kernel
--- Separate kernel binary that loads .umiapp applications
+-- Separate kernel binary that loads .umia applications
 -- Uses embedded rule from arm-embedded package
 
 target("stm32f4_kernel")

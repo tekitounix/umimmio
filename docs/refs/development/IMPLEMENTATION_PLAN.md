@@ -6,7 +6,7 @@
 
 **核心的アーキテクチャ変更:**
 - **カーネルとアプリケーションは完全に分離されたバイナリ**
-- カーネルがアプリケーション（`.umiapp`）をロードして実行
+- カーネルがアプリケーション（`.umia`）をロードして実行
 - アプリは非特権モードで動作し、syscall でカーネルAPIにアクセス
 
 **目標:** カーネル/アプリ分離アーキテクチャを実装し、stm32f4_synth で動作確認
@@ -29,7 +29,7 @@
 │                    Shared Memory Region                     │
 │  AudioBuffer / EventQueue / ParamBlock                      │
 ├─────────────────────────────────────────────────────────────┤
-│                 Application Binary (.umiapp)                │
+│                 Application Binary (.umia)                │
 │  ┌─────────────────────────────────────────┐               │
 │  │            Processor Task               │ 最高優先度    │
 │  │  process() - カーネルから呼び出し        │               │
@@ -392,10 +392,10 @@ target("synth_app")
     add_deps("umios_app_sdk")
     add_files("src/*.cc")
     add_ldflags("-T", "$(projectdir)/lib/umios/app/app.ld")
-    set_extension(".umiapp")
+    set_extension(".umia")
     after_build(function (target)
-        -- バイナリからヘッダ付き .umiapp を生成
-        os.execv("scripts/make_umiapp.py", {target:targetfile()})
+        -- バイナリからヘッダ付き .umia を生成
+        os.execv("scripts/make_umia.py", {target:targetfile()})
     end)
 ```
 
@@ -411,7 +411,7 @@ xmake build synth_app
 # 両方をフラッシュ
 pyocd flash -t stm32f407vg build/stm32f4_kernel/release/stm32f4_kernel.elf
 # アプリは別領域（例: 0x08040000）に書き込み
-pyocd flash -t stm32f407vg -a 0x08040000 build/synth_app/release/synth_app.umiapp
+pyocd flash -t stm32f407vg -a 0x08040000 build/synth_app/release/synth_app.umia
 ```
 
 ### 作業項目
@@ -419,7 +419,7 @@ pyocd flash -t stm32f407vg -a 0x08040000 build/synth_app/release/synth_app.umiap
 - [ ] `lib/umios/app/xmake.lua` 作成
 - [ ] `examples/stm32f4_kernel/xmake.lua` 作成
 - [ ] `examples/synth_app/xmake.lua` 作成
-- [ ] `scripts/make_umiapp.py` 作成（バイナリ変換）
+- [ ] `scripts/make_umia.py` 作成（バイナリ変換）
 - [ ] カーネル用リンカスクリプト `kernel.ld` 作成
 
 ---
@@ -571,7 +571,7 @@ int main() {
 
 ### Phase 3: ビルドシステム
 - [x] xmake.lua 設定
-- [x] make_umiapp.py スクリプト
+- [x] make_umia.py スクリプト
 - [x] カーネル/アプリ別ビルド確認
 
 ### Phase 4: 動作確認 ✅

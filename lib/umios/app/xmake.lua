@@ -1,5 +1,5 @@
 -- UMI-OS Application SDK
--- Provides include paths and linker script for .umiapp applications
+-- Provides include paths and linker script for .umia applications
 -- Note: The actual build is handled by embedded rule in each app's xmake.lua
 
 -- Get lib directory

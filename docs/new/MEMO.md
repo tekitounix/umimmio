@@ -20,7 +20,7 @@
 - syscall & shared abi
 - MPU Layout
 - Event/IPC
-- .umiapp Format
+- .umia Format
     - Processor/Controller
 
 # UMI-OS Bootloader
@@ -39,7 +39,7 @@ UMIOSを構成するためのライブラリ群
     - cm4
     - esp32
     - wasm
-- umiapp: 非特権タスクとして動作する機能
+- umia: 非特権タスクとして動作する機能
     - umiupdater
     - umishell
 - umihal

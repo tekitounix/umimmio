@@ -101,7 +101,7 @@ docs/
 |-------------|------|------|
 | [specs/NOMENCLATURE.md](specs/NOMENCLATURE.md) | **命名体系**（用語定義、命名規則） | ✓ |
 | [specs/UMIP.md](specs/UMIP.md) | UMI-Processor（DSP処理ユニット）仕様 | ✓ |
-| [specs/UMIM.md](specs/UMIM.md) | UMI-Module バイナリ形式（.umiapp） | ✓ |
+| [specs/UMIM.md](specs/UMIM.md) | UMI-Module バイナリ形式（.umia） | ✓ |
 | [specs/SECURITY.md](specs/SECURITY.md) | セキュリティリスク分析、MPU保護 | ✓ |
 | [specs/CONCEPTS.md](specs/CONCEPTS.md) | C++20 Concepts設計 | ✓ |
 | [specs/UMIC.md](specs/UMIC.md) | UMI-Controller（Control Task）仕様 | ◇ |

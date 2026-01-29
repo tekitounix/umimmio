@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Polyphonic Synth Application (.umiapp)
+// Polyphonic Synth Application (.umia)
 // Uses PolySynth from headless_webhost
 // Processor/Controller separation model:
 //   - Processor: Audio processing + MIDI/Button events (called from ISR)

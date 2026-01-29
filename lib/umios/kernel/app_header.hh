@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // UMI-OS Application Binary Header
-// Defines the .umiapp binary format for embedded applications
+// Defines the .umia binary format for embedded applications
 
 #pragma once
 
@@ -10,7 +10,7 @@
 namespace umi::kernel {
 
 // ============================================================================
-// Application Binary Header (.umiapp format)
+// Application Binary Header (.umia format)
 // ============================================================================
 
 /// Magic number: "UMIA" (UMI Application)
@@ -26,7 +26,7 @@ enum class AppTarget : uint32_t {
     Release     = 2,  ///< Release app (release kernel only, signature required)
 };
 
-/// Application header (placed at the beginning of .umiapp binary)
+/// Application header (placed at the beginning of .umia binary)
 /// Total size: 128 bytes (aligned for easy parsing)
 struct alignas(4) AppHeader {
     // --- Identification (16 bytes) ---
