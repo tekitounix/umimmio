@@ -11,6 +11,58 @@
 
 namespace umi::stm32 {
 
+/// 8-bit lookup table for batch CIC integrator updates
+/// For N bits processed at once, CIC 4-stage integrators can be updated using
+/// partial sums computed from the bit pattern. This avoids per-bit branching.
+///
+/// For 8 bits b0..b7 (MSB-first, b_i = +1 or -1 based on PDM bit):
+///   S0 = sum of b_i                           (= 2*popcount - 8)
+///   S1 = sum of (8-k)*b_k for k=0..7          (weighted sum for I1 increment)
+///   S2 = sum of (8-k)*(8-k+1)/2 * b_k         (for I2 increment)
+///   S3 = sum of (8-k)*(8-k+1)*(8-k+2)/6 * b_k (for I3 increment)
+///
+/// I0_new = I0 + S0
+/// I1_new = I1 + 8*I0 + S1
+/// I2_new = I2 + 8*I1 + 36*I0 + S2   (36 = 8*9/2)
+/// I3_new = I3 + 8*I2 + 36*I1 + 120*I0 + S3  (120 = 8*9*10/6)
+struct CicLut8 {
+    int16_t s0; // net sum of ±1
+    int16_t s1; // weighted sum for stage 1
+    int16_t s2; // weighted sum for stage 2
+    int16_t s3; // weighted sum for stage 3
+};
+
+/// Generate CIC 8-bit lookup table at compile time
+constexpr CicLut8 cic_lut_8_generate(uint8_t byte_val) {
+    int32_t running_i0 = 0;
+    int32_t running_i1 = 0;
+    int32_t running_i2 = 0;
+    int32_t s3 = 0;
+    for (int bit = 7; bit >= 0; --bit) {
+        int32_t b = ((byte_val >> bit) & 1) != 0 ? 1 : -1;
+        running_i0 += b;
+        running_i1 += running_i0;
+        running_i2 += running_i1;
+        s3 += running_i2;
+    }
+    return {static_cast<int16_t>(running_i0), static_cast<int16_t>(running_i1),
+            static_cast<int16_t>(running_i2), static_cast<int16_t>(s3)};
+}
+
+/// Compile-time generated LUT (256 entries)
+constexpr auto make_cic_lut_8() {
+    struct Table {
+        CicLut8 data[256];
+    };
+    Table t{};
+    for (int i = 0; i < 256; ++i) {
+        t.data[i] = cic_lut_8_generate(static_cast<uint8_t>(i));
+    }
+    return t;
+}
+
+constexpr auto CIC_LUT_8 = make_cic_lut_8();
+
 /// 4-stage CIC decimation filter (sinc^4) with 64x decimation
 /// For 2nd-order sigma-delta modulator, use N=L+1=3 minimum, N=4 for good balance
 class CicDecimator {
@@ -42,6 +94,53 @@ class CicDecimator {
     // Warmup counter to allow DC filter to stabilize
     uint32_t warmup_samples_ = 0;
     static constexpr uint32_t WARMUP_SAMPLES = 1600; // ~50ms at 32kHz (faster with new filter)
+
+    /// Process 8 PDM bits at once using LUT
+    /// Updates all 4 integrator stages in O(1) per 8 bits
+    __attribute__((always_inline)) inline void process_8bits(uint8_t byte_val) {
+        const auto& lut = CIC_LUT_8.data[byte_val];
+        // I3_new = I3 + 8*I2 + 36*I1 + 120*I0 + S3
+        // I2_new = I2 + 8*I1 + 36*I0 + S2
+        // I1_new = I1 + 8*I0 + S1
+        // I0_new = I0 + S0
+        // Must update in reverse order (I3 first) since each depends on old values
+        integrator_[3] += 8 * integrator_[2] + 36 * integrator_[1] + 120 * integrator_[0] + lut.s3;
+        integrator_[2] += 8 * integrator_[1] + 36 * integrator_[0] + lut.s2;
+        integrator_[1] += 8 * integrator_[0] + lut.s1;
+        integrator_[0] += lut.s0;
+    }
+
+    /// Produce decimated output sample (comb + DC blocker + gain)
+    __attribute__((always_inline)) inline int16_t decimate_output() {
+        // 4-stage CIC comb filters
+        int32_t cic_out = integrator_[3];
+        for (int i = 0; i < CIC_STAGES; ++i) {
+            int32_t temp = cic_out;
+            cic_out = cic_out - comb_delay_[i];
+            comb_delay_[i] = temp;
+        }
+
+        // Scale CIC output
+        int32_t cic_pcm = cic_out >> OUTPUT_SHIFT;
+
+        // DC blocker
+        int32_t feedback = static_cast<int32_t>((static_cast<int64_t>(kDcBlockerR) * dc_prev_out_) >> 15);
+        int32_t dc_removed = cic_pcm - dc_prev_in_ + feedback;
+        dc_prev_in_ = cic_pcm;
+        dc_prev_out_ = dc_removed;
+
+        // Warmup period
+        if (warmup_samples_ < WARMUP_SAMPLES) {
+            ++warmup_samples_;
+            return 0;
+        }
+
+        // Apply gain and saturate
+        int32_t gained = dc_removed * gain_;
+        if (gained > 32767) gained = 32767;
+        if (gained < -32768) gained = -32768;
+        return static_cast<int16_t>(gained);
+    }
 
   public:
     void reset() {
@@ -123,14 +222,30 @@ class CicDecimator {
     }
 
     /// Process a buffer of PDM data and output PCM samples
+    /// Optimized: processes 8 bits at a time using LUT for integrator updates
+    /// Decimation boundary aligned to 16-bit word boundaries (64 = 4 words × 16 bits)
     uint32_t process_buffer(const uint16_t* pdm_buf, uint32_t pdm_count, int16_t* pcm_buf, uint32_t pcm_max) {
         uint32_t pcm_out = 0;
+
         for (uint32_t i = 0; i < pdm_count && pcm_out < pcm_max; ++i) {
-            int16_t sample;
-            if (process(pdm_buf[i], sample)) {
-                pcm_buf[pcm_out++] = sample;
+            uint16_t word = pdm_buf[i];
+
+            // Process high byte (bits 15..8 = first 8 PDM samples)
+            process_8bits(static_cast<uint8_t>(word >> 8));
+            cic_count_ += 8;
+
+            // Process low byte (bits 7..0 = next 8 PDM samples)
+            process_8bits(static_cast<uint8_t>(word & 0xFF));
+            cic_count_ += 8;
+
+            // Check decimation (64 bits = 4 words of 16 bits)
+            // cic_count_ reaches 64 every 4 words
+            if (cic_count_ >= CIC_DECIMATION) {
+                cic_count_ = 0;
+                pcm_buf[pcm_out++] = decimate_output();
             }
         }
+
         return pcm_out;
     }
 };

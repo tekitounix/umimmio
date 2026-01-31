@@ -265,20 +265,22 @@ inline void configure_app_regions(
     });
     
     // Region 2: Application .data/.bss (read-write, non-executable)
+    // AppData = 32KB (0x2000C000–0x20014000)
     configure_region(Region::AppData, {
         .base = runtime.data_start,
-        .size = 16 * 1024,  // TODO: Get from header
+        .size = 32 * 1024,
         .readable = true,
         .writable = true,
         .executable = false,
         .privileged_only = false,
         .device_memory = false,
     });
-    
-    // Region 3: Application stack (read-write, non-executable)
+
+    // Region 3: Application stack+heap (read-write, non-executable)
+    // AppStack = 16KB (0x20014000–0x20018000)
     configure_region(Region::AppStack, {
         .base = runtime.stack_base,
-        .size = 4 * 1024,  // TODO: Get from header
+        .size = 16 * 1024,
         .readable = true,
         .writable = true,
         .executable = false,
