@@ -2,18 +2,17 @@
 // STM32F4-Discovery Kernel Entry Point
 // Loads and runs .umia applications
 
-#include "arch.hh"
-#include "bsp.hh"
-#include "kernel.hh"
-#include "mcu.hh"
-
 #include <cstdint>
-
 #include <mpu_config.hh>
 #include <umios/backend/cm/common/irq.hh>
 #include <umios/backend/cm/common/nvic.hh>
 #include <umios/backend/cm/common/scb.hh>
 #include <umios/backend/cm/stm32f4/irq_num.hh>
+
+#include "arch.hh"
+#include "bsp.hh"
+#include "kernel.hh"
+#include "mcu.hh"
 
 using umi::port::arm::SCB;
 namespace bsp = umi::bsp::board;
@@ -245,12 +244,19 @@ extern "C" [[noreturn]] void Reset_Handler() {
     // SysTick = 0xF0 (priority 15) - below DMA, above PendSV
     // PendSV  = 0xFF (priority 15, lowest) - context switch must be lowest
     // This ensures DMA ISRs can preempt SysTick/PendSV.
-    umi::port::arm::NVIC::set_prio(-1, 0xF0);  // SysTick
-    umi::port::arm::NVIC::set_prio(-2, 0xFF);  // PendSV
+    umi::port::arm::NVIC::set_prio(-1, 0xF0); // SysTick
+    umi::port::arm::NVIC::set_prio(-2, 0xFF); // PendSV
     namespace irqn = umi::stm32f4::irq;
     umi::irq::set_handler(irqn::DMA1_Stream3, DMA1_Stream3_IRQHandler);
     umi::irq::set_handler(irqn::DMA1_Stream5, DMA1_Stream5_IRQHandler);
     umi::irq::set_handler(irqn::OTG_FS, OTG_FS_IRQHandler);
+    // DMA I2S must be highest priority to avoid audio glitches
+    // DMA1_Stream3 (PDM): priority 0x20 (group 1)
+    // DMA1_Stream5 (I2S TX): priority 0x10 (group 0, sub 1) - highest audio
+    // OTG_FS: priority 0x40 (group 2) - below DMA
+    umi::port::arm::NVIC::set_prio(irqn::DMA1_Stream3, 0x20);
+    umi::port::arm::NVIC::set_prio(irqn::DMA1_Stream5, 0x10);
+    umi::port::arm::NVIC::set_prio(irqn::OTG_FS, 0x40);
 
     // Call C++ global constructors
     for (void (**p)(void) = __init_array_start; p < __init_array_end; ++p) {

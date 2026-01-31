@@ -33,6 +33,7 @@ target("synth_app")
     
     -- Additional linker flags for minimal runtime
     add_ldflags("-nodefaultlibs", {force = true})
+    add_ldflags("-Wl,-L" .. path.join(os.projectdir(), "lib", "umios", "app"), {force = true})
     
     -- Post-build: generate .umia with header
     -- Note: embedded rule generates .bin, .hex, .map automatically

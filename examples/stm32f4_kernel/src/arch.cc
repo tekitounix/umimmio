@@ -18,8 +18,8 @@ static SvcCallback g_svc_callback = nullptr;
 // Current TCB (used by PendSV_Handler assembly)
 TaskContext* volatile current_tcb = nullptr;
 
-// Syscall number for yield (must match kernel's app_syscall::Yield)
-constexpr uint32_t syscall_yield = 5;
+// Syscall number for yield (must match kernel's app_syscall::yield)
+constexpr uint32_t syscall_yield = 1;
 
 void init_systick(uint32_t freq_hz, uint32_t period_us) {
     umi::port::arm::SysTick::init_us(freq_hz, period_us);
