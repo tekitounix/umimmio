@@ -30,8 +30,8 @@ set_xmakever("2.8.0")
 -- Custom Package Repository (ARM Embedded Toolchain)
 -- =====================================================================
 
-if os.isdir(".tools/arm-embedded-xmake-repo") then
-    add_repositories("arm-embedded .tools/arm-embedded-xmake-repo")
+if os.isdir(".refs/arm-embedded-xmake-repo") then
+    add_repositories("arm-embedded .refs/arm-embedded-xmake-repo")
 else
     add_repositories("arm-embedded https://github.com/tekitounix/arm-embedded-xmake-repo.git")
 end

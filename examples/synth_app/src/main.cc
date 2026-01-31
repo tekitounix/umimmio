@@ -159,6 +159,10 @@ int main() {
     // Initialize LED state
     shared.led_state.store(0, std::memory_order_relaxed);
 
+    // Verify wait_event bitmask path (Timer event)
+    auto bits = umi::wait_event(umi::syscall::event::Timer, 0);
+    (void)bits;
+
     // Create scheduler with syscall adapters
     umi::coro::Scheduler<2> sched(umi::syscall::coro_adapter::wait, umi::syscall::coro_adapter::get_time);
 

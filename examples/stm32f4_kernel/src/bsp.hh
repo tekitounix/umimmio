@@ -4,6 +4,9 @@
 
 #pragma once
 
+#define USB_AUDIO_ADAPTIVE 1
+#define USB_AUDIO_UAC2     1
+
 #include <cstdint>
 
 namespace umi::bsp::stm32f4_discovery {

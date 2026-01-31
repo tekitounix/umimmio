@@ -13,7 +13,7 @@ void on_audio_buffer_ready(uint16_t* buf);
 void on_pdm_buffer_ready(uint16_t* buf);
 
 // Tick counter (microseconds)
-extern volatile uint32_t g_tick_us;
+extern volatile uint64_t g_tick_us;
 
 // Current sample rate
 extern volatile uint32_t g_current_sample_rate;

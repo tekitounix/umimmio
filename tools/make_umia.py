@@ -7,7 +7,7 @@ Usage:
 
 Options:
     --name NAME         Application name (for display, max 32 chars)
-    --stack SIZE        Stack size in bytes (default: 8192)
+    --stack SIZE        Stack size in bytes (default: 16384)
     --heap SIZE         Heap size in bytes (default: 0)
     --target TYPE       Target type: user, dev, release (default: user)
     --entry OFFSET      Entry point offset (default: 0, auto-detect)
@@ -213,7 +213,7 @@ def main():
     parser.add_argument('input', help='Input binary file')
     parser.add_argument('output', help='Output .umia file')
     parser.add_argument('--name', default='UmiApp', help='Application name')
-    parser.add_argument('--stack', type=parse_size, default=8192, help='Stack size')
+    parser.add_argument('--stack', type=parse_size, default=16384, help='Stack size')
     parser.add_argument('--heap', type=parse_size, default=0, help='Heap size')
     parser.add_argument('--target', choices=['user', 'dev', 'release'], default='user',
                         help='Target type')
