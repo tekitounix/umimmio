@@ -65,21 +65,20 @@ public:
         ++update_count_;
         int32_t error = buffer_level - cfg_.target_level;
 
-        // Deadband: ignore small errors for stability
-        if (error > -cfg_.hysteresis && error < cfg_.hysteresis) {
-            ++deadband_hits_;
-            // Still accumulate I term slowly
-            integral_ += error / 4;
+        // P term: apply only outside deadband to avoid jitter response
+        int32_t p_contribution = 0;
+        if (error <= -cfg_.hysteresis || error >= cfg_.hysteresis) {
+            p_contribution = (error * cfg_.kp_num) / cfg_.kp_den;
         } else {
-            // P term
-            int32_t p_contribution = (error * cfg_.kp_num) / cfg_.kp_den;
-            
-            // I term with trapezoidal integration
-            integral_ += (error + prev_error_) / 2;
-            
-            current_ppm_ = p_contribution + (integral_ * cfg_.ki_num) / cfg_.ki_den;
+            ++deadband_hits_;
         }
-        
+
+        // I term: always accumulate with trapezoidal integration
+        integral_ += (error + prev_error_) / 2;
+
+        // Always update output (P + I)
+        current_ppm_ = p_contribution + (integral_ * cfg_.ki_num) / cfg_.ki_den;
+
         prev_error_ = error;
 
         // Anti-windup clamp
