@@ -19,41 +19,47 @@ namespace umi::syscall {
 //   64–255: Reserved
 
 namespace nr {
-    // --- Core API (0–15) ---
-    inline constexpr uint32_t exit             = 0;   ///< Terminate application (unload trigger)
-    inline constexpr uint32_t yield            = 1;   ///< Return control to kernel
-    inline constexpr uint32_t wait_event       = 2;   ///< Wait for event with optional timeout
-    inline constexpr uint32_t get_time         = 3;   ///< Get monotonic time in microseconds
-    inline constexpr uint32_t get_shared       = 4;   ///< Get SharedMemory pointer
-    inline constexpr uint32_t register_proc    = 5;   ///< Register audio processor
-    inline constexpr uint32_t unregister_proc  = 6;   ///< Unregister audio processor (future)
-    // 7–15: reserved
+// --- Core API (0–15) ---
+inline constexpr uint32_t exit = 0;            ///< Terminate application (unload trigger)
+inline constexpr uint32_t yield = 1;           ///< Return control to kernel
+inline constexpr uint32_t wait_event = 2;      ///< Wait for event with optional timeout
+inline constexpr uint32_t get_time = 3;        ///< Get monotonic time in microseconds
+inline constexpr uint32_t get_shared = 4;      ///< Get SharedMemory pointer
+inline constexpr uint32_t register_proc = 5;   ///< Register audio processor
+inline constexpr uint32_t unregister_proc = 6; ///< Unregister audio processor (future)
+inline constexpr uint32_t peek_event = 7;      ///< Peek event (future)
+inline constexpr uint32_t send_event = 8;      ///< Send event (future)
+inline constexpr uint32_t sleep_usec = 9;      ///< Sleep (future)
+inline constexpr uint32_t log = 10;            ///< Log output (future)
+inline constexpr uint32_t get_param = 11;      ///< Get parameter (future)
+inline constexpr uint32_t set_param = 12;      ///< Set parameter (future)
+// 13–15: reserved
 
-    // --- Filesystem (32–47) ---
-    inline constexpr uint32_t file_open        = 32;  ///< Open file (future)
-    inline constexpr uint32_t file_read        = 33;  ///< Read from file (future)
-    inline constexpr uint32_t file_write       = 34;  ///< Write to file (future)
-    inline constexpr uint32_t file_close       = 35;  ///< Close file (future)
-    inline constexpr uint32_t file_seek        = 36;  ///< Seek within file (future)
-    inline constexpr uint32_t file_stat        = 37;  ///< Get file info (future)
-    inline constexpr uint32_t dir_open         = 38;  ///< Open directory (future)
-    inline constexpr uint32_t dir_read         = 39;  ///< Read directory entry (future)
-    inline constexpr uint32_t dir_close        = 40;  ///< Close directory (future)
-    // 41–47: reserved
-}
+// --- Filesystem (32–47) ---
+inline constexpr uint32_t file_open = 32;  ///< Open file (future)
+inline constexpr uint32_t file_read = 33;  ///< Read from file (future)
+inline constexpr uint32_t file_write = 34; ///< Write to file (future)
+inline constexpr uint32_t file_close = 35; ///< Close file (future)
+inline constexpr uint32_t file_seek = 36;  ///< Seek within file (future)
+inline constexpr uint32_t file_stat = 37;  ///< Get file info (future)
+inline constexpr uint32_t dir_open = 38;   ///< Open directory (future)
+inline constexpr uint32_t dir_read = 39;   ///< Read directory entry (future)
+inline constexpr uint32_t dir_close = 40;  ///< Close directory (future)
+// 41–47: reserved
+} // namespace nr
 
 // ============================================================================
 // Event Bit Definitions
 // ============================================================================
 
 namespace event {
-    inline constexpr uint32_t Audio       = (1 << 0);  ///< Audio buffer ready
-    inline constexpr uint32_t Midi        = (1 << 1);  ///< MIDI data available
-    inline constexpr uint32_t VSync       = (1 << 2);  ///< Display refresh
-    inline constexpr uint32_t Timer       = (1 << 3);  ///< Timer tick
-    inline constexpr uint32_t Button      = (1 << 4);  ///< Button press
-    inline constexpr uint32_t Shutdown    = (1 << 31); ///< Shutdown requested
-}
+inline constexpr uint32_t Audio = (1 << 0);     ///< Audio buffer ready
+inline constexpr uint32_t Midi = (1 << 1);      ///< MIDI data available
+inline constexpr uint32_t VSync = (1 << 2);     ///< Display refresh
+inline constexpr uint32_t Timer = (1 << 3);     ///< Timer tick
+inline constexpr uint32_t Button = (1 << 4);    ///< Button press
+inline constexpr uint32_t Shutdown = (1 << 31); ///< Shutdown requested
+} // namespace event
 
 // ============================================================================
 // Low-level Syscall Invocation
@@ -65,20 +71,14 @@ namespace event {
 /// @param nr Syscall number (in r0)
 /// @param a0-a3 Arguments (in r1-r4)
 /// @return Result (from r0)
-inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0,
-                    uint32_t a2 = 0, uint32_t a3 = 0) noexcept {
+inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 = 0, uint32_t a3 = 0) noexcept {
     register uint32_t r0 __asm__("r0") = nr;
     register uint32_t r1 __asm__("r1") = a0;
     register uint32_t r2 __asm__("r2") = a1;
     register uint32_t r3 __asm__("r3") = a2;
     register uint32_t r4 __asm__("r4") = a3;
 
-    __asm__ volatile(
-        "svc #0"
-        : "+r"(r0)
-        : "r"(r1), "r"(r2), "r"(r3), "r"(r4)
-        : "memory"
-    );
+    __asm__ volatile("svc #0" : "+r"(r0) : "r"(r1), "r"(r2), "r"(r3), "r"(r4) : "memory");
 
     return static_cast<int32_t>(r0);
 }
@@ -86,9 +86,12 @@ inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0,
 #else
 
 // Host/simulation stub - syscalls are no-ops or simulated
-inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0,
-                    uint32_t a2 = 0, uint32_t a3 = 0) noexcept {
-    (void)nr; (void)a0; (void)a1; (void)a2; (void)a3;
+inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 = 0, uint32_t a3 = 0) noexcept {
+    (void)nr;
+    (void)a0;
+    (void)a1;
+    (void)a2;
+    (void)a3;
     return 0;
 }
 
@@ -106,6 +109,12 @@ inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0,
     }
 }
 
+/// Panic with error message (currently maps to exit)
+[[noreturn]] inline void panic(const char* msg) noexcept {
+    (void)msg;
+    exit(-1);
+}
+
 /// Yield control back to kernel
 inline void yield() noexcept {
     call(nr::yield);
@@ -119,15 +128,40 @@ inline uint32_t wait_event(uint32_t mask, uint32_t timeout_usec = 0) noexcept {
     return static_cast<uint32_t>(call(nr::wait_event, mask, timeout_usec));
 }
 
-/// Get current time in microseconds (lower 32 bits)
-inline uint32_t get_time_usec() noexcept {
-    return static_cast<uint32_t>(call(nr::get_time));
+/// Sleep for specified duration (microseconds)
+inline void sleep_usec(uint32_t usec) noexcept {
+    (void)wait_event(0, usec);
+}
+
+/// Get current time in microseconds (64-bit)
+inline uint64_t get_time_usec() noexcept {
+#if defined(__ARM_ARCH)
+    register uint32_t r0 __asm__("r0") = nr::get_time;
+    register uint32_t r1 __asm__("r1");
+    __asm__ volatile("svc #0" : "+r"(r0), "=r"(r1) : : "memory");
+    return (static_cast<uint64_t>(r1) << 32) | r0;
+#else
+    return 0;
+#endif
 }
 
 /// Get shared memory pointer
 inline void* get_shared() noexcept {
     return reinterpret_cast<void*>(call(nr::get_shared));
 }
+
+/// Output debug log message (stub)
+inline void log(const char* msg) noexcept {
+    (void)msg;
+}
+
+/// Get a parameter value (stub)
+inline float get_param(uint32_t /*index*/) noexcept {
+    return 0.0f;
+}
+
+/// Set a parameter value (stub)
+inline void set_param(uint32_t /*index*/, float /*value*/) noexcept {}
 
 // ============================================================================
 // Coroutine Scheduler Adapters

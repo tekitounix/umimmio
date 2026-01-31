@@ -2,6 +2,8 @@
 // UMI-OS Application C Runtime Startup (crt0)
 // Entry point for .umia binaries
 
+#include <cstdint>
+
 #include "syscall.hh"
 
 // ============================================================================
@@ -18,6 +20,11 @@ extern uint32_t _edata;  // End of .data in RAM
 // Uninitialized data section (zero-fill)
 extern uint32_t _sbss; // Start of .bss
 extern uint32_t _ebss; // End of .bss
+
+// Heap/Stack symbols (from linker)
+extern uint8_t _sheap;  // Heap start (APP_STACK origin)
+extern uint8_t _eheap;  // Heap end (APP_STACK end)
+extern uint8_t _estack; // Stack top (APP_STACK end)
 
 // Global constructors/destructors
 extern void (*__init_array_start[])(void);
@@ -115,21 +122,42 @@ void __cxa_guard_abort(int64_t* guard) {
 // ============================================================================
 
 // Simple bump allocator for coroutine frames
-// Note: This is a very basic implementation; production code should use
-// a proper heap or arena allocator
+// Uses APP_STACK region and checks for heap/stack collision
 namespace {
-    alignas(8) char g_heap[4096];  // 4KB heap for coroutine frames
-    char* g_heap_ptr = g_heap;
+static inline uint8_t* heap_ptr = nullptr;
+
+static inline uintptr_t current_sp() {
+#if defined(__ARM_ARCH)
+    uintptr_t sp;
+    __asm__ volatile("mrs %0, psp" : "=r"(sp)::"memory");
+    if (sp == 0 || sp < reinterpret_cast<uintptr_t>(&_sheap) || sp > reinterpret_cast<uintptr_t>(&_estack)) {
+        sp = reinterpret_cast<uintptr_t>(&_estack);
+    }
+    return sp;
+#else
+    return reinterpret_cast<uintptr_t>(&_estack);
+#endif
 }
+} // namespace
 
 void* operator new(decltype(sizeof(0)) size) {
     // Align to 8 bytes
     size = (size + 7) & ~static_cast<decltype(size)>(7);
-    if (g_heap_ptr + size > g_heap + sizeof(g_heap)) {
+
+    if (heap_ptr == nullptr) {
+        heap_ptr = &_sheap;
+    }
+
+    uint8_t* next = heap_ptr + size;
+    uintptr_t sp = current_sp();
+
+    // Heap/stack collision check
+    if (next > &_eheap || next >= reinterpret_cast<uint8_t*>(sp)) {
         umi::syscall::panic("out of heap memory");
     }
-    void* ptr = g_heap_ptr;
-    g_heap_ptr += size;
+
+    void* ptr = heap_ptr;
+    heap_ptr = next;
     return ptr;
 }
 
