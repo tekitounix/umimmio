@@ -44,6 +44,7 @@ When planning (before any implementation):
 | **Member variables** | No prefix/suffix. NO `m_`, NO `_` suffix. Use `this->` if needed |
 | **Pointers/references** | Left-aligned: `int* ptr` ✓ — `int *ptr` ✗ |
 | **Error handling** | Prefer `Result<T>` or error codes. Avoid exceptions in kernel/audio paths. |
+| **constexpr** | `constexpr` only — do NOT add redundant `inline` (C++17以降は暗黙的にinline) |
 
 ### Real-time Safety (process() / audio callbacks)
 
