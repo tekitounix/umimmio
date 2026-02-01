@@ -294,19 +294,34 @@ BlockDeviceLike concept と StorageService テンプレートは定義済み。*
 
 リクエストを StorageService キューに投入、notify(FS) で応答。
 
-#### Step 7-3: littlefs 移植実装
+#### Step 7-3: littlefs 移植実装 ✅ 実装済み
 
-`.refs/` に littlefs 元リポジトリをクローンし、参照しながらプロジェクトスタイル（C++23、命名規則、エラー処理）に合わせて移植実装する。
+`.refs/littlefs/` の lfs.c (6549行) を C++23 に忠実移植。COW、CTZスキップリスト、メタデータペアのアルゴリズムはそのまま維持。LFS_NO_MALLOC（ユーザ提供バッファ必須）、LFS_MIGRATE 除外。
 
-**ファイル:** `lib/umios/fs/littlefs/` (新規ディレクトリ)
+**ファイル:** `lib/umios/fs/littlefs/`
+- `lfs_types.hh` — enum class (LfsError, LfsType, LfsOpenFlags, LfsWhence)、構造体定義
+- `lfs_util.hh` — CRC32テーブル、ビット演算、エンディアン変換ユーティリティ
+- `lfs_config.hh` — LfsConfig 構造体 + `make_lfs_config<T>()` テンプレート
+- `lfs.hh` — Lfs クラス宣言（format/mount/file_*/dir_* 等の全API）
+- `lfs.cc` — ~6164行の忠実な C++23 移植
+
+**テスト:** `tests/test_littlefs.cc` — RAMブロックデバイス上で 25/25 チェック通過
 
 **参照元:** `.refs/littlefs/` (git clone)
 
-#### Step 7-4: FATfs 移植実装
+#### Step 7-4: FATfs 移植実装 ✅ 実装済み
 
-同様に `.refs/` に FATfs 元コードを配置し、参照しながら移植。
+`.refs/fatfs/source/` の ff.c (7249行) を C++23 に移植。FAT12/16/32 対応、exFAT 除外 (FF_FS_EXFAT=0)。LFN対応 (FF_USE_LFN=1、BSS上スタティックバッファ)、CP437のみ。
 
-**ファイル:** `lib/umios/fs/fatfs/` (新規ディレクトリ)
+**ファイル:** `lib/umios/fs/fatfs/`
+- `ff_types.hh` — FatResult enum class、FatFsVolume/FatFile/FatDir/FatFileInfo 構造体
+- `ff_config.hh` — `namespace umi::fs::fat::config` 内の constexpr 設定値
+- `ff_diskio.hh` — DiskIo 構造体 + `make_diskio<T>()` テンプレート
+- `ff_unicode.hh` / `ff_unicode.cc` — CP437 OEM⇔Unicode 変換テーブル
+- `ff.hh` — FatFs クラス宣言（mount/open/read/write/mkdir/unlink 等）
+- `ff.cc` — ~2300行の忠実な C++23 移植
+
+**テスト:** `tests/test_fatfs.cc` — RAMブロックデバイス上で FAT16イメージを手動作成、18/18 チェック通過
 
 **参照元:** `.refs/fatfs/` (元コード配置)
 
