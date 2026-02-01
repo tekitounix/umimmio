@@ -32,7 +32,7 @@ struct SharedMemory {
     std::atomic<uint32_t> event_read_idx;                      // 4B
 
     // === パラメータ状態 ===
-    SharedParamState params;                                    // 164B
+    SharedParamState params;                                    // 136B
 
     // === MIDI チャンネル状態 ===
     SharedChannelState channel;                                 // 64B
@@ -52,7 +52,7 @@ struct SharedMemory {
 ```
 
 > **旧ドキュメントとの差異**:
-> - 07-memory.md にあったフラットな `std::atomic<float> params[MAX_PARAMS]` (128B) は `SharedParamState` (164B) に置換。`changed_flags` と `version` を含む正式な構造体を使用する
+> - 07-memory.md にあったフラットな `std::atomic<float> params[MAX_PARAMS]` (128B) は `SharedParamState` (136B) に置換。`changed_flags` と `version` を含む正式な構造体を使用する
 > - `button_pressed`, `button_current` 等のフラットフィールドは `SharedInputState` に集約すべきだが、レガシー互換のため当面維持する
 > - 各内包構造体の正式定義は本章で行い、他章は抜粋のみ記載する
 
@@ -68,7 +68,7 @@ struct SharedParamState {
     uint32_t changed_flags;     // 変更フラグ（ビット i = values[i] が変化）
     uint32_t version;           // 更新カウンタ（毎ブロック先頭でインクリメント）
 };
-// sizeof = 164B (128 + 4 + 4 + パディング)
+// sizeof = 136B (128 + 4 + 4)
 ```
 
 - `values[]` は ParamDescriptor の `denormalize()` 適用後の実値が格納される
