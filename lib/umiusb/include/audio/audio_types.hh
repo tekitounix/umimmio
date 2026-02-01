@@ -695,4 +695,25 @@ inline constexpr uint8_t IP_VERSION_02_00 = 0x20;
 
 } // namespace uac
 
+// ============================================================================
+// MIDI Port Configuration
+// ============================================================================
+
+/// MIDI port configuration (for IN or OUT)
+template <uint8_t Cables_, uint8_t Endpoint_, uint16_t PacketSize_ = 64>
+struct MidiPort {
+    static constexpr bool ENABLED = true;
+    static constexpr uint8_t CABLES = Cables_;
+    static constexpr uint8_t ENDPOINT = Endpoint_;
+    static constexpr uint16_t PACKET_SIZE = PacketSize_;
+};
+
+/// Disabled MIDI port
+struct NoMidiPort {
+    static constexpr bool ENABLED = false;
+    static constexpr uint8_t CABLES = 0;
+    static constexpr uint8_t ENDPOINT = 0;
+    static constexpr uint16_t PACKET_SIZE = 0;
+};
+
 } // namespace umiusb

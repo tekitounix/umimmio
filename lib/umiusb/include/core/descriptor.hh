@@ -331,6 +331,84 @@ constexpr auto MsBulkEndpointMulti(JackIds... jack_ids) {
                  static_cast<uint8_t>(jack_ids)...);
 }
 
+// UAC2 AC descriptor subtypes
+namespace ac2 {
+    inline constexpr uint8_t Header = 0x01;
+    inline constexpr uint8_t InputTerminal = 0x02;
+    inline constexpr uint8_t OutputTerminal = 0x03;
+    inline constexpr uint8_t MixerUnit = 0x04;
+    inline constexpr uint8_t SelectorUnit = 0x05;
+    inline constexpr uint8_t FeatureUnit = 0x06;
+    inline constexpr uint8_t EffectUnit = 0x07;
+    inline constexpr uint8_t ProcessingUnit = 0x08;
+    inline constexpr uint8_t ExtensionUnit = 0x09;
+    inline constexpr uint8_t ClockSource = 0x0A;
+    inline constexpr uint8_t ClockSelector = 0x0B;
+    inline constexpr uint8_t ClockMultiplier = 0x0C;
+    inline constexpr uint8_t SampleRateConverter = 0x0D;
+}
+
+// UAC2 Feature Unit control bit positions (bmControls, 4-byte per channel)
+namespace fu_ctrl {
+    inline constexpr uint32_t Mute       = 0x00000003;  // D1..0
+    inline constexpr uint32_t Volume     = 0x0000000C;  // D3..2
+    inline constexpr uint32_t Bass       = 0x00000030;  // D5..4
+    inline constexpr uint32_t Mid        = 0x000000C0;  // D7..6
+    inline constexpr uint32_t Treble     = 0x00000300;  // D9..8
+    inline constexpr uint32_t GraphicEq  = 0x00000C00;  // D11..10
+    inline constexpr uint32_t Agc        = 0x00003000;  // D13..12
+    inline constexpr uint32_t Delay      = 0x0000C000;  // D15..14
+    inline constexpr uint32_t BassBoost  = 0x00030000;  // D17..16
+    inline constexpr uint32_t Loudness   = 0x000C0000;  // D19..18
+    inline constexpr uint32_t InputGain  = 0x00300000;  // D21..20
+    inline constexpr uint32_t InputGainPad = 0x00C00000; // D23..22
+    inline constexpr uint32_t PhaseInverter = 0x03000000; // D25..24
+    inline constexpr uint32_t Underflow  = 0x0C000000;  // D27..26
+    inline constexpr uint32_t Overflow   = 0x30000000;  // D29..28
+}
+
+/// UAC2 Feature Unit descriptor (variable-length, up to MaxCh channels)
+/// @param unit_id Feature Unit ID
+/// @param source_id Source entity ID
+/// @param controls_master bmaControls(0) — master channel
+/// @param controls_ch1 bmaControls(1) — channel 1
+/// @param controls_ch2 bmaControls(2) — channel 2 (optional, set 0 for mono)
+/// @param string_idx iFeature
+template<uint8_t NumChannels = 2>
+constexpr auto Uac2FeatureUnit(uint8_t unit_id, uint8_t source_id,
+                                uint32_t controls_master,
+                                uint32_t controls_ch1,
+                                uint32_t controls_ch2 = 0,
+                                uint8_t string_idx = 0) {
+    // bLength = 6 + (NumChannels + 1) * 4
+    constexpr uint8_t len = 6 + (NumChannels + 1) * 4;
+
+    Bytes<len> result{};
+    result[0] = len;
+    result[1] = dtype::CsInterface;
+    result[2] = ac2::FeatureUnit;
+    result[3] = unit_id;
+    result[4] = source_id;
+
+    // bmaControls(0) — master
+    std::size_t pos = 5;
+    auto write32 = [&](uint32_t v) {
+        result[pos++] = static_cast<uint8_t>(v & 0xFF);
+        result[pos++] = static_cast<uint8_t>((v >> 8) & 0xFF);
+        result[pos++] = static_cast<uint8_t>((v >> 16) & 0xFF);
+        result[pos++] = static_cast<uint8_t>((v >> 24) & 0xFF);
+    };
+
+    write32(controls_master);
+    write32(controls_ch1);
+    if constexpr (NumChannels >= 2) {
+        write32(controls_ch2);
+    }
+
+    result[pos] = string_idx;
+    return result;
+}
+
 }  // namespace audio
 
 // ============================================================================
@@ -461,6 +539,61 @@ constexpr auto RegistryPropertyGuid(const char (&guid)[N]) {
 }
 
 }  // namespace winusb
+
+// ============================================================================
+// WebUSB Descriptors
+// ============================================================================
+
+namespace webusb {
+
+// WebUSB Platform Capability UUID: {3408b638-09a9-47a0-8bfd-a0768815b665}
+constexpr auto WebUsbPlatformCapabilityUuid() {
+    return bytes(
+        0x38, 0xB6, 0x08, 0x34,  // DWORD (little-endian)
+        0xA9, 0x09,              // WORD
+        0xA0, 0x47,              // WORD
+        0x8B, 0xFD,              // 2 bytes
+        0xA0, 0x76, 0x88, 0x15, 0xB6, 0x65  // 6 bytes
+    );
+}
+
+// URL scheme prefixes
+inline constexpr uint8_t SCHEME_HTTP = 0;
+inline constexpr uint8_t SCHEME_HTTPS = 1;
+
+// WebUSB descriptor types
+inline constexpr uint8_t WEBUSB_URL = 3;
+
+/// WebUSB Platform Capability descriptor (for BOS)
+/// @param vendor_code Vendor request code for WebUSB requests
+/// @param landing_page_idx URL descriptor index for landing page (0 = none)
+constexpr auto PlatformCapability(uint8_t vendor_code, uint8_t landing_page_idx = 1) {
+    return bytes(24, dtype::DeviceCapability, 0x05) +  // 0x05 = Platform capability
+           bytes(0x00) +  // bReserved
+           WebUsbPlatformCapabilityUuid() +
+           le16(0x0100) +  // bcdVersion 1.0
+           bytes(vendor_code, landing_page_idx);
+}
+
+/// WebUSB URL descriptor
+/// @param scheme SCHEME_HTTP or SCHEME_HTTPS
+/// @param url URL string (without scheme prefix)
+template<std::size_t N>
+constexpr auto UrlDescriptor(uint8_t scheme, const char (&url)[N]) {
+    constexpr std::size_t url_len = N - 1;
+    constexpr std::size_t desc_len = 3 + url_len;
+
+    Bytes<desc_len> result{};
+    result[0] = static_cast<uint8_t>(desc_len);
+    result[1] = WEBUSB_URL;
+    result[2] = scheme;
+    for (std::size_t i = 0; i < url_len; ++i) {
+        result[3 + i] = static_cast<uint8_t>(url[i]);
+    }
+    return result;
+}
+
+}  // namespace webusb
 
 // ============================================================================
 // Configuration Builder
