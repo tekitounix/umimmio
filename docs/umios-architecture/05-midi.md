@@ -3,7 +3,7 @@
 ## 原則
 
 1. **UMP32 が内部表現** — 全トランスポートの出力先は UMP32 ベース
-2. **OS パーサは最小限** — トランスポート層の `StreamParser` はバイト→UMP32 変換のみ。メッセージの意味を解釈しない
+2. **OS パーサは最小限** — トランスポート層は `umidi::Parser` でバイト→UMP32 変換のみ。メッセージの意味を解釈しない
 3. **umidi はアプリ向け** — `umidi::Decoder` のテンプレート型システムはアプリ側（ROUTE_CONTROL_RAW 等）で使用
 4. **アダプタは薄く** — 各トランスポート固有のグルーコードのみ
 5. **リアルタイム安全** — アダプタ・パーサ・キュー全てヒープ不使用、ロックフリー
@@ -48,7 +48,7 @@ callback          1kHz poll
     │                 │                 │
     ▼                 ▼                 ▼
 ┌─────────────────────────────────────────────┐
-│  StreamParser (バイトストリーム → UMP32)     │
+│  umidi::Parser (バイトストリーム → UMP32)    │
 │  ※ 各トランスポートがインスタンスを持つ      │
 └─────────────────────────────────────────────┘
     │                 │                 │
@@ -56,42 +56,48 @@ callback          1kHz poll
     RawInputQueue (hw_timestamp 付き)
 ```
 
-### StreamParser — OS 内部パーサ
+### umidi::Parser — OS 内部パーサ
 
-トランスポート層が使用する軽量パーサ。MIDI 1.0 バイトストリームを UMP32 に変換するだけで、メッセージの種類を解釈しない。
+トランスポート層が使用する軽量パーサ。MIDI 1.0 バイトストリームを UMP32 に変換するだけで、メッセージの種類を解釈しない。`umidi::Parser`（`lib/umidi/include/core/parser.hh`）がこの役割を担う。
 
 ```cpp
 namespace umidi {
 
-class StreamParser {  // sizeof ≈ 5B
+class Parser {  // sizeof = 7B
 public:
     // 1バイト入力。完全なメッセージが揃ったら true を返し out に UMP32 を格納する。
-    // Running Status 対応。SysEx はステータスバイトのみ通知（本体は別経路）。
-    bool feed(uint8_t byte, UMP32& out) noexcept;
+    // SysEx (0xF0/0xF7) は状態リセットのみ（本体は別経路）。
+    bool parse(uint8_t byte, UMP32& out) noexcept;
+
+    // Running Status 対応版。前回のステータスバイトを再利用する。
+    bool parse_running(uint8_t byte, UMP32& out) noexcept;
+
+    void reset() noexcept;
+    uint8_t running_status() const noexcept;
 
 private:
-    uint8_t status = 0;       // Running Status
-    uint8_t data[2]{};
-    uint8_t count = 0;
-    uint8_t expected = 0;
+    uint32_t partial_ = 0;
+    uint8_t running_status_ = 0;
+    uint8_t count_ = 0;
+    bool is_2byte_ = false;
 };
 
 } // namespace umidi
 ```
 
-ステータスバイトの上位ニブルからデータバイト数（1 or 2）を判定し、揃ったら UMP32 にパックする。メッセージ型ごとの分岐がないため、コードサイズは数十行・100〜200B 程度。
+ステータスバイトの上位ニブルからデータバイト数（1 or 2）を判定し、揃ったら UMP32 にパックする。リアルタイムメッセージ（≥0xF8）はパース状態を変更せず即座に返す。コードサイズは数十行・100〜200B 程度。
 
-### StreamParser と umidi::Decoder の棲み分け
+### umidi::Parser と umidi::Decoder の棲み分け
 
-| | StreamParser | umidi::Decoder |
+| | umidi::Parser | umidi::Decoder |
 |---|---|---|
 | 用途 | OS トランスポート層（EventRouter 前段） | アプリ側の MIDI 処理 |
 | 機能 | バイト→UMP32 変換のみ | メッセージ型の解釈、型安全な CC、コールバック |
 | メッセージ選択 | 全メッセージをパース（RouteTable が実行時に変わるため） | テンプレートで対象メッセージをコンパイル時に選択 |
 | コードサイズ | ~200B | テンプレート展開に依存（SynthDecoder: 小、FullDecoder: 大） |
-| 配置 | OS（カーネル） | アプリ（ユーザスペース） |
+| 配置 | OS（カーネル）およびアプリ | アプリ（ユーザスペース） |
 
-EventRouter は RouteTable を実行時に書き換え可能（MIDI Learn 等）なため、パース時点では何が必要か分からない。よって OS 側パーサは全メッセージ対応が必須だが、メッセージの意味を知る必要がないので StreamParser で十分である。
+EventRouter は RouteTable を実行時に書き換え可能（MIDI Learn 等）なため、パース時点では何が必要か分からない。よって OS 側パーサは全メッセージ対応が必須だが、メッセージの意味を知る必要がないので `umidi::Parser` で十分である。
 
 umidi::Decoder のテンプレート型システム（`SynthDecoder<NoteOn, NoteOff>` 等）は、アプリが `ROUTE_CONTROL_RAW` で受け取った UMP32 を解釈する場合や、OS を使わないスタンドアロン用途で活きる。
 
@@ -121,14 +127,14 @@ public:
         auto ts = os::timer::now_us();  // OS 内部タイマー直接参照
         for (uint8_t i = 0; i < len; ++i) {
             UMP32 ump;
-            if (parser.feed(data[i], ump)) {
+            if (parser.parse(data[i], ump)) {
                 raw_input_queue->push({ts, source_id, ump});
             }
         }
     }
 
 private:
-    StreamParser parser{};
+    umidi::Parser parser{};
     RawInputQueue* raw_input_queue = nullptr;
     uint8_t source_id = 0;
     bool connected = false;
@@ -148,7 +154,7 @@ public:
         uint16_t write_pos = buf_size - *dma_ndtr;
         while (read_pos != write_pos) {
             UMP32 ump;
-            if (parser.feed(dma_buf[read_pos], ump)) {
+            if (parser.parse(dma_buf[read_pos], ump)) {
                 raw_input_queue->push({ts, source_id, ump});
             }
             read_pos = (read_pos + 1) % buf_size;
@@ -160,7 +166,7 @@ public:
     }
 
 private:
-    StreamParser parser{};
+    umidi::Parser parser{};
     RawInputQueue* raw_input_queue = nullptr;
     const uint8_t* dma_buf = nullptr;
     volatile uint16_t* dma_ndtr = nullptr;
