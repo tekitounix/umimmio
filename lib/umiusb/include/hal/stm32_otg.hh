@@ -1160,7 +1160,15 @@ class Stm32OtgHal : public HalBase<Stm32OtgHal<BaseAddr, MaxEndpoints>> {
 };
 
 // Type aliases for common configurations
-using Stm32FsHal = Stm32OtgHal<0x50000000, 4>; // USB OTG FS
-// using Stm32HsHal = Stm32OtgHal<0x40040000, 6>;  // USB OTG HS (future)
+using Stm32FsHal = Stm32OtgHal<0x50000000, 4>;  // USB OTG FS: EP0-3, internal PHY
+using Stm32HsHal = Stm32OtgHal<0x40040000, 6>;  // USB OTG HS: EP0-5, ULPI or internal PHY
+
+// Note: Stm32HsHal requires additional initialization for ULPI PHY:
+//   1. Enable GPIOA/B/C/H clocks for ULPI pins
+//   2. Configure ULPI pins as alternate function
+//   3. Set GUSBCFG: ULPI_UTMI_SEL=1, PHYIF=0 (8-bit), ULPIFSLS=0 (HS)
+//   4. Larger FIFO allocation (HS has 4096 bytes vs FS 1280 bytes)
+// When used with internal FS PHY on HS peripheral:
+//   Set GUSBCFG: PHYSEL=1, then configure as FS
 
 } // namespace umiusb
