@@ -194,12 +194,13 @@ SystemTask (次の wait_block 復帰時)
 Fault の種類に応じた LED パターンで視覚的にエラーを通知する:
 
 ```cpp
-enum class ErrorLedPattern {
-    StackOverflow,        // Red 1 回点滅
-    AccessViolation,      // Red 2 回点滅
-    InvalidInstruction,   // Red 3 回点滅
-    BusFault,             // Red 4 回点滅
-    Unknown,              // Red 高速点滅
+enum class ErrorLedPattern : uint8_t {
+    NONE = 0,             // Fault なし
+    STACK_OVERFLOW,       // Red 1 回点滅
+    ACCESS_VIOLATION,     // Red 2 回点滅
+    INVALID_INSTRUCTION,  // Red 3 回点滅
+    BUS_FAULT,            // Red 4 回点滅
+    UNKNOWN,              // Red 高速点滅
 };
 ```
 

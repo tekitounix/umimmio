@@ -131,12 +131,12 @@ enum class SyscallError : int32_t {
 ```cpp
 namespace umi::syscall::event {
 
-constexpr uint32_t Audio    = (1 << 0);   // オーディオバッファ準備完了
-constexpr uint32_t Midi     = (1 << 1);   // MIDI データ利用可能
-constexpr uint32_t VSync    = (1 << 2);   // ディスプレイリフレッシュ
-constexpr uint32_t Timer    = (1 << 3);   // タイマーティック
-constexpr uint32_t Control  = (1 << 4);   // ControlEvent 到着
-constexpr uint32_t Shutdown = (1 << 31);  // シャットダウン要求
+constexpr uint32_t audio    = (1 << 0);   // オーディオバッファ準備完了
+constexpr uint32_t midi     = (1 << 1);   // MIDI データ利用可能
+constexpr uint32_t vsync    = (1 << 2);   // ディスプレイリフレッシュ
+constexpr uint32_t timer    = (1 << 3);   // タイマーティック
+constexpr uint32_t control  = (1 << 4);   // ControlEvent 到着
+constexpr uint32_t shutdown = (1u << 31); // シャットダウン要求
 
 } // namespace umi::syscall::event
 ```
