@@ -344,6 +344,11 @@ struct SharedMemory {
     }
 };
 
+// SharedMemory must fit within the SHARED region (16KB)
+// See: docs/umios-architecture/07-memory.md
+static_assert(sizeof(SharedMemory) <= 16 * 1024,
+              "SharedMemory exceeds 16KB SHARED region");
+
 // ============================================================================
 // CRC32 Utility
 // ============================================================================
