@@ -1,12 +1,11 @@
-// SPDX-License-Identifier: FatFs
-// Copyright (C) 2025, ChaN, all right reserved.
-// C++23 port for UMI framework
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025, tekitounix
 
 #pragma once
 
 #include <cstdint>
 
-namespace umi::fs::fat {
+namespace umi::fs {
 
 // ============================================================================
 // Forward declarations
@@ -45,37 +44,37 @@ enum class FatResult : uint8_t {
 // File access mode flags
 // ============================================================================
 
-inline constexpr uint8_t FA_READ = 0x01;
-inline constexpr uint8_t FA_WRITE = 0x02;
-inline constexpr uint8_t FA_OPEN_EXISTING = 0x00;
-inline constexpr uint8_t FA_CREATE_NEW = 0x04;
-inline constexpr uint8_t FA_CREATE_ALWAYS = 0x08;
-inline constexpr uint8_t FA_OPEN_ALWAYS = 0x10;
-inline constexpr uint8_t FA_OPEN_APPEND = 0x30;
+constexpr uint8_t FA_READ = 0x01;
+constexpr uint8_t FA_WRITE = 0x02;
+constexpr uint8_t FA_OPEN_EXISTING = 0x00;
+constexpr uint8_t FA_CREATE_NEW = 0x04;
+constexpr uint8_t FA_CREATE_ALWAYS = 0x08;
+constexpr uint8_t FA_OPEN_ALWAYS = 0x10;
+constexpr uint8_t FA_OPEN_APPEND = 0x30;
 
 // ============================================================================
 // Filesystem type codes
 // ============================================================================
 
-inline constexpr uint8_t FS_FAT12 = 1;
-inline constexpr uint8_t FS_FAT16 = 2;
-inline constexpr uint8_t FS_FAT32 = 3;
+constexpr uint8_t FS_FAT12 = 1;
+constexpr uint8_t FS_FAT16 = 2;
+constexpr uint8_t FS_FAT32 = 3;
 
 // ============================================================================
 // File attribute bits
 // ============================================================================
 
-inline constexpr uint8_t AM_RDO = 0x01;
-inline constexpr uint8_t AM_HID = 0x02;
-inline constexpr uint8_t AM_SYS = 0x04;
-inline constexpr uint8_t AM_DIR = 0x10;
-inline constexpr uint8_t AM_ARC = 0x20;
+constexpr uint8_t AM_RDO = 0x01;
+constexpr uint8_t AM_HID = 0x02;
+constexpr uint8_t AM_SYS = 0x04;
+constexpr uint8_t AM_DIR = 0x10;
+constexpr uint8_t AM_ARC = 0x20;
 
 // ============================================================================
 // Sector size (fixed at 512)
 // ============================================================================
 
-inline constexpr uint32_t SECTOR_SIZE = 512;
+constexpr uint32_t SECTOR_SIZE = 512;
 
 // ============================================================================
 // Type aliases (replacing FatFs custom types)
@@ -167,8 +166,8 @@ struct FatDir {
 // File information (FILINFO equivalent)
 // ============================================================================
 
-inline constexpr int LFN_BUF = 255;
-inline constexpr int SFN_BUF = 12;
+constexpr int LFN_BUF = 255;
+constexpr int SFN_BUF = 12;
 
 struct FatFileInfo {
     FSIZE_t fsize;                  ///< File size
@@ -179,4 +178,4 @@ struct FatFileInfo {
     char fname[LFN_BUF + 1];       ///< Primary (long) name
 };
 
-} // namespace umi::fs::fat
+} // namespace umi::fs

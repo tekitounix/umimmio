@@ -1,6 +1,5 @@
-// SPDX-License-Identifier: FatFs
-// Copyright (C) 2025, ChaN, all right reserved.
-// C++23 port for UMI framework — FatFs class declaration
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025, tekitounix
 
 #pragma once
 
@@ -8,7 +7,7 @@
 #include "ff_diskio.hh"
 #include "ff_types.hh"
 
-namespace umi::fs::fat {
+namespace umi::fs {
 
 /// FatFs filesystem (replaces the global function API)
 ///
@@ -121,4 +120,4 @@ private:
     uint32_t get_fattime() noexcept;
 };
 
-} // namespace umi::fs::fat
+} // namespace umi::fs

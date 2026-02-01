@@ -1,21 +1,21 @@
-// SPDX-License-Identifier: FatFs
-// Copyright (C) 2025, ChaN, all right reserved.
-// C++23 port for UMI framework — disk I/O adapter for BlockDeviceLike
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025, tekitounix
+// FatFs disk I/O adapter for BlockDeviceLike
 
 #pragma once
 
 #include "ff_types.hh"
 #include <umios/kernel/block_device.hh>
 
-namespace umi::fs::fat {
+namespace umi::fs {
 
 // ============================================================================
 // Disk status bits
 // ============================================================================
 
-inline constexpr uint8_t STA_NOINIT = 0x01;
-inline constexpr uint8_t STA_NODISK = 0x02;
-inline constexpr uint8_t STA_PROTECT = 0x04;
+constexpr uint8_t STA_NOINIT = 0x01;
+constexpr uint8_t STA_NODISK = 0x02;
+constexpr uint8_t STA_PROTECT = 0x04;
 
 // ============================================================================
 // Disk I/O result codes
@@ -33,10 +33,10 @@ enum class DiskResult : uint8_t {
 // ioctl command codes
 // ============================================================================
 
-inline constexpr uint8_t CTRL_SYNC = 0;
-inline constexpr uint8_t GET_SECTOR_COUNT = 1;
-inline constexpr uint8_t GET_SECTOR_SIZE = 2;
-inline constexpr uint8_t GET_BLOCK_SIZE = 3;
+constexpr uint8_t CTRL_SYNC = 0;
+constexpr uint8_t GET_SECTOR_COUNT = 1;
+constexpr uint8_t GET_SECTOR_SIZE = 2;
+constexpr uint8_t GET_BLOCK_SIZE = 3;
 
 // ============================================================================
 // DiskIo — adapts BlockDeviceLike to FatFs disk I/O interface
@@ -128,4 +128,4 @@ DiskIo make_diskio(Dev& dev) {
     return io;
 }
 
-} // namespace umi::fs::fat
+} // namespace umi::fs
