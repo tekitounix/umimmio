@@ -3,7 +3,8 @@
 // C++23 port for UMI framework
 //
 // Faithfully ported from FatFs R0.15 ff.c by ChaN.
-// Configuration: FF_USE_LFN=1 (static BSS), FF_LFN_UNICODE=0 (ANSI/OEM),
+// Optimized C++23 port with configurable LFN support (config::USE_LFN).
+// LFN code is eliminated at compile-time when USE_LFN=0 via if constexpr.
 //   FF_FS_EXFAT=0, FF_FS_READONLY=0, FF_FS_MINIMIZE=0, FF_FS_RPATH=0,
 //   FF_USE_MKFS=0, FF_USE_STRFUNC=0, FF_USE_FIND=0, FF_USE_CHMOD=0,
 //   FF_USE_LABEL=0, FF_USE_EXPAND=0, FF_USE_FORWARD=0, FF_FS_LOCK=0,
@@ -15,7 +16,7 @@
 
 #include <cstring>
 
-namespace umi::fs::fat {
+namespace umi::fs {
 
 // ============================================================================
 // Internal constants (from ff.c)
@@ -154,7 +155,8 @@ static inline bool dbc_1st(uint8_t /*c*/) { return false; }
 [[maybe_unused]] static inline bool dbc_2nd(uint8_t /*c*/) { return false; }
 
 // tchar2uni: get a Unicode character from a TCHAR string (ANSI/OEM input, CP437)
-static uint32_t tchar2uni(const char** str) {
+// Only used by LFN create_name path
+[[maybe_unused]] static inline uint32_t tchar2uni(const char** str) {
     uint32_t uc;
     uc = static_cast<uint8_t>(*(*str)++);
     if (uc >= 0x80) {
@@ -165,7 +167,8 @@ static uint32_t tchar2uni(const char** str) {
 }
 
 // put_utf: store a Unicode character into a TCHAR string (ANSI/OEM output, CP437)
-static uint32_t put_utf(uint32_t chr, char* buf, uint32_t szb) {
+// Only used by LFN get_fileinfo path
+[[maybe_unused]] static inline uint32_t put_utf(uint32_t chr, char* buf, uint32_t szb) {
     uint16_t wc;
     if (chr < 0x80) {
         if (szb < 1) return 0;
@@ -261,7 +264,11 @@ FatResult FatFs::sync_window(FatFsVolume* fs) noexcept {
             fs->wflag = 0;
             if (fs->winsect - fs->fatbase < fs->fsize) {
                 // In FAT area — mirror to second FAT
-                if (fs->n_fats == 2) disk_write(fs->pdrv, fs->win, fs->winsect + fs->fsize, 1);
+                if (fs->n_fats == 2) {
+                    if (disk_write(fs->pdrv, fs->win, fs->winsect + fs->fsize, 1) != DiskResult::OK) {
+                        res = FatResult::DISK_ERR;
+                    }
+                }
             }
         } else {
             res = FatResult::DISK_ERR;
@@ -302,8 +309,11 @@ FatResult FatFs::sync_fs(FatFsVolume* fs) noexcept {
             st_32(fs->win + FSI_Nxt_Free, fs->last_clst);
             st_32(fs->win + FSI_TrailSig, 0xAA550000);
             fs->winsect = fs->volbase + 1;
-            disk_write(fs->pdrv, fs->win, fs->winsect, 1);
-            fs->fsi_flag = 0;
+            if (disk_write(fs->pdrv, fs->win, fs->winsect, 1) != DiskResult::OK) {
+                res = FatResult::DISK_ERR;
+            } else {
+                fs->fsi_flag = 0;
+            }
         }
         // Make sure the disk is up to date
         if (disk_ioctl(fs->pdrv, CTRL_SYNC, nullptr) != DiskResult::OK) {
@@ -338,19 +348,19 @@ uint32_t FatFs::get_fat(FatObjId* obj, uint32_t clst) noexcept {
         uint32_t bc = clst;
         bc += bc / 2;
         if (move_window(fs, fs->fatbase + (bc / SS_VAL)) != FatResult::OK) return 0xFFFFFFFF;
-        auto wc = fs->win[bc++ % SS_VAL];
+        auto wc = fs->win[bc++ & (SS_VAL - 1)];
         if (move_window(fs, fs->fatbase + (bc / SS_VAL)) != FatResult::OK) return 0xFFFFFFFF;
-        wc |= static_cast<uint32_t>(fs->win[bc % SS_VAL]) << 8;
+        wc |= static_cast<uint32_t>(fs->win[bc & (SS_VAL - 1)]) << 8;
         val = (clst & 1) ? (wc >> 4) : (wc & 0xFFF);
         break;
     }
     case FS_FAT16:
         if (move_window(fs, fs->fatbase + (clst / (SS_VAL / 2))) != FatResult::OK) return 0xFFFFFFFF;
-        val = ld_16(fs->win + clst * 2 % SS_VAL);
+        val = ld_16(fs->win + (clst * 2 & (SS_VAL - 1)));
         break;
     case FS_FAT32:
         if (move_window(fs, fs->fatbase + (clst / (SS_VAL / 4))) != FatResult::OK) return 0xFFFFFFFF;
-        val = ld_32(fs->win + clst * 4 % SS_VAL) & 0x0FFFFFFF;
+        val = ld_32(fs->win + (clst * 4 & (SS_VAL - 1))) & 0x0FFFFFFF;
         break;
     default:
         val = 1; // Internal error
@@ -369,12 +379,12 @@ FatResult FatFs::put_fat(FatFsVolume* fs, uint32_t clst, uint32_t val) noexcept 
             bc += bc / 2;
             res = move_window(fs, fs->fatbase + (bc / SS_VAL));
             if (res != FatResult::OK) break;
-            auto* p = &fs->win[bc++ % SS_VAL];
+            auto* p = &fs->win[bc++ & (SS_VAL - 1)];
             *p = (clst & 1) ? static_cast<uint8_t>((*p & 0x0F) | ((val << 4) & 0xF0)) : static_cast<uint8_t>(val);
             fs->wflag = 1;
             res = move_window(fs, fs->fatbase + (bc / SS_VAL));
             if (res != FatResult::OK) break;
-            p = &fs->win[bc % SS_VAL];
+            p = &fs->win[bc & (SS_VAL - 1)];
             *p = (clst & 1) ? static_cast<uint8_t>(val >> 4)
                             : static_cast<uint8_t>((*p & 0xF0) | ((val >> 8) & 0x0F));
             fs->wflag = 1;
@@ -383,14 +393,14 @@ FatResult FatFs::put_fat(FatFsVolume* fs, uint32_t clst, uint32_t val) noexcept 
         case FS_FAT16:
             res = move_window(fs, fs->fatbase + (clst / (SS_VAL / 2)));
             if (res != FatResult::OK) break;
-            st_16(fs->win + clst * 2 % SS_VAL, static_cast<uint16_t>(val));
+            st_16(fs->win + (clst * 2 & (SS_VAL - 1)), static_cast<uint16_t>(val));
             fs->wflag = 1;
             break;
         case FS_FAT32:
             res = move_window(fs, fs->fatbase + (clst / (SS_VAL / 4)));
             if (res != FatResult::OK) break;
-            val = (val & 0x0FFFFFFF) | (ld_32(fs->win + clst * 4 % SS_VAL) & 0xF0000000);
-            st_32(fs->win + clst * 4 % SS_VAL, val);
+            val = (val & 0x0FFFFFFF) | (ld_32(fs->win + (clst * 4 & (SS_VAL - 1))) & 0xF0000000);
+            st_32(fs->win + (clst * 4 & (SS_VAL - 1)), val);
             fs->wflag = 1;
             break;
         default:
@@ -418,7 +428,11 @@ FatResult FatFs::remove_chain(FatObjId* obj, uint32_t clst, uint32_t pclst) noex
         if (res != FatResult::OK) return res;
     }
 
+    uint32_t chain_limit = fs->n_fatent;  // circular chain guard
     do {
+        if (--chain_limit == 0) {
+            return FatResult::INT_ERR;  // circular chain detected
+        }
         nxt = get_fat(obj, clst);
         if (nxt == 0) break;
         if (nxt == 1) return FatResult::INT_ERR;
@@ -565,7 +579,11 @@ FatResult FatFs::dir_sdi(FatDir* dp, uint32_t ofs) noexcept {
     } else {
         // Dynamic table (sub-directory or FAT32 root)
         csz = static_cast<uint32_t>(fs->csize) * SS_VAL;
+        uint32_t chain_limit = fs->n_fatent;  // circular chain guard
         while (ofs >= csz) {
+            if (--chain_limit == 0) {
+                return FatResult::INT_ERR;
+            }
             clst = get_fat(&dp->obj, clst);
             if (clst == 0xFFFFFFFF) return FatResult::DISK_ERR;
             if (clst < 2 || clst >= fs->n_fatent) return FatResult::INT_ERR;
@@ -576,7 +594,7 @@ FatResult FatFs::dir_sdi(FatDir* dp, uint32_t ofs) noexcept {
     dp->clust = clst;
     if (dp->sect == 0) return FatResult::INT_ERR;
     dp->sect += ofs / SS_VAL;
-    dp->dir = fs->win + (ofs % SS_VAL);
+    dp->dir = fs->win + (ofs & (SS_VAL - 1));
     return FatResult::OK;
 }
 
@@ -589,7 +607,7 @@ FatResult FatFs::dir_next(FatDir* dp, int stretch) noexcept {
         dp->sect = 0;
         return FatResult::NO_FILE;
     }
-    if ((ofs % SS_VAL) == 0) {
+    if ((ofs & (SS_VAL - 1)) == 0) {
         dp->sect++;
         if (dp->clust == 0) {
             // Static root directory
@@ -620,7 +638,7 @@ FatResult FatFs::dir_next(FatDir* dp, int stretch) noexcept {
         }
     }
     dp->dptr = ofs;
-    dp->dir = fs->win + ofs % SS_VAL;
+    dp->dir = fs->win + (ofs & (SS_VAL - 1));
     return FatResult::OK;
 }
 
@@ -648,7 +666,7 @@ FatResult FatFs::dir_alloc(FatDir* dp, uint32_t n_ent) noexcept {
 }
 
 // ============================================================================
-// LFN helpers (FF_USE_LFN == 1)
+// LFN helpers (config::USE_LFN > 0)
 // ============================================================================
 
 // LFN character offsets within a 32-byte LFN entry
@@ -787,42 +805,61 @@ FatResult FatFs::dir_read(FatDir* dp, int vol) noexcept {
     FatResult res = FatResult::NO_FILE;
     FatFsVolume* fs = dp->obj.fs;
     uint8_t attr, et;
-    uint8_t ord = 0xFF, sum = 0xFF;
+    if constexpr (config::USE_LFN > 0) {
+        uint8_t ord = 0xFF, sum = 0xFF;
 
-    while (dp->sect) {
-        res = move_window(fs, dp->sect);
-        if (res != FatResult::OK) break;
-        et = dp->dir[DIR_Name];
-        if (et == 0) {
-            res = FatResult::NO_FILE;
-            break;
-        }
-        // On the FAT/FAT32 volume
-        dp->obj.attr = attr = dp->dir[DIR_Attr] & AM_MASK;
-        // LFN configuration
-        if (et == DDEM || et == '.' ||
-            (static_cast<int>((attr & ~AM_ARC) == AM_VOL) != vol)) {
-            ord = 0xFF;
-        } else {
-            if (attr == AM_LFN) {
-                if (et & LLEF) {
-                    sum = dp->dir[LDIR_Chksum];
-                    et &= static_cast<uint8_t>(~LLEF);
-                    ord = et;
-                    dp->blk_ofs = dp->dptr;
-                }
-                ord = (et == ord && sum == dp->dir[LDIR_Chksum] && pick_lfn(fs->lfnbuf, dp->dir))
-                          ? ord - 1
-                          : 0xFF;
-            } else {
-                if (ord != 0 || sum != sum_sfn(dp->dir)) {
-                    dp->blk_ofs = 0xFFFFFFFF;
-                }
+        while (dp->sect) {
+            res = move_window(fs, dp->sect);
+            if (res != FatResult::OK) break;
+            et = dp->dir[DIR_Name];
+            if (et == 0) {
+                res = FatResult::NO_FILE;
                 break;
             }
+            dp->obj.attr = attr = dp->dir[DIR_Attr] & AM_MASK;
+            if (et == DDEM || et == '.' ||
+                (static_cast<int>((attr & ~AM_ARC) == AM_VOL) != vol)) {
+                ord = 0xFF;
+            } else {
+                if (attr == AM_LFN) {
+                    if (et & LLEF) {
+                        sum = dp->dir[LDIR_Chksum];
+                        et &= static_cast<uint8_t>(~LLEF);
+                        ord = et;
+                        dp->blk_ofs = dp->dptr;
+                    }
+                    ord = (et == ord && sum == dp->dir[LDIR_Chksum] && pick_lfn(fs->lfnbuf, dp->dir))
+                              ? ord - 1
+                              : 0xFF;
+                } else {
+                    if (ord != 0 || sum != sum_sfn(dp->dir)) {
+                        dp->blk_ofs = 0xFFFFFFFF;
+                    }
+                    break;
+                }
+            }
+            res = dir_next(dp, 0);
+            if (res != FatResult::OK) break;
         }
-        res = dir_next(dp, 0);
-        if (res != FatResult::OK) break;
+    } else {
+        while (dp->sect) {
+            res = move_window(fs, dp->sect);
+            if (res != FatResult::OK) break;
+            et = dp->dir[DIR_Name];
+            if (et == 0) {
+                res = FatResult::NO_FILE;
+                break;
+            }
+            dp->obj.attr = attr = dp->dir[DIR_Attr] & AM_MASK;
+            if (et == DDEM || et == '.' ||
+                (static_cast<int>((attr & ~AM_ARC) == AM_VOL) != vol)) {
+                // skip
+            } else if (attr != AM_LFN) {
+                break;
+            }
+            res = dir_next(dp, 0);
+            if (res != FatResult::OK) break;
+        }
     }
 
     if (res != FatResult::OK) dp->sect = 0;
@@ -837,49 +874,66 @@ FatResult FatFs::dir_find(FatDir* dp) noexcept {
     FatResult res;
     FatFsVolume* fs = dp->obj.fs;
     uint8_t et;
-    uint8_t attr, ord, sum;
+    uint8_t attr;
 
     res = dir_sdi(dp, 0);
     if (res != FatResult::OK) return res;
 
-    // On the FAT/FAT32 volume
-    ord = sum = 0xFF;
-    dp->blk_ofs = 0xFFFFFFFF;
-    do {
-        res = move_window(fs, dp->sect);
-        if (res != FatResult::OK) break;
-        et = dp->dir[DIR_Name];
-        if (et == 0) {
-            res = FatResult::NO_FILE;
-            break;
-        }
-        // LFN configuration
-        dp->obj.attr = attr = dp->dir[DIR_Attr] & AM_MASK;
-        if (et == DDEM || ((attr & AM_VOL) && attr != AM_LFN)) {
-            ord = 0xFF;
-            dp->blk_ofs = 0xFFFFFFFF;
-        } else {
-            if (attr == AM_LFN) {
-                if (!(dp->fn[NSFLAG] & NS_NOLFN)) {
-                    if (et & LLEF) {
-                        et &= static_cast<uint8_t>(~LLEF);
-                        ord = et;
-                        dp->blk_ofs = dp->dptr;
-                        sum = dp->dir[LDIR_Chksum];
-                    }
-                    ord = (et == ord && sum == dp->dir[LDIR_Chksum] && cmp_lfn(fs->lfnbuf, dp->dir))
-                              ? ord - 1
-                              : 0xFF;
-                }
-            } else {
-                if (ord == 0 && sum == sum_sfn(dp->dir)) break;
-                if (!(dp->fn[NSFLAG] & NS_LOSS) && !memcmp(dp->dir, dp->fn, 11)) break;
+    if constexpr (config::USE_LFN > 0) {
+        uint8_t ord = 0xFF, sum = 0xFF;
+        dp->blk_ofs = 0xFFFFFFFF;
+        do {
+            res = move_window(fs, dp->sect);
+            if (res != FatResult::OK) break;
+            et = dp->dir[DIR_Name];
+            if (et == 0) {
+                res = FatResult::NO_FILE;
+                break;
+            }
+            dp->obj.attr = attr = dp->dir[DIR_Attr] & AM_MASK;
+            if (et == DDEM || ((attr & AM_VOL) && attr != AM_LFN)) {
                 ord = 0xFF;
                 dp->blk_ofs = 0xFFFFFFFF;
+            } else {
+                if (attr == AM_LFN) {
+                    if (!(dp->fn[NSFLAG] & NS_NOLFN)) {
+                        if (et & LLEF) {
+                            et &= static_cast<uint8_t>(~LLEF);
+                            ord = et;
+                            dp->blk_ofs = dp->dptr;
+                            sum = dp->dir[LDIR_Chksum];
+                        }
+                        ord = (et == ord && sum == dp->dir[LDIR_Chksum] && cmp_lfn(fs->lfnbuf, dp->dir))
+                                  ? ord - 1
+                                  : 0xFF;
+                    }
+                } else {
+                    if (ord == 0 && sum == sum_sfn(dp->dir)) break;
+                    if (!(dp->fn[NSFLAG] & NS_LOSS) && !memcmp(dp->dir, dp->fn, 11)) break;
+                    ord = 0xFF;
+                    dp->blk_ofs = 0xFFFFFFFF;
+                }
             }
-        }
-        res = dir_next(dp, 0);
-    } while (res == FatResult::OK);
+            res = dir_next(dp, 0);
+        } while (res == FatResult::OK);
+    } else {
+        do {
+            res = move_window(fs, dp->sect);
+            if (res != FatResult::OK) break;
+            et = dp->dir[DIR_Name];
+            if (et == 0) {
+                res = FatResult::NO_FILE;
+                break;
+            }
+            dp->obj.attr = attr = dp->dir[DIR_Attr] & AM_MASK;
+            if (et == DDEM || (attr & AM_VOL)) {
+                // skip
+            } else {
+                if (!memcmp(dp->dir, dp->fn, 11)) break;
+            }
+            res = dir_next(dp, 0);
+        } while (res == FatResult::OK);
+    }
 
     return res;
 }
@@ -891,42 +945,49 @@ FatResult FatFs::dir_find(FatDir* dp) noexcept {
 FatResult FatFs::dir_register(FatDir* dp) noexcept {
     FatResult res;
     FatFsVolume* fs = dp->obj.fs;
-    uint32_t n, len, n_ent;
+    uint32_t n, n_ent;
     uint8_t sn[12];
 
     if (dp->fn[NSFLAG] & (NS_DOT | NS_NONAME)) return FatResult::INVALID_NAME;
-    for (len = 0; fs->lfnbuf[len]; len++)
-        ;
 
-    // On the FAT/FAT32 volume
     memcpy(sn, dp->fn, 12);
-    if (sn[NSFLAG] & NS_LOSS) {
-        dp->fn[NSFLAG] = NS_NOLFN;
-        for (n = 1; n < 100; n++) {
-            gen_numname(dp->fn, sn, fs->lfnbuf, n);
-            res = dir_find(dp);
-            if (res != FatResult::OK) break;
-        }
-        if (n == 100) return FatResult::DENIED;
-        if (res != FatResult::NO_FILE) return res;
-        dp->fn[NSFLAG] = sn[NSFLAG];
-    }
 
-    // Create an SFN with/without LFNs
-    n_ent = (sn[NSFLAG] & NS_LFN) ? (len + 12) / 13 + 1 : 1;
-    res = dir_alloc(dp, n_ent);
-    if (res == FatResult::OK && --n_ent) {
-        res = dir_sdi(dp, dp->dptr - n_ent * SZDIRE);
-        if (res == FatResult::OK) {
-            uint8_t sfn_sum = sum_sfn(dp->fn);
-            do {
-                res = move_window(fs, dp->sect);
+    if constexpr (config::USE_LFN > 0) {
+        uint32_t len;
+        for (len = 0; fs->lfnbuf[len]; len++)
+            ;
+
+        if (sn[NSFLAG] & NS_LOSS) {
+            dp->fn[NSFLAG] = NS_NOLFN;
+            for (n = 1; n < 100; n++) {
+                gen_numname(dp->fn, sn, fs->lfnbuf, n);
+                res = dir_find(dp);
                 if (res != FatResult::OK) break;
-                put_lfn(fs->lfnbuf, dp->dir, static_cast<uint8_t>(n_ent), sfn_sum);
-                fs->wflag = 1;
-                res = dir_next(dp, 0);
-            } while (res == FatResult::OK && --n_ent);
+            }
+            if (n == 100) return FatResult::DENIED;
+            if (res != FatResult::NO_FILE) return res;
+            dp->fn[NSFLAG] = sn[NSFLAG];
         }
+
+        // Create an SFN with/without LFNs
+        n_ent = (sn[NSFLAG] & NS_LFN) ? (len + 12) / 13 + 1 : 1;
+        res = dir_alloc(dp, n_ent);
+        if (res == FatResult::OK && --n_ent) {
+            res = dir_sdi(dp, dp->dptr - n_ent * SZDIRE);
+            if (res == FatResult::OK) {
+                uint8_t sfn_sum = sum_sfn(dp->fn);
+                do {
+                    res = move_window(fs, dp->sect);
+                    if (res != FatResult::OK) break;
+                    put_lfn(fs->lfnbuf, dp->dir, static_cast<uint8_t>(n_ent), sfn_sum);
+                    fs->wflag = 1;
+                    res = dir_next(dp, 0);
+                } while (res == FatResult::OK && --n_ent);
+            }
+        }
+    } else {
+        n_ent = 1;
+        res = dir_alloc(dp, n_ent);
     }
 
     // Set SFN entry
@@ -982,25 +1043,27 @@ void FatFs::get_fileinfo(FatDir* dp, FatFileInfo* fno) noexcept {
     if (dp->sect == 0) return;
 
     // LFN configuration — FAT/FAT32 volume
-    if (dp->blk_ofs != 0xFFFFFFFF) {
-        si = di = 0;
-        hs = 0;
-        while (fs->lfnbuf[si] != 0) {
-            wc = fs->lfnbuf[si++];
-            if (hs == 0 && (wc >= 0xD800 && wc <= 0xDFFF)) {
-                hs = wc;
-                continue;
-            }
-            nw = put_utf(static_cast<uint32_t>(hs) << 16 | wc, &fno->fname[di], config::LFN_BUF - di);
-            if (nw == 0) {
-                di = 0;
-                break;
-            }
-            di += nw;
+    if constexpr (config::USE_LFN > 0) {
+        if (dp->blk_ofs != 0xFFFFFFFF) {
+            si = di = 0;
             hs = 0;
+            while (fs->lfnbuf[si] != 0) {
+                wc = fs->lfnbuf[si++];
+                if (hs == 0 && (wc >= 0xD800 && wc <= 0xDFFF)) {
+                    hs = wc;
+                    continue;
+                }
+                nw = put_utf(static_cast<uint32_t>(hs) << 16 | wc, &fno->fname[di], config::LFN_BUF - di);
+                if (nw == 0) {
+                    di = 0;
+                    break;
+                }
+                di += nw;
+                hs = 0;
+            }
+            if (hs != 0) di = 0;
+            fno->fname[di] = 0;
         }
-        if (hs != 0) di = 0;
-        fno->fname[di] = 0;
     }
 
     si = di = 0;
@@ -1041,119 +1104,185 @@ void FatFs::get_fileinfo(FatDir* dp, FatFileInfo* fno) noexcept {
 // ============================================================================
 
 FatResult FatFs::create_name(FatDir* dp, const char** path) noexcept {
-    // LFN configuration
     uint8_t b, cf;
     uint16_t wc;
-    uint16_t* lfn;
     const char* p;
-    uint32_t uc;
     uint32_t i, ni, si, di;
 
-    // Create an LFN into LFN working buffer
-    p = *path;
-    lfn = dp->obj.fs->lfnbuf;
-    di = 0;
-    for (;;) {
-        uc = tchar2uni(&p);
-        if (uc == 0xFFFFFFFF) return FatResult::INVALID_NAME;
-        if (uc >= 0x10000) lfn[di++] = static_cast<uint16_t>(uc >> 16);
-        wc = static_cast<uint16_t>(uc);
-        if (wc < ' ' || IsSeparator(wc)) break;
-        if (wc < 0x80 && strchr("*:<>|\"\?\x7F", static_cast<int>(wc))) return FatResult::INVALID_NAME;
-        if (di >= static_cast<uint32_t>(config::MAX_LFN)) return FatResult::INVALID_NAME;
-        lfn[di++] = wc;
-    }
-    if (wc < ' ') {
-        cf = NS_LAST;
-    } else {
-        while (IsSeparator(*p)) p++;
-        cf = 0;
-        if (IsTerminator(*p)) cf = NS_LAST;
-    }
-    *path = p;
+    if constexpr (config::USE_LFN > 0) {
+        // LFN configuration: create an LFN into LFN working buffer
+        uint16_t* lfn;
+        uint32_t uc;
 
-    // No FF_FS_RPATH: skip dot name handling
-
-    while (di) {
-        wc = lfn[di - 1];
-        if (wc != ' ' && wc != '.') break;
-        di--;
-    }
-    lfn[di] = 0;
-    if (di == 0) return FatResult::INVALID_NAME;
-
-    // Create SFN in directory form
-    for (si = 0; lfn[si] == ' '; si++)
-        ;
-    if (si > 0 || lfn[si] == '.') cf |= NS_LOSS | NS_LFN;
-    while (di > 0 && lfn[di - 1] != '.') di--;
-
-    memset(dp->fn, ' ', 11);
-    i = b = 0;
-    ni = 8;
-    for (;;) {
-        wc = lfn[si++];
-        if (wc == 0) break;
-        if (wc == ' ' || (wc == '.' && si != di)) {
-            cf |= NS_LOSS | NS_LFN;
-            continue;
+        p = *path;
+        lfn = dp->obj.fs->lfnbuf;
+        di = 0;
+        for (;;) {
+            uc = tchar2uni(&p);
+            if (uc == 0xFFFFFFFF) return FatResult::INVALID_NAME;
+            if (uc >= 0x10000) lfn[di++] = static_cast<uint16_t>(uc >> 16);
+            wc = static_cast<uint16_t>(uc);
+            if (wc < ' ' || IsSeparator(wc)) break;
+            if (wc < 0x80 && strchr("*:<>|\"\?\x7F", static_cast<int>(wc))) return FatResult::INVALID_NAME;
+            if (di >= static_cast<uint32_t>(config::MAX_LFN)) return FatResult::INVALID_NAME;
+            lfn[di++] = wc;
         }
+        if (wc < ' ') {
+            cf = NS_LAST;
+        } else {
+            while (IsSeparator(*p)) p++;
+            cf = 0;
+            if (IsTerminator(*p)) cf = NS_LAST;
+        }
+        *path = p;
 
-        if (i >= ni || si == di) {
-            if (ni == 11) {
+        while (di) {
+            wc = lfn[di - 1];
+            if (wc != ' ' && wc != '.') break;
+            di--;
+        }
+        lfn[di] = 0;
+        if (di == 0) return FatResult::INVALID_NAME;
+
+        // Create SFN in directory form
+        for (si = 0; lfn[si] == ' '; si++)
+            ;
+        if (si > 0 || lfn[si] == '.') cf |= NS_LOSS | NS_LFN;
+        while (di > 0 && lfn[di - 1] != '.') di--;
+
+        memset(dp->fn, ' ', 11);
+        i = b = 0;
+        ni = 8;
+        for (;;) {
+            wc = lfn[si++];
+            if (wc == 0) break;
+            if (wc == ' ' || (wc == '.' && si != di)) {
                 cf |= NS_LOSS | NS_LFN;
-                break;
-            }
-            if (si != di) cf |= NS_LOSS | NS_LFN;
-            if (si > di) break;
-            si = di;
-            i = 8;
-            ni = 11;
-            b <<= 2;
-            continue;
-        }
-
-        if (wc >= 0x80) {
-            cf |= NS_LFN;
-            // SBCS code page (CP437 < 900)
-            wc = ff_uni2oem(wc, CODEPAGE);
-            if (wc & 0x80) wc = ExCvt[wc & 0x7F];
-        }
-
-        if (wc >= 0x100) {
-            if (i >= ni - 1) {
-                cf |= NS_LOSS | NS_LFN;
-                i = ni;
                 continue;
             }
-            dp->fn[i++] = static_cast<uint8_t>(wc >> 8);
-        } else {
-            if (wc == 0 || strchr("+,;=[]", static_cast<int>(wc))) {
-                wc = '_';
-                cf |= NS_LOSS | NS_LFN;
-            } else {
-                if (IsUpper(wc)) {
-                    b |= 2;
+
+            if (i >= ni || si == di) {
+                if (ni == 11) {
+                    cf |= NS_LOSS | NS_LFN;
+                    break;
                 }
-                if (IsLower(wc)) {
-                    b |= 1;
-                    wc -= 0x20;
+                if (si != di) cf |= NS_LOSS | NS_LFN;
+                if (si > di) break;
+                si = di;
+                i = 8;
+                ni = 11;
+                b <<= 2;
+                continue;
+            }
+
+            if (wc >= 0x80) {
+                cf |= NS_LFN;
+                // SBCS code page (CP437 < 900)
+                wc = ff_uni2oem(wc, CODEPAGE);
+                if (wc & 0x80) wc = ExCvt[wc & 0x7F];
+            }
+
+            if (wc >= 0x100) {
+                if (i >= ni - 1) {
+                    cf |= NS_LOSS | NS_LFN;
+                    i = ni;
+                    continue;
+                }
+                dp->fn[i++] = static_cast<uint8_t>(wc >> 8);
+            } else {
+                if (wc == 0 || strchr("+,;=[]", static_cast<int>(wc))) {
+                    wc = '_';
+                    cf |= NS_LOSS | NS_LFN;
+                } else {
+                    if (IsUpper(wc)) {
+                        b |= 2;
+                    }
+                    if (IsLower(wc)) {
+                        b |= 1;
+                        wc -= 0x20;
+                    }
                 }
             }
+            dp->fn[i++] = static_cast<uint8_t>(wc);
         }
-        dp->fn[i++] = static_cast<uint8_t>(wc);
+
+        if (dp->fn[0] == DDEM) dp->fn[0] = RDDEM;
+
+        if (ni == 8) b <<= 2;
+        if ((b & 0x0C) == 0x0C || (b & 0x03) == 0x03) cf |= NS_LFN;
+        if (!(cf & NS_LFN)) {
+            if (b & 0x01) cf |= NS_EXT;
+            if (b & 0x04) cf |= NS_BODY;
+        }
+
+        dp->fn[NSFLAG] = cf;
+    } else {
+        // SFN-only configuration: parse path directly into 8.3 format
+        p = *path;
+        cf = 0;
+
+        memset(dp->fn, ' ', 11);
+        i = b = 0;
+        ni = 8;
+        for (;;) {
+            wc = static_cast<uint16_t>(static_cast<uint8_t>(*p++));
+            if (wc < ' ' || IsSeparator(wc)) break;
+            if (wc < 0x80 && strchr("*:<>|\"\?\x7F", static_cast<int>(wc))) return FatResult::INVALID_NAME;
+
+            if (wc == '.' || i >= ni) {
+                if (ni == 11 || wc != '.') break;
+                i = 8;
+                ni = 11;
+                b <<= 2;
+                continue;
+            }
+
+            if (wc >= 0x80) {
+                wc = ff_uni2oem(wc, CODEPAGE);
+                if (wc & 0x80) wc = ExCvt[wc & 0x7F];
+            }
+
+            if (wc >= 0x100) {
+                if (i >= ni - 1) {
+                    i = ni;
+                    continue;
+                }
+                dp->fn[i++] = static_cast<uint8_t>(wc >> 8);
+            } else {
+                if (wc == 0 || strchr("+,;=[]", static_cast<int>(wc))) {
+                    wc = '_';
+                } else {
+                    if (IsUpper(wc)) {
+                        b |= 2;
+                    }
+                    if (IsLower(wc)) {
+                        b |= 1;
+                        wc -= 0x20;
+                    }
+                }
+            }
+            dp->fn[i++] = static_cast<uint8_t>(wc);
+        }
+        if (i == 0) return FatResult::INVALID_NAME;
+
+        if (wc < ' ') {
+            cf = NS_LAST;
+        } else {
+            while (IsSeparator(*p)) p++;
+            if (IsTerminator(*p)) cf = NS_LAST;
+        }
+        *path = p;
+
+        if (dp->fn[0] == DDEM) dp->fn[0] = RDDEM;
+
+        if (ni == 8) b <<= 2;
+        if (!(cf & NS_LFN)) {
+            if (b & 0x01) cf |= NS_EXT;
+            if (b & 0x04) cf |= NS_BODY;
+        }
+
+        dp->fn[NSFLAG] = cf;
     }
-
-    if (dp->fn[0] == DDEM) dp->fn[0] = RDDEM;
-
-    if (ni == 8) b <<= 2;
-    if ((b & 0x0C) == 0x0C || (b & 0x03) == 0x03) cf |= NS_LFN;
-    if (!(cf & NS_LFN)) {
-        if (b & 0x01) cf |= NS_EXT;
-        if (b & 0x04) cf |= NS_BODY;
-    }
-
-    dp->fn[NSFLAG] = cf;
 
     return FatResult::OK;
 }
@@ -1191,7 +1320,7 @@ FatResult FatFs::follow_path(FatDir* dp, const char* path) noexcept {
                 res = FatResult::NO_PATH;
                 break;
             }
-            dp->obj.sclust = ld_clust(fs, fs->win + dp->dptr % SS_VAL);
+            dp->obj.sclust = ld_clust(fs, fs->win + (dp->dptr & (SS_VAL - 1)));
         }
     }
 
@@ -1553,7 +1682,6 @@ FatResult FatFs::open(FatFile* fp, const char* path, uint8_t mode) noexcept {
             fp->err = 0;
             fp->sect = 0;
             fp->fptr = 0;
-            memset(fp->buf, 0, sizeof fp->buf);
             if ((mode & FA_SEEKEND) && fp->obj.objsize > 0) {
                 uint32_t bcs, clst;
                 FSIZE_t ofs;
@@ -1561,13 +1689,18 @@ FatResult FatFs::open(FatFile* fp, const char* path, uint8_t mode) noexcept {
                 fp->fptr = fp->obj.objsize;
                 bcs = static_cast<uint32_t>(fs->csize) * SS_VAL;
                 clst = fp->obj.sclust;
+                uint32_t chain_limit = fs->n_fatent;  // circular chain guard
                 for (ofs = fp->obj.objsize; res == FatResult::OK && ofs > bcs; ofs -= bcs) {
+                    if (--chain_limit == 0) {
+                        res = FatResult::INT_ERR;
+                        break;
+                    }
                     clst = get_fat(&fp->obj, clst);
                     if (clst <= 1) res = FatResult::INT_ERR;
                     if (clst == 0xFFFFFFFF) res = FatResult::DISK_ERR;
                 }
                 fp->clust = clst;
-                if (res == FatResult::OK && ofs % SS_VAL) {
+                if (res == FatResult::OK && (ofs & (SS_VAL - 1))) {
                     LBA_t sec = clst2sect(fs, clst);
                     if (sec == 0) {
                         res = FatResult::INT_ERR;
@@ -1625,7 +1758,7 @@ FatResult FatFs::read(FatFile* fp, void* buff, uint32_t btr, uint32_t* br) noexc
     if (btr > remain) btr = static_cast<uint32_t>(remain);
 
     for (; btr > 0; btr -= rcnt, *br += rcnt, rbuff += rcnt, fp->fptr += rcnt) {
-        if (fp->fptr % SS_VAL == 0) {
+        if ((fp->fptr & (SS_VAL - 1)) == 0) {
             csect = static_cast<uint32_t>(fp->fptr / SS_VAL & (fs->csize - 1));
             if (csect == 0) {
                 uint32_t clst;
@@ -1681,9 +1814,9 @@ FatResult FatFs::read(FatFile* fp, void* buff, uint32_t btr, uint32_t* br) noexc
             }
             fp->sect = sect;
         }
-        rcnt = SS_VAL - static_cast<uint32_t>(fp->fptr) % SS_VAL;
+        rcnt = SS_VAL - (static_cast<uint32_t>(fp->fptr) & (SS_VAL - 1));
         if (rcnt > btr) rcnt = btr;
-        memcpy(rbuff, fp->buf + fp->fptr % SS_VAL, rcnt);
+        memcpy(rbuff, fp->buf + (fp->fptr & (SS_VAL - 1)), rcnt);
     }
 
     return FatResult::OK;
@@ -1714,7 +1847,7 @@ FatResult FatFs::write(FatFile* fp, const void* buff, uint32_t btw, uint32_t* bw
     for (; btw > 0;
          btw -= wcnt, *bw += wcnt, wbuff += wcnt, fp->fptr += wcnt,
          fp->obj.objsize = (fp->fptr > fp->obj.objsize) ? fp->fptr : fp->obj.objsize) {
-        if (fp->fptr % SS_VAL == 0) {
+        if ((fp->fptr & (SS_VAL - 1)) == 0) {
             csect = static_cast<uint32_t>(fp->fptr / SS_VAL) & (fs->csize - 1);
             if (csect == 0) {
                 if (fp->fptr == 0) {
@@ -1773,9 +1906,9 @@ FatResult FatFs::write(FatFile* fp, const void* buff, uint32_t btw, uint32_t* bw
             }
             fp->sect = sect;
         }
-        wcnt = SS_VAL - static_cast<uint32_t>(fp->fptr) % SS_VAL;
+        wcnt = SS_VAL - (static_cast<uint32_t>(fp->fptr) & (SS_VAL - 1));
         if (wcnt > btw) wcnt = btw;
-        memcpy(fp->buf + fp->fptr % SS_VAL, wbuff, wcnt);
+        memcpy(fp->buf + (fp->fptr & (SS_VAL - 1)), wbuff, wcnt);
         fp->flag |= FA_DIRTY;
     }
 
@@ -1863,7 +1996,12 @@ FatResult FatFs::lseek(FatFile* fp, FSIZE_t ofs) noexcept {
                 fp->clust = clst;
             }
             if (clst != 0) {
+                uint32_t chain_limit2 = fs->n_fatent;  // circular chain guard
                 while (ofs > bcs) {
+                    if (--chain_limit2 == 0) {
+                        fp->err = static_cast<uint8_t>(FatResult::INT_ERR);
+                        return FatResult::INT_ERR;
+                    }
                     ofs -= bcs;
                     fp->fptr += bcs;
                     if (fp->flag & FA_WRITE) {
@@ -1886,7 +2024,7 @@ FatResult FatFs::lseek(FatFile* fp, FSIZE_t ofs) noexcept {
                     fp->clust = clst;
                 }
                 fp->fptr += ofs;
-                if (ofs % SS_VAL) {
+                if ((ofs & (SS_VAL - 1))) {
                     nsect = clst2sect(fs, clst);
                     if (nsect == 0) {
                         fp->err = static_cast<uint8_t>(FatResult::INT_ERR);
@@ -1900,7 +2038,7 @@ FatResult FatFs::lseek(FatFile* fp, FSIZE_t ofs) noexcept {
             fp->obj.objsize = fp->fptr;
             fp->flag |= FA_MODIFIED;
         }
-        if (fp->fptr % SS_VAL && nsect != fp->sect) {
+        if ((fp->fptr & (SS_VAL - 1)) && nsect != fp->sect) {
             if (fp->flag & FA_DIRTY) {
                 if (disk_write(fs->pdrv, fp->buf, fp->sect, 1) != DiskResult::OK) {
                     fp->err = static_cast<uint8_t>(FatResult::DISK_ERR);
@@ -1945,8 +2083,10 @@ FatResult FatFs::truncate(FatFile* fp) noexcept {
                 res = remove_chain(&fp->obj, ncl, fp->clust);
             }
         }
-        fp->obj.objsize = fp->fptr;
-        fp->flag |= FA_MODIFIED;
+        if (res == FatResult::OK) {
+            fp->obj.objsize = fp->fptr;
+            fp->flag |= FA_MODIFIED;
+        }
         if (res == FatResult::OK && (fp->flag & FA_DIRTY)) {
             if (disk_write(fs->pdrv, fp->buf, fp->sect, 1) != DiskResult::OK) {
                 res = FatResult::DISK_ERR;
@@ -2292,6 +2432,12 @@ FatResult FatFs::rename(const char* path_old, const char* path_new) noexcept {
                 }
             }
             if (res == FatResult::OK) {
+                // Sync before removing old entry to narrow cross-link window.
+                // On power loss after this point, both entries exist (recoverable
+                // by chkdsk) rather than only the new entry with stale metadata.
+                res = sync_fs(fs);
+            }
+            if (res == FatResult::OK) {
                 res = dir_remove(&djo);
                 if (res == FatResult::OK) {
                     res = sync_fs(fs);
@@ -2303,4 +2449,4 @@ FatResult FatFs::rename(const char* path_old, const char* path_new) noexcept {
     return res;
 }
 
-} // namespace umi::fs::fat
+} // namespace umi::fs

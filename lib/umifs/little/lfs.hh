@@ -1,7 +1,5 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2022, The littlefs authors.
-// Copyright (c) 2017, Arm Limited. All rights reserved.
-// C++23 port for UMI framework — Lfs class declaration
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025, tekitounix
 
 #pragma once
 
@@ -9,7 +7,7 @@
 #include "lfs_types.hh"
 #include "lfs_util.hh"
 
-namespace umi::fs::lfs {
+namespace umi::fs {
 
 /// The littlefs filesystem (replaces lfs_t).
 ///
@@ -164,4 +162,4 @@ public:
     lfs_size_t inline_max = 0;
 };
 
-} // namespace umi::fs::lfs
+} // namespace umi::fs

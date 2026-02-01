@@ -1,0 +1,856 @@
+// SPDX-License-Identifier: MIT
+// Comprehensive unit tests for FATfs C++23 port
+// Tests all public API functions for Phase 0 regression baseline
+
+#include "test_common.hh"
+
+#include <umifs/fat/ff.hh>
+#include <umifs/fat/ff_diskio.hh>
+#include <cstring>
+#include <cstdio>
+
+using namespace umi::fs;
+
+// ============================================================================
+// RAM Block Device for testing (simulates SD card with 512-byte sectors)
+// ============================================================================
+
+static constexpr uint32_t BLOCK_SIZE = 512;
+static constexpr uint32_t BLOCK_COUNT = 2048;  // 1MB
+static constexpr uint32_t TOTAL_SIZE = BLOCK_SIZE * BLOCK_COUNT;
+
+static uint8_t ram_storage[TOTAL_SIZE];
+
+struct RamBlockDevice {
+    int read(uint32_t block, uint32_t offset, void* buffer, uint32_t size) {
+        if (block >= BLOCK_COUNT || offset + size > BLOCK_SIZE) return -1;
+        std::memcpy(buffer, &ram_storage[block * BLOCK_SIZE + offset], size);
+        return 0;
+    }
+
+    int write(uint32_t block, uint32_t offset, const void* buffer, uint32_t size) {
+        if (block >= BLOCK_COUNT || offset + size > BLOCK_SIZE) return -1;
+        std::memcpy(&ram_storage[block * BLOCK_SIZE + offset], buffer, size);
+        return 0;
+    }
+
+    int erase(uint32_t block) {
+        if (block >= BLOCK_COUNT) return -1;
+        std::memset(&ram_storage[block * BLOCK_SIZE], 0xFF, BLOCK_SIZE);
+        return 0;
+    }
+
+    uint32_t block_size() const { return BLOCK_SIZE; }
+    uint32_t block_count() const { return BLOCK_COUNT; }
+};
+
+static RamBlockDevice ram_dev;
+
+// ============================================================================
+// Helper: create a FAT16 formatted image in RAM
+// ============================================================================
+
+static void format_fat16_image() {
+    std::memset(ram_storage, 0, TOTAL_SIZE);
+
+    uint8_t* bs = ram_storage;
+
+    // Jump instruction
+    bs[0] = 0xEB; bs[1] = 0x3C; bs[2] = 0x90;
+    std::memcpy(&bs[3], "MSDOS5.0", 8);
+    // Bytes per sector = 512
+    bs[11] = 0x00; bs[12] = 0x02;
+    // Sectors per cluster = 4
+    bs[13] = 4;
+    // Reserved sectors = 1
+    bs[14] = 1; bs[15] = 0;
+    // Number of FATs = 2
+    bs[16] = 2;
+    // Root directory entries = 512
+    bs[17] = 0x00; bs[18] = 0x02;
+    // Total sectors (16-bit) = 2048
+    bs[19] = 0x00; bs[20] = 0x08;
+    // Media type
+    bs[21] = 0xF8;
+    // Sectors per FAT = 2
+    bs[22] = 2; bs[23] = 0;
+    // Sectors per track
+    bs[24] = 0x3F; bs[25] = 0;
+    // Number of heads
+    bs[26] = 0xFF; bs[27] = 0;
+    // Boot signature
+    bs[38] = 0x29;
+    bs[39] = 0x12; bs[40] = 0x34; bs[41] = 0x56; bs[42] = 0x78;
+    std::memcpy(&bs[43], "NO NAME    ", 11);
+    std::memcpy(&bs[54], "FAT16   ", 8);
+    bs[510] = 0x55; bs[511] = 0xAA;
+
+    // Initialize FAT tables
+    uint8_t* fat1 = &ram_storage[512];
+    fat1[0] = 0xF8; fat1[1] = 0xFF;
+    fat1[2] = 0xFF; fat1[3] = 0xFF;
+
+    uint8_t* fat2 = &ram_storage[512 * 3];
+    fat2[0] = 0xF8; fat2[1] = 0xFF;
+    fat2[2] = 0xFF; fat2[3] = 0xFF;
+}
+
+// ============================================================================
+// Fixture helper
+// ============================================================================
+
+struct FatFixture {
+    FatFs fs{};
+    DiskIo diskio{};
+    FatFsVolume vol{};
+
+    void mount() {
+        format_fat16_image();
+        diskio = make_diskio(ram_dev);
+        fs.set_diskio(&diskio);
+        fs.mount(&vol, "", 1);
+    }
+
+    void unmount() { fs.unmount(""); }
+};
+
+// ============================================================================
+// Basic: mount, unmount
+// ============================================================================
+
+static void test_mount() {
+    SECTION("FATfs Mount/Unmount");
+
+    FatFixture f;
+    f.mount();
+
+    FatResult res = f.fs.unmount("");
+    CHECK(res == FatResult::OK, "unmount");
+}
+
+// ============================================================================
+// File: create, write, read
+// ============================================================================
+
+static void test_file_create_write_read() {
+    SECTION("FATfs File Create/Write/Read");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    FatResult res = f.fs.open(&fp, "test.txt", FA_WRITE | FA_CREATE_ALWAYS);
+    CHECK(res == FatResult::OK, "file create");
+
+    const char* msg = "Hello, FATfs!";
+    uint32_t bw = 0;
+    res = f.fs.write(&fp, msg, std::strlen(msg), &bw);
+    CHECK(res == FatResult::OK, "write");
+    CHECK(bw == std::strlen(msg), "bytes written");
+
+    res = f.fs.close(&fp);
+    CHECK(res == FatResult::OK, "close after write");
+
+    // Read back
+    FatFile fp2{};
+    res = f.fs.open(&fp2, "test.txt", FA_READ);
+    CHECK(res == FatResult::OK, "open for read");
+
+    char buf[64]{};
+    uint32_t br = 0;
+    res = f.fs.read(&fp2, buf, sizeof(buf), &br);
+    CHECK(res == FatResult::OK, "read");
+    CHECK(br == std::strlen(msg), "bytes read");
+    CHECK(std::memcmp(buf, msg, std::strlen(msg)) == 0, "content matches");
+
+    f.fs.close(&fp2);
+    f.unmount();
+}
+
+// ============================================================================
+// File: open modes
+// ============================================================================
+
+static void test_open_create_new() {
+    SECTION("FATfs Open CREATE_NEW");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    FatResult res = f.fs.open(&fp, "new.txt", FA_WRITE | FA_CREATE_NEW);
+    CHECK(res == FatResult::OK, "CREATE_NEW on new file");
+    f.fs.close(&fp);
+
+    // Second CREATE_NEW should fail
+    res = f.fs.open(&fp, "new.txt", FA_WRITE | FA_CREATE_NEW);
+    CHECK(res == FatResult::EXIST, "CREATE_NEW on existing file fails");
+
+    f.unmount();
+}
+
+static void test_open_always() {
+    SECTION("FATfs Open OPEN_ALWAYS");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    FatResult res = f.fs.open(&fp, "oa.txt", FA_WRITE | FA_OPEN_ALWAYS);
+    CHECK(res == FatResult::OK, "OPEN_ALWAYS creates new");
+    uint32_t bw;
+    f.fs.write(&fp, "data", 4, &bw);
+    f.fs.close(&fp);
+
+    // Open again, should succeed (existing file)
+    res = f.fs.open(&fp, "oa.txt", FA_READ | FA_OPEN_ALWAYS);
+    CHECK(res == FatResult::OK, "OPEN_ALWAYS opens existing");
+    f.fs.close(&fp);
+
+    f.unmount();
+}
+
+static void test_open_append() {
+    SECTION("FATfs Open APPEND");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    uint32_t bw;
+    f.fs.open(&fp, "app.txt", FA_WRITE | FA_CREATE_ALWAYS);
+    f.fs.write(&fp, "AAA", 3, &bw);
+    f.fs.close(&fp);
+
+    f.fs.open(&fp, "app.txt", FA_WRITE | FA_OPEN_APPEND);
+    f.fs.write(&fp, "BBB", 3, &bw);
+    f.fs.close(&fp);
+
+    // Read and verify
+    f.fs.open(&fp, "app.txt", FA_READ);
+    char buf[16]{};
+    uint32_t br;
+    f.fs.read(&fp, buf, sizeof(buf), &br);
+    CHECK(br == 6, "append total bytes");
+    CHECK(std::memcmp(buf, "AAABBB", 6) == 0, "append content");
+    f.fs.close(&fp);
+
+    f.unmount();
+}
+
+// ============================================================================
+// File: lseek
+// ============================================================================
+
+static void test_lseek() {
+    SECTION("FATfs Lseek");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    uint32_t bw;
+    f.fs.open(&fp, "seek.bin", FA_WRITE | FA_READ | FA_CREATE_ALWAYS);
+    f.fs.write(&fp, "0123456789", 10, &bw);
+
+    // Seek to position 5
+    FatResult res = f.fs.lseek(&fp, 5);
+    CHECK(res == FatResult::OK, "lseek to 5");
+
+    char buf[5]{};
+    uint32_t br;
+    f.fs.read(&fp, buf, 5, &br);
+    CHECK(br == 5, "read 5 bytes from pos 5");
+    CHECK(std::memcmp(buf, "56789", 5) == 0, "content from pos 5");
+
+    // Seek to 0
+    f.fs.lseek(&fp, 0);
+    f.fs.read(&fp, buf, 3, &br);
+    CHECK(std::memcmp(buf, "012", 3) == 0, "content from pos 0");
+
+    f.fs.close(&fp);
+    f.unmount();
+}
+
+// ============================================================================
+// File: truncate
+// ============================================================================
+
+static void test_truncate() {
+    SECTION("FATfs Truncate");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    uint32_t bw;
+    f.fs.open(&fp, "trunc.bin", FA_WRITE | FA_READ | FA_CREATE_ALWAYS);
+    f.fs.write(&fp, "0123456789", 10, &bw);
+
+    // Seek to position 5 then truncate
+    f.fs.lseek(&fp, 5);
+    FatResult res = f.fs.truncate(&fp);
+    CHECK(res == FatResult::OK, "truncate");
+
+    // Verify size
+    f.fs.lseek(&fp, 0);
+    char buf[16]{};
+    uint32_t br;
+    f.fs.read(&fp, buf, sizeof(buf), &br);
+    CHECK(br == 5, "size after truncate");
+    CHECK(std::memcmp(buf, "01234", 5) == 0, "content after truncate");
+
+    f.fs.close(&fp);
+    f.unmount();
+}
+
+// ============================================================================
+// File: sync
+// ============================================================================
+
+static void test_sync() {
+    SECTION("FATfs Sync");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    uint32_t bw;
+    f.fs.open(&fp, "sync.bin", FA_WRITE | FA_CREATE_ALWAYS);
+    f.fs.write(&fp, "data", 4, &bw);
+
+    FatResult res = f.fs.sync(&fp);
+    CHECK(res == FatResult::OK, "sync");
+
+    f.fs.close(&fp);
+    f.unmount();
+}
+
+// ============================================================================
+// Directory: mkdir, stat
+// ============================================================================
+
+static void test_mkdir_and_stat() {
+    SECTION("FATfs Mkdir/Stat");
+
+    FatFixture f;
+    f.mount();
+
+    FatResult res = f.fs.mkdir("MYDIR");
+    CHECK(res == FatResult::OK, "mkdir");
+
+    FatFileInfo fno{};
+    res = f.fs.stat("MYDIR", &fno);
+    CHECK(res == FatResult::OK, "stat dir");
+    CHECK((fno.fattrib & AM_DIR) != 0, "is directory");
+
+    // stat non-existent
+    res = f.fs.stat("NOEXIST", &fno);
+    CHECK(res != FatResult::OK, "stat non-existent fails");
+
+    f.unmount();
+}
+
+// ============================================================================
+// Directory: opendir, readdir, closedir
+// ============================================================================
+
+static void test_readdir() {
+    SECTION("FATfs Readdir");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    f.fs.open(&fp, "A.TXT", FA_WRITE | FA_CREATE_NEW);
+    f.fs.close(&fp);
+    f.fs.open(&fp, "B.TXT", FA_WRITE | FA_CREATE_NEW);
+    f.fs.close(&fp);
+    f.fs.mkdir("SUBDIR");
+
+    FatDir dir{};
+    FatResult res = f.fs.opendir(&dir, "");
+    CHECK(res == FatResult::OK, "opendir root");
+
+    int count = 0;
+    FatFileInfo fno{};
+    while (f.fs.readdir(&dir, &fno) == FatResult::OK && fno.fname[0] != '\0') {
+        count++;
+    }
+    CHECK(count == 3, "root has 3 entries");
+
+    // Rewind by passing nullptr
+    res = f.fs.readdir(&dir, nullptr);
+    CHECK(res == FatResult::OK, "readdir nullptr rewinds");
+
+    // Count again
+    count = 0;
+    while (f.fs.readdir(&dir, &fno) == FatResult::OK && fno.fname[0] != '\0') {
+        count++;
+    }
+    CHECK(count == 3, "after rewind: 3 entries");
+
+    f.fs.closedir(&dir);
+    f.unmount();
+}
+
+// ============================================================================
+// Operations: unlink file
+// ============================================================================
+
+static void test_unlink_file() {
+    SECTION("FATfs Unlink File");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    f.fs.open(&fp, "DEL.TXT", FA_WRITE | FA_CREATE_NEW);
+    f.fs.close(&fp);
+
+    FatFileInfo fno{};
+    CHECK(f.fs.stat("DEL.TXT", &fno) == FatResult::OK, "exists before unlink");
+
+    FatResult res = f.fs.unlink("DEL.TXT");
+    CHECK(res == FatResult::OK, "unlink");
+
+    CHECK(f.fs.stat("DEL.TXT", &fno) != FatResult::OK, "gone after unlink");
+
+    f.unmount();
+}
+
+// ============================================================================
+// Operations: unlink directory
+// ============================================================================
+
+static void test_unlink_empty_dir() {
+    SECTION("FATfs Unlink Empty Dir");
+
+    FatFixture f;
+    f.mount();
+
+    f.fs.mkdir("EMPTYDIR");
+    FatResult res = f.fs.unlink("EMPTYDIR");
+    CHECK(res == FatResult::OK, "unlink empty dir");
+
+    f.unmount();
+}
+
+static void test_unlink_nonempty_dir_fails() {
+    SECTION("FATfs Unlink Non-empty Dir Fails");
+
+    FatFixture f;
+    f.mount();
+
+    f.fs.mkdir("FULLDIR");
+    FatFile fp{};
+    f.fs.open(&fp, "FULLDIR/X.TXT", FA_WRITE | FA_CREATE_NEW);
+    f.fs.close(&fp);
+
+    FatResult res = f.fs.unlink("FULLDIR");
+    CHECK(res == FatResult::DENIED, "unlink non-empty dir fails");
+
+    f.unmount();
+}
+
+// ============================================================================
+// Operations: rename
+// ============================================================================
+
+static void test_rename() {
+    SECTION("FATfs Rename");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    uint32_t bw;
+    f.fs.open(&fp, "OLD.TXT", FA_WRITE | FA_CREATE_ALWAYS);
+    f.fs.write(&fp, "data", 4, &bw);
+    f.fs.close(&fp);
+
+    FatResult res = f.fs.rename("OLD.TXT", "NEW.TXT");
+    CHECK(res == FatResult::OK, "rename");
+
+    FatFileInfo fno{};
+    CHECK(f.fs.stat("OLD.TXT", &fno) != FatResult::OK, "old name gone");
+    CHECK(f.fs.stat("NEW.TXT", &fno) == FatResult::OK, "new name exists");
+    CHECK(fno.fsize == 4, "size preserved");
+
+    f.unmount();
+}
+
+// ============================================================================
+// Volume: getfree
+// ============================================================================
+
+static void test_getfree() {
+    SECTION("FATfs Getfree");
+
+    FatFixture f;
+    f.mount();
+
+    uint32_t nclst = 0;
+    FatFsVolume* vol_ptr = nullptr;
+    FatResult res = f.fs.getfree("", &nclst, &vol_ptr);
+    CHECK(res == FatResult::OK, "getfree");
+    CHECK(nclst > 0, "free clusters > 0");
+    CHECK(vol_ptr != nullptr, "volume pointer valid");
+
+    f.unmount();
+}
+
+// ============================================================================
+// LFN: long file names
+// ============================================================================
+
+static void test_lfn() {
+    SECTION("FATfs Long File Names");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    uint32_t bw;
+    FatResult res = f.fs.open(&fp, "this is a long file name.txt", FA_WRITE | FA_CREATE_ALWAYS);
+    CHECK(res == FatResult::OK, "create LFN file");
+    f.fs.write(&fp, "lfn", 3, &bw);
+    f.fs.close(&fp);
+
+    FatFileInfo fno{};
+    res = f.fs.stat("this is a long file name.txt", &fno);
+    CHECK(res == FatResult::OK, "stat LFN file");
+    CHECK(fno.fsize == 3, "LFN file size");
+
+    f.unmount();
+}
+
+// ============================================================================
+// Edge case: large file (multi-cluster)
+// ============================================================================
+
+static void test_large_file() {
+    SECTION("FATfs Large File (multi-cluster)");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    uint32_t bw;
+    f.fs.open(&fp, "big.bin", FA_WRITE | FA_CREATE_ALWAYS);
+
+    // Write 4KB (cluster size = 4 sectors * 512 = 2KB, so 2 clusters)
+    uint8_t pattern[512];
+    for (int i = 0; i < 512; i++) pattern[i] = static_cast<uint8_t>(i & 0xFF);
+
+    for (int i = 0; i < 8; i++) {
+        f.fs.write(&fp, pattern, 512, &bw);
+        CHECK(bw == 512, "write sector");
+    }
+    f.fs.close(&fp);
+
+    // Read back
+    f.fs.open(&fp, "big.bin", FA_READ);
+    FatFileInfo fno{};
+    f.fs.stat("big.bin", &fno);
+    CHECK(fno.fsize == 4096, "large file size");
+
+    for (int i = 0; i < 8; i++) {
+        uint8_t buf[512]{};
+        uint32_t br;
+        f.fs.read(&fp, buf, 512, &br);
+        CHECK(br == 512, "read sector");
+        CHECK(std::memcmp(buf, pattern, 512) == 0, "sector content matches");
+    }
+    f.fs.close(&fp);
+
+    f.unmount();
+}
+
+// ============================================================================
+// Edge case: many files
+// ============================================================================
+
+static void test_many_files() {
+    SECTION("FATfs Many Files");
+
+    FatFixture f;
+    f.mount();
+
+    constexpr int N = 20;
+    for (int i = 0; i < N; i++) {
+        char name[16];
+        std::snprintf(name, sizeof(name), "F%02d.TXT", i);
+        FatFile fp{};
+        f.fs.open(&fp, name, FA_WRITE | FA_CREATE_NEW);
+        f.fs.close(&fp);
+    }
+
+    // Count
+    FatDir dir{};
+    f.fs.opendir(&dir, "");
+    int count = 0;
+    FatFileInfo fno{};
+    while (f.fs.readdir(&dir, &fno) == FatResult::OK && fno.fname[0] != '\0') {
+        count++;
+    }
+    CHECK(count == N, "all files created");
+    f.fs.closedir(&dir);
+
+    f.unmount();
+}
+
+// ============================================================================
+// Edge case: read-only file access
+// ============================================================================
+
+static void test_readonly_deny() {
+    SECTION("FATfs Read-only Access Denied");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    f.fs.open(&fp, "ro.txt", FA_WRITE | FA_CREATE_ALWAYS);
+    uint32_t bw;
+    f.fs.write(&fp, "data", 4, &bw);
+    f.fs.close(&fp);
+
+    // Open read-only, try to write
+    f.fs.open(&fp, "ro.txt", FA_READ);
+    FatResult res = f.fs.write(&fp, "x", 1, &bw);
+    CHECK(res == FatResult::DENIED, "write to read-only denied");
+    f.fs.close(&fp);
+
+    f.unmount();
+}
+
+// ============================================================================
+// Edge case: full disk
+// ============================================================================
+
+static void test_full_disk() {
+    SECTION("FATfs Full Disk");
+
+    FatFixture f;
+    f.mount();
+
+    int files_created = 0;
+    for (int i = 0; i < 200; i++) {
+        char name[16];
+        std::snprintf(name, sizeof(name), "FI%03d.BIN", i);
+        FatFile fp{};
+        FatResult res = f.fs.open(&fp, name, FA_WRITE | FA_CREATE_NEW);
+        if (res != FatResult::OK) break;
+
+        uint8_t data[2048];
+        std::memset(data, static_cast<uint8_t>(i), sizeof(data));
+        uint32_t bw;
+        res = f.fs.write(&fp, data, sizeof(data), &bw);
+        f.fs.close(&fp);
+        if (bw < sizeof(data)) break;
+        files_created++;
+    }
+    CHECK(files_created > 0, "created files before full");
+
+    // Verify first file
+    FatFile fp{};
+    f.fs.open(&fp, "FI000.BIN", FA_READ);
+    uint8_t buf[1];
+    uint32_t br;
+    f.fs.read(&fp, buf, 1, &br);
+    CHECK(br == 1 && buf[0] == 0, "first file readable on full disk");
+    f.fs.close(&fp);
+
+    f.unmount();
+}
+
+// ============================================================================
+// Edge case: boundary writes (sector-aligned)
+// ============================================================================
+
+static void test_boundary_writes() {
+    SECTION("FATfs Boundary Writes");
+
+    FatFixture f;
+    f.mount();
+
+    uint8_t data[BLOCK_SIZE + 1];
+    for (uint32_t i = 0; i <= BLOCK_SIZE; i++) data[i] = static_cast<uint8_t>(i);
+
+    // Exactly one sector
+    FatFile fp{};
+    uint32_t bw;
+    f.fs.open(&fp, "EXACT.BIN", FA_WRITE | FA_CREATE_ALWAYS);
+    f.fs.write(&fp, data, BLOCK_SIZE, &bw);
+    CHECK(bw == BLOCK_SIZE, "write exact sector");
+    f.fs.close(&fp);
+
+    // One sector minus 1
+    f.fs.open(&fp, "MINUS1.BIN", FA_WRITE | FA_CREATE_ALWAYS);
+    f.fs.write(&fp, data, BLOCK_SIZE - 1, &bw);
+    CHECK(bw == BLOCK_SIZE - 1, "write sector-1");
+    f.fs.close(&fp);
+
+    // One sector plus 1
+    f.fs.open(&fp, "PLUS1.BIN", FA_WRITE | FA_CREATE_ALWAYS);
+    f.fs.write(&fp, data, BLOCK_SIZE + 1, &bw);
+    CHECK(bw == BLOCK_SIZE + 1, "write sector+1");
+    f.fs.close(&fp);
+
+    // Verify sizes
+    FatFileInfo fno{};
+    f.fs.stat("EXACT.BIN", &fno);
+    CHECK(fno.fsize == BLOCK_SIZE, "exact size");
+    f.fs.stat("MINUS1.BIN", &fno);
+    CHECK(fno.fsize == BLOCK_SIZE - 1, "minus1 size");
+    f.fs.stat("PLUS1.BIN", &fno);
+    CHECK(fno.fsize == BLOCK_SIZE + 1, "plus1 size");
+
+    f.unmount();
+}
+
+// ============================================================================
+// Edge case: overwrite existing file
+// ============================================================================
+
+static void test_overwrite() {
+    SECTION("FATfs Overwrite");
+
+    FatFixture f;
+    f.mount();
+
+    FatFile fp{};
+    uint32_t bw;
+    f.fs.open(&fp, "OVER.TXT", FA_WRITE | FA_CREATE_ALWAYS);
+    f.fs.write(&fp, "AAAAAAAAAA", 10, &bw);
+    f.fs.close(&fp);
+
+    // Overwrite with shorter
+    f.fs.open(&fp, "OVER.TXT", FA_WRITE | FA_CREATE_ALWAYS);
+    f.fs.write(&fp, "BBB", 3, &bw);
+    f.fs.close(&fp);
+
+    f.fs.open(&fp, "OVER.TXT", FA_READ);
+    char buf[16]{};
+    uint32_t br;
+    f.fs.read(&fp, buf, sizeof(buf), &br);
+    CHECK(br == 3, "overwritten size");
+    CHECK(std::memcmp(buf, "BBB", 3) == 0, "overwritten content");
+    f.fs.close(&fp);
+
+    f.unmount();
+}
+
+// ============================================================================
+// Edge case: fragmentation
+// ============================================================================
+
+static void test_fragmentation() {
+    SECTION("FATfs Fragmentation");
+
+    FatFixture f;
+    f.mount();
+
+    // Create 10 files
+    for (int i = 0; i < 10; i++) {
+        char name[16];
+        std::snprintf(name, sizeof(name), "FR%02d.TXT", i);
+        FatFile fp{};
+        uint32_t bw;
+        f.fs.open(&fp, name, FA_WRITE | FA_CREATE_NEW);
+        f.fs.write(&fp, "x", 1, &bw);
+        f.fs.close(&fp);
+    }
+
+    // Delete odd-numbered
+    for (int i = 1; i < 10; i += 2) {
+        char name[16];
+        std::snprintf(name, sizeof(name), "FR%02d.TXT", i);
+        f.fs.unlink(name);
+    }
+
+    // Create new files in fragmented space
+    for (int i = 0; i < 5; i++) {
+        char name[16];
+        std::snprintf(name, sizeof(name), "NW%02d.TXT", i);
+        FatFile fp{};
+        uint32_t bw;
+        FatResult res = f.fs.open(&fp, name, FA_WRITE | FA_CREATE_NEW);
+        CHECK(res == FatResult::OK, "create in fragmented space");
+        f.fs.write(&fp, "yy", 2, &bw);
+        f.fs.close(&fp);
+    }
+
+    // Verify even originals survive
+    for (int i = 0; i < 10; i += 2) {
+        char name[16];
+        std::snprintf(name, sizeof(name), "FR%02d.TXT", i);
+        FatFileInfo fno{};
+        CHECK(f.fs.stat(name, &fno) == FatResult::OK, "original survives");
+    }
+
+    f.unmount();
+}
+
+// ============================================================================
+// Edge case: nested directories
+// ============================================================================
+
+static void test_nested_dirs() {
+    SECTION("FATfs Nested Directories");
+
+    FatFixture f;
+    f.mount();
+
+    f.fs.mkdir("A");
+    f.fs.mkdir("A/B");
+    f.fs.mkdir("A/B/C");
+
+    FatFile fp{};
+    uint32_t bw;
+    FatResult res = f.fs.open(&fp, "A/B/C/DEEP.TXT", FA_WRITE | FA_CREATE_NEW);
+    CHECK(res == FatResult::OK, "create in nested dir");
+    f.fs.write(&fp, "deep", 4, &bw);
+    f.fs.close(&fp);
+
+    FatFileInfo fno{};
+    res = f.fs.stat("A/B/C/DEEP.TXT", &fno);
+    CHECK(res == FatResult::OK, "stat nested file");
+    CHECK(fno.fsize == 4, "nested file size");
+
+    f.unmount();
+}
+
+// ============================================================================
+// Entry point
+// ============================================================================
+
+int main() {
+    test_mount();
+    test_file_create_write_read();
+    test_open_create_new();
+    test_open_always();
+    test_open_append();
+    test_lseek();
+    test_truncate();
+    test_sync();
+    test_mkdir_and_stat();
+    test_readdir();
+    test_unlink_file();
+    test_unlink_empty_dir();
+    test_unlink_nonempty_dir_fails();
+    test_rename();
+    test_getfree();
+    test_lfn();
+    test_large_file();
+    test_many_files();
+    test_readonly_deny();
+    test_full_disk();
+    test_boundary_writes();
+    test_overwrite();
+    test_fragmentation();
+    test_nested_dirs();
+
+    TEST_SUMMARY();
+}

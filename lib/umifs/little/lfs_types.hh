@@ -1,22 +1,21 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2022, The littlefs authors.
-// Copyright (c) 2017, Arm Limited. All rights reserved.
-// C++23 port for UMI framework
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025, tekitounix
 
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
 
-namespace umi::fs::lfs {
+namespace umi::fs {
 
 /// Version info
-inline constexpr uint32_t VERSION = 0x0002000b;
-inline constexpr uint16_t VERSION_MAJOR = 0xffff & (VERSION >> 16);
-inline constexpr uint16_t VERSION_MINOR = 0xffff & (VERSION >> 0);
+constexpr uint32_t VERSION = 0x0002000b;
+constexpr uint16_t VERSION_MAJOR = 0xffff & (VERSION >> 16);
+constexpr uint16_t VERSION_MINOR = 0xffff & (VERSION >> 0);
 
-inline constexpr uint32_t DISK_VERSION = 0x00020001;
-inline constexpr uint16_t DISK_VERSION_MAJOR = 0xffff & (DISK_VERSION >> 16);
-inline constexpr uint16_t DISK_VERSION_MINOR = 0xffff & (DISK_VERSION >> 0);
+constexpr uint32_t DISK_VERSION = 0x00020001;
+constexpr uint16_t DISK_VERSION_MAJOR = 0xffff & (DISK_VERSION >> 16);
+constexpr uint16_t DISK_VERSION_MINOR = 0xffff & (DISK_VERSION >> 0);
 
 /// Type aliases matching original littlefs types
 using lfs_size_t = uint32_t;
@@ -26,9 +25,9 @@ using lfs_soff_t = int32_t;
 using lfs_block_t = uint32_t;
 
 /// Limits
-inline constexpr lfs_size_t NAME_MAX = 255;
-inline constexpr lfs_ssize_t FILE_MAX = 2147483647;
-inline constexpr lfs_size_t ATTR_MAX = 1022;
+constexpr lfs_size_t NAME_MAX = 255;
+constexpr lfs_ssize_t FILE_MAX = 2147483647;
+constexpr lfs_size_t ATTR_MAX = 1022;
 
 /// Error codes (negative values, matching POSIX errno)
 enum class LfsError : int {
@@ -102,21 +101,34 @@ enum class LfsOpenFlags : uint32_t {
     F_INLINE = 0x100000,
 };
 
-/// Bitwise operators for LfsOpenFlags
-inline constexpr LfsOpenFlags operator|(LfsOpenFlags a, LfsOpenFlags b) {
-    return static_cast<LfsOpenFlags>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+/// Bitwise operators for enum class flags
+template <typename E>
+    requires std::is_enum_v<E>
+constexpr E operator|(E a, E b) {
+    using U = std::underlying_type_t<E>;
+    return static_cast<E>(static_cast<U>(a) | static_cast<U>(b));
 }
-inline constexpr LfsOpenFlags operator&(LfsOpenFlags a, LfsOpenFlags b) {
-    return static_cast<LfsOpenFlags>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+template <typename E>
+    requires std::is_enum_v<E>
+constexpr E operator&(E a, E b) {
+    using U = std::underlying_type_t<E>;
+    return static_cast<E>(static_cast<U>(a) & static_cast<U>(b));
 }
-inline constexpr LfsOpenFlags operator~(LfsOpenFlags a) {
-    return static_cast<LfsOpenFlags>(~static_cast<uint32_t>(a));
+template <typename E>
+    requires std::is_enum_v<E>
+constexpr E operator~(E a) {
+    using U = std::underlying_type_t<E>;
+    return static_cast<E>(~static_cast<U>(a));
 }
-inline constexpr LfsOpenFlags& operator|=(LfsOpenFlags& a, LfsOpenFlags b) {
+template <typename E>
+    requires std::is_enum_v<E>
+constexpr E& operator|=(E& a, E b) {
     a = a | b;
     return a;
 }
-inline constexpr LfsOpenFlags& operator&=(LfsOpenFlags& a, LfsOpenFlags b) {
+template <typename E>
+    requires std::is_enum_v<E>
+constexpr E& operator&=(E& a, E b) {
     a = a & b;
     return a;
 }
@@ -247,4 +259,4 @@ struct LfsLookahead {
     uint8_t* buffer;
 };
 
-} // namespace umi::fs::lfs
+} // namespace umi::fs

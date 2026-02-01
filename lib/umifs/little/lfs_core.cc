@@ -18,7 +18,7 @@
 #define LFS_NO_MIGRATE
 #endif
 
-namespace umi::fs::lfs {
+namespace umi::fs {
 
 // ============================================================================
 // CRC implementation (from lfs_util.c)
@@ -58,71 +58,71 @@ using lfs_gstate_t = LfsGstate;
 // ============================================================================
 
 // Error codes
-#define LFS_ERR_OK          0
-#define LFS_ERR_IO          (-5)
-#define LFS_ERR_CORRUPT     (-84)
-#define LFS_ERR_NOENT       (-2)
-#define LFS_ERR_EXIST       (-17)
-#define LFS_ERR_NOTDIR      (-20)
-#define LFS_ERR_ISDIR       (-21)
-#define LFS_ERR_NOTEMPTY    (-39)
-#define LFS_ERR_BADF        (-9)
-#define LFS_ERR_FBIG        (-27)
-#define LFS_ERR_INVAL       (-22)
-#define LFS_ERR_NOSPC       (-28)
-#define LFS_ERR_NOMEM       (-12)
-#define LFS_ERR_NOATTR      (-61)
-#define LFS_ERR_NAMETOOLONG (-36)
+constexpr int LFS_ERR_OK          = 0;
+[[maybe_unused]] constexpr int LFS_ERR_IO = -5;
+constexpr int LFS_ERR_CORRUPT     = -84;
+constexpr int LFS_ERR_NOENT       = -2;
+constexpr int LFS_ERR_EXIST       = -17;
+constexpr int LFS_ERR_NOTDIR      = -20;
+constexpr int LFS_ERR_ISDIR       = -21;
+constexpr int LFS_ERR_NOTEMPTY    = -39;
+[[maybe_unused]] constexpr int LFS_ERR_BADF = -9;
+constexpr int LFS_ERR_FBIG        = -27;
+constexpr int LFS_ERR_INVAL       = -22;
+constexpr int LFS_ERR_NOSPC       = -28;
+constexpr int LFS_ERR_NOMEM       = -12;
+constexpr int LFS_ERR_NOATTR      = -61;
+constexpr int LFS_ERR_NAMETOOLONG = -36;
 
 // File types
-#define LFS_TYPE_REG          0x001
-#define LFS_TYPE_DIR          0x002
-#define LFS_TYPE_SPLICE       0x400
-#define LFS_TYPE_NAME         0x000
-#define LFS_TYPE_STRUCT       0x200
-#define LFS_TYPE_USERATTR     0x300
-#define LFS_TYPE_FROM         0x100
-#define LFS_TYPE_TAIL         0x600
-#define LFS_TYPE_GLOBALS      0x700
-#define LFS_TYPE_CRC          0x500
-#define LFS_TYPE_CREATE       0x401
-#define LFS_TYPE_DELETE       0x4ff
-#define LFS_TYPE_SUPERBLOCK   0x0ff
-#define LFS_TYPE_DIRSTRUCT    0x200
-#define LFS_TYPE_CTZSTRUCT    0x202
-#define LFS_TYPE_INLINESTRUCT 0x201
-#define LFS_TYPE_SOFTTAIL     0x600
-#define LFS_TYPE_HARDTAIL     0x601
-#define LFS_TYPE_MOVESTATE    0x7ff
-#define LFS_TYPE_CCRC         0x500
-#define LFS_TYPE_FCRC         0x5ff
-#define LFS_TYPE_FROM_NOOP    0x000
-#define LFS_TYPE_FROM_MOVE    0x101
-#define LFS_TYPE_FROM_USERATTRS 0x102
+constexpr uint16_t LFS_TYPE_REG          = 0x001;
+constexpr uint16_t LFS_TYPE_DIR          = 0x002;
+constexpr uint16_t LFS_TYPE_SPLICE       = 0x400;
+constexpr uint16_t LFS_TYPE_NAME         = 0x000;
+constexpr uint16_t LFS_TYPE_STRUCT       = 0x200;
+constexpr uint16_t LFS_TYPE_USERATTR     = 0x300;
+[[maybe_unused]] constexpr uint16_t LFS_TYPE_FROM = 0x100;
+constexpr uint16_t LFS_TYPE_TAIL         = 0x600;
+[[maybe_unused]] constexpr uint16_t LFS_TYPE_GLOBALS = 0x700;
+[[maybe_unused]] constexpr uint16_t LFS_TYPE_CRC = 0x500;
+constexpr uint16_t LFS_TYPE_CREATE       = 0x401;
+constexpr uint16_t LFS_TYPE_DELETE       = 0x4ff;
+constexpr uint16_t LFS_TYPE_SUPERBLOCK   = 0x0ff;
+constexpr uint16_t LFS_TYPE_DIRSTRUCT    = 0x200;
+constexpr uint16_t LFS_TYPE_CTZSTRUCT    = 0x202;
+constexpr uint16_t LFS_TYPE_INLINESTRUCT = 0x201;
+constexpr uint16_t LFS_TYPE_SOFTTAIL     = 0x600;
+[[maybe_unused]] constexpr uint16_t LFS_TYPE_HARDTAIL = 0x601;
+constexpr uint16_t LFS_TYPE_MOVESTATE    = 0x7ff;
+constexpr uint16_t LFS_TYPE_CCRC         = 0x500;
+constexpr uint16_t LFS_TYPE_FCRC         = 0x5ff;
+[[maybe_unused]] constexpr uint16_t LFS_TYPE_FROM_NOOP    = 0x000;
+[[maybe_unused]] constexpr uint16_t LFS_TYPE_FROM_MOVE    = 0x101;
+[[maybe_unused]] constexpr uint16_t LFS_TYPE_FROM_USERATTRS = 0x102;
 
 // FROM aliases (used without TYPE_ prefix in original code)
-#define LFS_FROM_NOOP       0x000
-#define LFS_FROM_MOVE       0x101
-#define LFS_FROM_USERATTRS  0x102
+constexpr uint16_t LFS_FROM_NOOP       = 0x000;
+constexpr uint16_t LFS_FROM_MOVE       = 0x101;
+constexpr uint16_t LFS_FROM_USERATTRS  = 0x102;
 
 // Open flags
-#define LFS_O_RDONLY   1
-#define LFS_O_WRONLY   2
-#define LFS_O_RDWR     3
-#define LFS_O_CREAT    0x0100
-#define LFS_O_EXCL     0x0200
-#define LFS_O_TRUNC    0x0400
-#define LFS_O_APPEND   0x0800
-#define LFS_F_DIRTY    0x010000
-#define LFS_F_WRITING  0x020000
-#define LFS_F_READING  0x040000
-#define LFS_F_ERRED    0x080000
-#define LFS_F_INLINE   0x100000
+constexpr int LFS_O_RDONLY   = 1;
+constexpr int LFS_O_WRONLY   = 2;
+[[maybe_unused]] constexpr int LFS_O_RDWR = 3;
+constexpr int LFS_O_CREAT    = 0x0100;
+constexpr int LFS_O_EXCL     = 0x0200;
+constexpr int LFS_O_TRUNC    = 0x0400;
+constexpr int LFS_O_APPEND   = 0x0800;
+constexpr int LFS_F_DIRTY    = 0x010000;
+constexpr int LFS_F_WRITING  = 0x020000;
+constexpr int LFS_F_READING  = 0x040000;
+constexpr int LFS_F_ERRED    = 0x080000;
+constexpr int LFS_F_INLINE   = 0x100000;
 
 // Seek
-#define LFS_SEEK_SET  0
-#define LFS_SEEK_CUR  1
-#define LFS_SEEK_END  2
+constexpr int LFS_SEEK_SET  = 0;
+constexpr int LFS_SEEK_CUR  = 1;
+constexpr int LFS_SEEK_END  = 2;
 
 // Version/limits
 #define LFS_VERSION            VERSION
@@ -148,8 +148,8 @@ using lfs_gstate_t = LfsGstate;
     sizeof((lfs_mattr[]){__VA_ARGS__}) / sizeof(lfs_mattr)
 
 // some constants used throughout the code
-#define LFS_BLOCK_NULL ((lfs_block_t)-1)
-#define LFS_BLOCK_INLINE ((lfs_block_t)-2)
+constexpr lfs_block_t LFS_BLOCK_NULL   = static_cast<lfs_block_t>(-1);
+constexpr lfs_block_t LFS_BLOCK_INLINE = static_cast<lfs_block_t>(-2);
 
 enum {
     LFS_OK_RELOCATED = 1,
@@ -243,7 +243,9 @@ static int lfs_bd_read(lfs_t *lfs,
         }
 
         // load to cache, first condition can no longer fail
-        LFS_ASSERT(!lfs->block_count || block < lfs->block_count);
+        if (lfs->block_count && block >= lfs->block_count) {
+            return LFS_ERR_CORRUPT;
+        }
         rcache->block = block;
         rcache->off = lfs_aligndown(off, lfs->cfg->read_size);
         rcache->size = lfs_min(
@@ -315,7 +317,9 @@ static int lfs_bd_crc(lfs_t *lfs,
 static int lfs_bd_flush(lfs_t *lfs,
         lfs_cache_t *pcache, lfs_cache_t *rcache, bool validate) {
     if (pcache->block != LFS_BLOCK_NULL && pcache->block != LFS_BLOCK_INLINE) {
-        LFS_ASSERT(pcache->block < lfs->block_count);
+        if (pcache->block >= lfs->block_count) {
+            return LFS_ERR_CORRUPT;
+        }
         lfs_size_t diff = lfs_alignup(pcache->size, lfs->cfg->prog_size);
         int err = lfs->cfg->prog(lfs->cfg, pcache->block,
                 pcache->off, pcache->buffer, diff);
@@ -368,8 +372,12 @@ static int lfs_bd_prog(lfs_t *lfs,
         lfs_block_t block, lfs_off_t off,
         const void *buffer, lfs_size_t size) {
     const uint8_t *data = static_cast<const uint8_t*>(buffer);
-    LFS_ASSERT(block == LFS_BLOCK_INLINE || block < lfs->block_count);
-    LFS_ASSERT(off + size <= lfs->cfg->block_size);
+    if (block != LFS_BLOCK_INLINE && block >= lfs->block_count) {
+        return LFS_ERR_CORRUPT;
+    }
+    if (off + size > lfs->cfg->block_size) {
+        return LFS_ERR_CORRUPT;
+    }
 
     while (size > 0) {
         if (block == pcache->block &&
@@ -398,7 +406,9 @@ static int lfs_bd_prog(lfs_t *lfs,
 
         // pcache must have been flushed, either by programming and
         // entire block or manually flushing the pcache
-        LFS_ASSERT(pcache->block == LFS_BLOCK_NULL);
+        if (pcache->block != LFS_BLOCK_NULL) {
+            return LFS_ERR_CORRUPT;
+        }
 
         // prepare pcache, first condition can no longer fail
         pcache->block = block;
@@ -412,7 +422,9 @@ static int lfs_bd_prog(lfs_t *lfs,
 
 #ifndef LFS_READONLY
 static int lfs_bd_erase(lfs_t *lfs, lfs_block_t block) {
-    LFS_ASSERT(block < lfs->block_count);
+    if (block >= lfs->block_count) {
+        return LFS_ERR_CORRUPT;
+    }
     int err = lfs->cfg->erase(lfs->cfg, block);
     LFS_ASSERT(err <= 0);
     return err;
@@ -1094,7 +1106,9 @@ static int lfs_dir_traverse(lfs_t *lfs,
             }
 
             if (lfs_tag_id(tmask) != 0) {
-                LFS_ASSERT(sp < LFS_DIR_TRAVERSE_DEPTH);
+                if (sp >= LFS_DIR_TRAVERSE_DEPTH) {
+                    return LFS_ERR_CORRUPT;
+                }
                 // recurse, scan for duplicates, and update tag based on
                 // creates/deletes
                 stack[sp] = (struct lfs_dir_traverse){
@@ -3903,7 +3917,11 @@ static int lfs_file_truncate_(lfs_t *lfs, lfs_file_t *file, lfs_off_t size) {
                 return (int)res;
             }
 
-            // read our data into rcache temporarily
+            // Borrow rcache.buffer as temporary storage for the read.
+            // This is safe because lfs_cache_drop invalidates rcache metadata
+            // (block = LFS_BLOCK_NULL), so lfs_file_flushedread will not
+            // treat rcache.buffer as a valid cache hit. The buffer contents
+            // are copied to file->cache.buffer immediately after this read.
             lfs_cache_drop(lfs, &lfs->rcache);
             res = lfs_file_flushedread(lfs, file,
                     lfs->rcache.buffer, size);
@@ -6251,4 +6269,4 @@ int Lfs::fs_grow(lfs_size_t block_count) noexcept {
 }
 #endif
 
-} // namespace umi::fs::lfs
+} // namespace umi::fs

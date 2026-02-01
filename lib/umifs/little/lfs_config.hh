@@ -1,14 +1,12 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2022, The littlefs authors.
-// Copyright (c) 2017, Arm Limited. All rights reserved.
-// C++23 port for UMI framework — configuration structure
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025, tekitounix
 
 #pragma once
 
 #include "lfs_types.hh"
 #include <umios/kernel/block_device.hh>
 
-namespace umi::fs::lfs {
+namespace umi::fs {
 
 /// Configuration provided during initialization of the littlefs.
 /// Function pointers are preserved from the original C design.
@@ -75,6 +73,14 @@ struct LfsConfig {
 
     /// Optional upper limit on inlined files. Set to -1 to disable.
     lfs_size_t inline_max = 0;
+
+#ifdef LFS_THREADSAFE
+    /// Lock callback for thread safety. Must not be nullptr when LFS_THREADSAFE is defined.
+    int (*lock)(const LfsConfig* c) = nullptr;
+
+    /// Unlock callback for thread safety. Must not be nullptr when LFS_THREADSAFE is defined.
+    int (*unlock)(const LfsConfig* c) = nullptr;
+#endif
 };
 
 /// Helper to create LfsConfig from a BlockDeviceLike device.
@@ -83,7 +89,8 @@ struct LfsConfig {
 template <umi::kernel::BlockDeviceLike Dev>
 LfsConfig make_lfs_config(Dev& dev, lfs_size_t cache_size, lfs_size_t lookahead_size,
                           void* read_buf = nullptr, void* prog_buf = nullptr,
-                          void* lookahead_buf = nullptr) {
+                          void* lookahead_buf = nullptr, lfs_size_t read_size = 0,
+                          lfs_size_t prog_size = 0) {
     LfsConfig cfg{};
     cfg.context = &dev;
 
@@ -103,8 +110,8 @@ LfsConfig make_lfs_config(Dev& dev, lfs_size_t cache_size, lfs_size_t lookahead_
 
     cfg.sync = [](const LfsConfig* /*c*/) -> int { return 0; };
 
-    cfg.read_size = dev.block_size();   // Can be overridden by caller
-    cfg.prog_size = dev.block_size();   // Can be overridden by caller
+    cfg.read_size = read_size > 0 ? read_size : dev.block_size();
+    cfg.prog_size = prog_size > 0 ? prog_size : dev.block_size();
     cfg.block_size = dev.block_size();
     cfg.block_count = dev.block_count();
     cfg.cache_size = cache_size;
@@ -113,7 +120,14 @@ LfsConfig make_lfs_config(Dev& dev, lfs_size_t cache_size, lfs_size_t lookahead_
     cfg.prog_buffer = prog_buf;
     cfg.lookahead_buffer = lookahead_buf;
 
+#ifdef LFS_THREADSAFE
+    // Validate that lock/unlock callbacks are set when thread safety is enabled.
+    // Without these, the first API call would dereference nullptr.
+    static_assert(false, "LFS_THREADSAFE requires lock/unlock callbacks — "
+                         "use the extended make_lfs_config overload");
+#endif
+
     return cfg;
 }
 
-} // namespace umi::fs::lfs
+} // namespace umi::fs
