@@ -16,6 +16,20 @@ UMI プロジェクトのコーディングスタイルは `.clang-format`、`.c
 | ColumnLimit | 120 | 1行の最大文字数 |
 | MaxEmptyLinesToKeep | 1 | 連続空行は最大1行 |
 
+### constexpr と inline
+
+C++17以降、`constexpr` 変数・関数は暗黙的に `inline` であるため、`inline constexpr` は冗長です。**`constexpr` のみを使用**してください。
+
+```cpp
+// ✅ 正しい
+constexpr int max_voices = 16;
+constexpr float to_radians(float deg) { return deg * pi / 180.0f; }
+
+// ❌ 間違い（冗長な inline）
+inline constexpr int max_voices = 16;
+inline constexpr float to_radians(float deg) { return deg * pi / 180.0f; }
+```
+
 ### ポインタ・参照
 
 ```cpp
@@ -233,7 +247,7 @@ inline float midi_to_freq(int note) {
     return 440.0f * std::pow(2.0f, (note - 69) / 12.0f);
 }
 
-// 定数: lower_case
+// 定数: lower_case（inline は付けない — C++17以降 constexpr は暗黙的に inline）
 constexpr float default_gain = 1.0f;
 constexpr int max_voices = 16;
 
