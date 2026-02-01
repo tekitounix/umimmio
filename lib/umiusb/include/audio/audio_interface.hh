@@ -95,22 +95,7 @@ struct NoAudioPort {
     static constexpr uint32_t BUFFER_FRAMES = 128;
 };
 
-/// MIDI port configuration (for IN or OUT)
-template <uint8_t Cables_, uint8_t Endpoint_, uint16_t PacketSize_ = 64>
-struct MidiPort {
-    static constexpr bool ENABLED = true;
-    static constexpr uint8_t CABLES = Cables_;
-    static constexpr uint8_t ENDPOINT = Endpoint_;
-    static constexpr uint16_t PACKET_SIZE = PacketSize_;
-};
-
-/// Disabled MIDI port
-struct NoMidiPort {
-    static constexpr bool ENABLED = false;
-    static constexpr uint8_t CABLES = 0;
-    static constexpr uint8_t ENDPOINT = 0;
-    static constexpr uint16_t PACKET_SIZE = 0;
-};
+// MidiPort / NoMidiPort are now defined in audio_types.hh
 
 // Common audio port presets
 using AudioStereo48k = AudioPort<2, 16, 48000, 1>;
@@ -263,10 +248,12 @@ class AudioInterface {
 
                 if constexpr (HAS_AUDIO_OUT) {
                     size += 17; // Input Terminal (USB streaming -> device)
+                    size += 6 + (AudioOut::CHANNELS + 1) * 4; // Feature Unit
                     size += 12; // Output Terminal (device -> speaker)
                 }
                 if constexpr (HAS_AUDIO_IN) {
                     size += 17; // Input Terminal (microphone -> device)
+                    size += 6 + (AudioIn::CHANNELS + 1) * 4; // Feature Unit
                     size += 12; // Output Terminal (device -> USB streaming)
                 }
             } else {
@@ -443,8 +430,16 @@ class AudioInterface {
             w(0); // iInterface
 
             if constexpr (IS_UAC2) {
-                // UAC2: Calculate AC header total length
-                constexpr uint16_t ac_total = 9 + 8 + (HAS_AUDIO_OUT ? (17 + 12) : 0) + (HAS_AUDIO_IN ? (17 + 12) : 0);
+                // UAC2 Entity IDs:
+                //   Clock Source: 1
+                //   Audio OUT: IT=2, OT=3, FU=6
+                //   Audio IN:  IT=4, OT=5, FU=7
+                // FU size: 6 + (channels+1)*4 = 6+12=18 for stereo, 6+8=14 for mono
+                constexpr uint16_t fu_out_size = HAS_AUDIO_OUT ? static_cast<uint16_t>(6 + (AudioOut::CHANNELS + 1) * 4) : 0;
+                constexpr uint16_t fu_in_size = HAS_AUDIO_IN ? static_cast<uint16_t>(6 + (AudioIn::CHANNELS + 1) * 4) : 0;
+                constexpr uint16_t ac_total = 9 + 8
+                    + (HAS_AUDIO_OUT ? (17 + 12 + fu_out_size) : 0)
+                    + (HAS_AUDIO_IN ? (17 + 12 + fu_in_size) : 0);
 
                 // AC Header
                 w(9, bDescriptorType::CsInterface, uac::ac::HEADER);
@@ -458,10 +453,10 @@ class AudioInterface {
                 w(1); // bClockID
                 w(SAMPLE_RATE_CONTROL ? uac::uac2::CLOCK_INTERNAL_PROGRAMMABLE : uac::uac2::CLOCK_INTERNAL_FIXED);
                 w(SAMPLE_RATE_CONTROL ? 0x03 : 0x01); // bmControls: freq=RW (3) only
-                w(0);                                 // bAssocTerminal: 0 = not associated with specific terminal
+                w(0);                                 // bAssocTerminal
                 w(0);                                 // iClockSource
 
-                // Audio OUT path: IT(2) -> OT(3)
+                // Audio OUT path: IT(2) -> FU(6) -> OT(3)
                 if constexpr (HAS_AUDIO_OUT) {
                     // Input Terminal (USB streaming)
                     w(17, bDescriptorType::CsInterface, uac::ac::INPUT_TERMINAL);
@@ -475,18 +470,30 @@ class AudioInterface {
                     w16(0x0000); // bmControls
                     w(0);        // iTerminal
 
+                    // Feature Unit (Mute + Volume)
+                    w(static_cast<uint8_t>(fu_out_size), bDescriptorType::CsInterface, uac::ac::FEATURE_UNIT);
+                    w(6); // bUnitID
+                    w(2); // bSourceID (Input Terminal)
+                    // bmaControls[0] (master): Mute(D1..0=host r/w) + Volume(D3..2=host r/w)
+                    w32(0x0000000F);
+                    // bmaControls per channel: no per-channel controls
+                    for (uint8_t ch = 0; ch < AudioOut::CHANNELS; ++ch) {
+                        w32(0x00000000);
+                    }
+                    w(0); // iFeature
+
                     // Output Terminal (speaker)
                     w(12, bDescriptorType::CsInterface, uac::ac::OUTPUT_TERMINAL);
                     w(3); // bTerminalID
                     w16(uac::TERMINAL_SPEAKER);
                     w(0); // bAssocTerminal
-                    w(2); // bSourceID
+                    w(6); // bSourceID (Feature Unit)
                     w(1); // bCSourceID
                     w16(0x0000);
                     w(0);
                 }
 
-                // Audio IN path: IT(4) -> OT(5)
+                // Audio IN path: IT(4) -> FU(7) -> OT(5)
                 if constexpr (HAS_AUDIO_IN) {
                     // Input Terminal (microphone)
                     w(17, bDescriptorType::CsInterface, uac::ac::INPUT_TERMINAL);
@@ -500,12 +507,22 @@ class AudioInterface {
                     w16(0x0000);
                     w(0);
 
+                    // Feature Unit (Mute + Volume)
+                    w(static_cast<uint8_t>(fu_in_size), bDescriptorType::CsInterface, uac::ac::FEATURE_UNIT);
+                    w(7); // bUnitID
+                    w(4); // bSourceID (Input Terminal)
+                    w32(0x0000000F); // master: Mute + Volume
+                    for (uint8_t ch = 0; ch < AudioIn::CHANNELS; ++ch) {
+                        w32(0x00000000);
+                    }
+                    w(0); // iFeature
+
                     // Output Terminal (USB streaming)
                     w(12, bDescriptorType::CsInterface, uac::ac::OUTPUT_TERMINAL);
                     w(5); // bTerminalID
                     w16(uac::TERMINAL_USB_STREAMING);
                     w(0);
-                    w(4); // bSourceID
+                    w(7); // bSourceID (Feature Unit)
                     w(1); // bCSourceID
                     w16(0x0000);
                     w(0);
@@ -1624,6 +1641,69 @@ class AudioInterface {
                         return true;
                     }
                 }
+
+                // UAC2 Feature Unit requests (entity 6 = OUT, entity 7 = IN)
+                // UAC2 uses CUR (0x01) request with CS in wValue high byte
+                constexpr uint8_t UAC2_CUR = 0x01;
+                constexpr uint8_t UAC2_RANGE = 0x02;
+                constexpr uint8_t FU_MUTE_CONTROL = 0x01;
+                constexpr uint8_t FU_VOLUME_CONTROL = 0x02;
+
+                auto handle_fu_get = [&](uint8_t ctrl, uint8_t request, bool mute_val, int16_t vol_val) -> bool {
+                    if (ctrl == FU_MUTE_CONTROL && request == UAC2_CUR) {
+                        response[0] = mute_val ? 1 : 0;
+                        response = response.subspan(0, 1);
+                        return true;
+                    }
+                    if (ctrl == FU_VOLUME_CONTROL) {
+                        if (request == UAC2_CUR) {
+                            response[0] = vol_val & 0xFF;
+                            response[1] = (vol_val >> 8) & 0xFF;
+                            response = response.subspan(0, 2);
+                            return true;
+                        }
+                        if (request == UAC2_RANGE) {
+                            // wNumSubRanges=1, MIN=-12768 (~-49.9dB), MAX=0, RES=256 (1dB)
+                            response[0] = 1; response[1] = 0; // wNumSubRanges
+                            int16_t vol_min = -12768; // ~-49.9dB in 1/256 dB
+                            int16_t vol_max = 0;
+                            int16_t vol_res = 256; // 1 dB
+                            response[2] = vol_min & 0xFF; response[3] = (vol_min >> 8) & 0xFF;
+                            response[4] = vol_max & 0xFF; response[5] = (vol_max >> 8) & 0xFF;
+                            response[6] = vol_res & 0xFF; response[7] = (vol_res >> 8) & 0xFF;
+                            response = response.subspan(0, 8);
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+
+                if constexpr (HAS_AUDIO_OUT) {
+                    if (entity == 6 && is_get) {
+                        if (handle_fu_get(ctrl, setup.bRequest, fu_out_mute_, fu_out_volume_))
+                            return true;
+                    }
+                    if (entity == 6 && !is_get && setup.bRequest == UAC2_CUR) {
+                        // SET CUR — data arrives in DATA phase
+                        pending_set_entity_ = 6;
+                        pending_set_ctrl_ = ctrl;
+                        response = response.subspan(0, 0);
+                        return true;
+                    }
+                }
+
+                if constexpr (HAS_AUDIO_IN) {
+                    if (entity == 7 && is_get) {
+                        if (handle_fu_get(ctrl, setup.bRequest, fu_in_mute_, fu_in_volume_))
+                            return true;
+                    }
+                    if (entity == 7 && !is_get && setup.bRequest == UAC2_CUR) {
+                        pending_set_entity_ = 7;
+                        pending_set_ctrl_ = ctrl;
+                        response = response.subspan(0, 0);
+                        return true;
+                    }
+                }
             }
         }
 
@@ -1873,6 +1953,40 @@ class AudioInterface {
             }
         }
 
+        // UAC2 Feature Unit SET CUR data phase (entity 6=OUT FU, 7=IN FU)
+        if constexpr (IS_UAC2 && HAS_AUDIO) {
+            if (pending_set_ctrl_ != 0 && (pending_set_entity_ == 6 || pending_set_entity_ == 7)) {
+                bool* mute_ptr = nullptr;
+                int16_t* vol_ptr = nullptr;
+
+                if constexpr (HAS_AUDIO_OUT) {
+                    if (pending_set_entity_ == 6) {
+                        mute_ptr = &fu_out_mute_;
+                        vol_ptr = &fu_out_volume_;
+                    }
+                }
+                if constexpr (HAS_AUDIO_IN) {
+                    if (pending_set_entity_ == 7) {
+                        mute_ptr = &fu_in_mute_;
+                        vol_ptr = &fu_in_volume_;
+                    }
+                }
+
+                if (mute_ptr && vol_ptr) {
+                    if (pending_set_ctrl_ == 0x01 && !data.empty()) { // Mute
+                        *mute_ptr = (data[0] != 0);
+                    } else if (pending_set_ctrl_ == 0x02 && data.size() >= 2) { // Volume
+                        *vol_ptr = static_cast<int16_t>(data[0] | (data[1] << 8));
+                    }
+                }
+
+                pending_set_entity_ = 0;
+                pending_set_ctrl_ = 0;
+                pending_set_len_ = 0;
+            }
+        }
+
+        // UAC1 Feature Unit SET CUR data phase (entity 2=OUT FU, 5=IN FU)
         if constexpr (!IS_UAC2 && HAS_AUDIO) {
             if (pending_set_ctrl_ != 0 && data.size() >= pending_set_len_) {
                 bool* mute_ptr = nullptr;

@@ -94,6 +94,44 @@ static_assert(ab[0] == 1 && ab[4] == 5);
 static_assert(le16(0x1234)[0] == 0x34 && le16(0x1234)[1] == 0x12);
 static_assert(le32(0xDEADBEEF)[0] == 0xEF && le32(0xDEADBEEF)[3] == 0xDE);
 
+// BOS + WinUSB + WebUSB
+static constexpr auto winusb_compat = winusb::CompatibleIdWinUsb();
+static_assert(winusb_compat.size == 20, "WinUSB CompatibleId = 20 bytes");
+
+static constexpr auto webusb_cap = webusb::PlatformCapability(0x02, 1);
+static_assert(webusb_cap.size == 24, "WebUSB PlatformCapability = 24 bytes");
+static_assert(webusb_cap[0] == 24, "bLength");
+static_assert(webusb_cap[2] == 0x05, "bDevCapabilityType = Platform");
+
+static constexpr auto webusb_url = webusb::UrlDescriptor(webusb::SCHEME_HTTPS, "example.com");
+static_assert(webusb_url.size == 3 + 11, "URL descriptor size");
+static_assert(webusb_url[2] == webusb::SCHEME_HTTPS, "scheme");
+static_assert(webusb_url[3] == 'e', "url[0]");
+
+// UAC2 Feature Unit descriptor
+static constexpr auto uac2_fu = audio::Uac2FeatureUnit<2>(
+    6,           // unit_id
+    2,           // source_id (Input Terminal)
+    0x0000000F,  // master: Mute + Volume (host r/w)
+    0x00000000,  // ch1: none
+    0x00000000,  // ch2: none
+    0            // iFeature
+);
+// bLength = 6 + (2+1)*4 = 18
+static_assert(uac2_fu.size == 18, "UAC2 FU stereo = 18 bytes");
+static_assert(uac2_fu[0] == 18, "bLength");
+static_assert(uac2_fu[1] == dtype::CsInterface, "bDescriptorType");
+static_assert(uac2_fu[2] == audio::ac2::FeatureUnit, "bDescriptorSubtype");
+static_assert(uac2_fu[3] == 6, "bUnitID");
+static_assert(uac2_fu[4] == 2, "bSourceID");
+// bmaControls(0) = 0x0000000F in LE
+static_assert(uac2_fu[5] == 0x0F, "bmaControls[0] byte0");
+static_assert(uac2_fu[6] == 0x00, "bmaControls[0] byte1");
+
+// Mono variant
+static constexpr auto uac2_fu_mono = audio::Uac2FeatureUnit<1>(7, 4, 0x0000000F, 0x00000000);
+static_assert(uac2_fu_mono.size == 14, "UAC2 FU mono = 14 bytes"); // 6 + (1+1)*4
+
 // ============================================================================
 // Hal concept static_assert
 // ============================================================================
