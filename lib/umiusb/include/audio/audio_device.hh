@@ -191,6 +191,7 @@ private:
 public:
     using Interface = AudioInterface<
         Config::uac_version,
+        MaxSpeed::FULL,
         AudioOutPort,
         AudioInPort,
         MidiOutPort,

@@ -11,6 +11,8 @@
 #include <tuple>
 #include <type_traits>
 
+#include "core/types.hh"
+
 namespace umiusb {
 
 // ============================================================================
@@ -128,24 +130,23 @@ using PllRateController = umidsp::PiRateController;
 ///
 /// The host adjusts its packet size based on the feedback value to keep the
 /// device's ring buffer at ~50% fill level.
-template <UacVersion Version = UacVersion::UAC1>
+template <UacVersion Version = UacVersion::UAC1, Speed Spd = Speed::FULL>
 class FeedbackCalculator {
   public:
-    // FS feedback: always 10.14 format, 3 bytes
-    // USB Audio 2.0 spec says 16.16 (4 bytes) for UAC2, but macOS xHCI
-    // generates babble errors on EP with wMaxPacketSize > 3 at Full Speed.
-    // macOS FS driver interprets feedback as 10.14 regardless of UAC version.
-    static constexpr uint32_t FEEDBACK_SHIFT = 14;
-    static constexpr uint32_t FEEDBACK_BYTES = 3;
+    using Traits = SpeedTraits<Spd>;
+
+    // Feedback format depends on speed:
+    //   FS: 10.14 format, 3 bytes (macOS xHCI babble with >3 bytes at FS)
+    //   HS: 16.16 format, 4 bytes
+    static constexpr uint32_t FEEDBACK_SHIFT = Traits::FB_SHIFT;
+    static constexpr uint32_t FEEDBACK_BYTES = Traits::FB_BYTES;
 
     // Feedback clamp: ±1 sample/frame from nominal
     static constexpr uint32_t FB_DELTA_MAX = 1U << FEEDBACK_SHIFT;
 
     void reset(uint32_t nominal_rate) {
         nominal_rate_ = nominal_rate;
-        // 10.14 format: feedback = samples_per_ms << 14
-        // For 48kHz: 48 << 14 = 786432 = 0x0C0000
-        nominal_feedback_ = (nominal_rate << FEEDBACK_SHIFT) / 1000;
+        nominal_feedback_ = (nominal_rate << FEEDBACK_SHIFT) / Traits::FRAME_DIVISOR;
         current_feedback_ = nominal_feedback_;
         buf_half_size_ = 0;
     }
@@ -159,7 +160,7 @@ class FeedbackCalculator {
     /// Set the actual device sample rate (when device clock differs from nominal).
     void set_actual_rate(uint32_t actual_rate) {
         nominal_rate_ = actual_rate;
-        nominal_feedback_ = (actual_rate << FEEDBACK_SHIFT) / 1000;
+        nominal_feedback_ = (actual_rate << FEEDBACK_SHIFT) / Traits::FRAME_DIVISOR;
         current_feedback_ = nominal_feedback_;
     }
 

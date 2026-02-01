@@ -132,6 +132,15 @@ static_assert(uac2_fu[6] == 0x00, "bmaControls[0] byte1");
 static constexpr auto uac2_fu_mono = audio::Uac2FeatureUnit<1>(7, 4, 0x0000000F, 0x00000000);
 static_assert(uac2_fu_mono.size == 14, "UAC2 FU mono = 14 bytes"); // 6 + (1+1)*4
 
+// SpeedTraits
+static_assert(SpeedTraits<Speed::FULL>::FRAME_DIVISOR == 1000, "FS frame divisor");
+static_assert(SpeedTraits<Speed::FULL>::FB_BYTES == 3, "FS feedback 3 bytes");
+static_assert(SpeedTraits<Speed::FULL>::FB_SHIFT == 14, "FS 10.14 format");
+static_assert(SpeedTraits<Speed::HIGH>::FRAME_DIVISOR == 8000, "HS frame divisor");
+static_assert(SpeedTraits<Speed::HIGH>::FB_BYTES == 4, "HS feedback 4 bytes");
+static_assert(SpeedTraits<Speed::HIGH>::FB_SHIFT == 16, "HS 16.16 format");
+static_assert(SpeedTraits<Speed::HIGH>::FB_BINTERVAL == 4, "HS fb interval 2^3*125us=1ms");
+
 // ============================================================================
 // Hal concept static_assert
 // ============================================================================

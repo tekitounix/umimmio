@@ -19,6 +19,38 @@ enum class Speed : uint8_t {
     HIGH = 2,   // 480 Mbps
 };
 
+/// Maximum supported USB speed for a device.
+/// FULL: generates FS-only code (zero overhead, current behavior).
+/// HIGH: generates both FS and HS paths with runtime speed selection.
+enum class MaxSpeed : uint8_t {
+    FULL = 1,   // FS only (default, same binary as before)
+    HIGH = 2,   // FS + HS support
+};
+
+/// Compile-time speed-dependent constants.
+template<Speed S>
+struct SpeedTraits;
+
+template<>
+struct SpeedTraits<Speed::FULL> {
+    static constexpr uint32_t FRAME_DIVISOR = 1000;
+    static constexpr uint8_t FB_BYTES = 3;
+    static constexpr uint8_t FB_SHIFT = 14;        // 10.14 format
+    static constexpr uint8_t ISO_BINTERVAL = 1;     // 1ms
+    static constexpr uint8_t FB_BINTERVAL = 1;      // 1ms
+    static constexpr uint16_t ISO_MAX_PACKET = 1023;
+};
+
+template<>
+struct SpeedTraits<Speed::HIGH> {
+    static constexpr uint32_t FRAME_DIVISOR = 8000;
+    static constexpr uint8_t FB_BYTES = 4;
+    static constexpr uint8_t FB_SHIFT = 16;         // 16.16 format
+    static constexpr uint8_t ISO_BINTERVAL = 1;     // 125μs
+    static constexpr uint8_t FB_BINTERVAL = 4;      // 2^3 × 125μs = 1ms
+    static constexpr uint16_t ISO_MAX_PACKET = 1024; // per transaction (can be up to 3072 with mult)
+};
+
 enum class TransferType : uint8_t {
     CONTROL = 0,
     ISOCHRONOUS = 1,

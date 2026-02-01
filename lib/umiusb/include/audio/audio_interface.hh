@@ -110,6 +110,7 @@ using AudioMono48k = AudioPort<1, 16, 48000, 1>;
 /// Flexible USB Audio/MIDI Interface
 /// Supports any combination of Audio OUT, Audio IN, MIDI OUT, MIDI IN
 template <UacVersion Version = UacVersion::UAC1,
+          MaxSpeed MaxSpd = MaxSpeed::FULL,
           typename AudioOut_ = AudioStereo48k,
           typename AudioIn_ = NoAudioPort,
           typename MidiOut_ = NoMidiPort,
@@ -125,9 +126,17 @@ class AudioInterface {
     static constexpr bool IS_UAC2 = (Version == UacVersion::UAC2);
     static constexpr bool USES_IAD = IS_UAC2;
     static constexpr AudioSyncMode SYNC_MODE = SyncMode_;
-    // FS feedback: always 3 bytes (10.14 format)
-    // macOS xHCI generates babble errors with wMaxPacketSize > 3 at Full Speed.
-    static constexpr uint16_t FB_PACKET_SIZE = 3;
+    static constexpr MaxSpeed MAX_SPEED = MaxSpd;
+    static constexpr bool SUPPORTS_HS = (MaxSpd == MaxSpeed::HIGH);
+
+    // Speed traits aliases
+    using FsTraits = SpeedTraits<Speed::FULL>;
+    using HsTraits = SpeedTraits<Speed::HIGH>;
+
+    // Feedback packet size depends on speed
+    // FS: 3 bytes (10.14 format). macOS xHCI babble errors with wMaxPacketSize > 3 at FS.
+    // HS: 4 bytes (16.16 format).
+    static constexpr uint16_t FB_PACKET_SIZE = FsTraits::FB_BYTES;
     static constexpr bool SAMPLE_RATE_CONTROL = SampleRateControlEnabled_;
     using SampleT = SampleT_;
 
@@ -3098,35 +3107,35 @@ class AudioInterface {
 // ============================================================================
 
 // Audio OUT only
-using AudioInterface48kAsync = AudioInterface<UacVersion::UAC1, AudioStereo48k, NoAudioPort, NoMidiPort, NoMidiPort, 2>;
-using AudioInterface44kAsync = AudioInterface<UacVersion::UAC1, AudioStereo44k, NoAudioPort, NoMidiPort, NoMidiPort, 2>;
+using AudioInterface48kAsync = AudioInterface<UacVersion::UAC1, MaxSpeed::FULL, AudioStereo48k, NoAudioPort, NoMidiPort, NoMidiPort, 2>;
+using AudioInterface44kAsync = AudioInterface<UacVersion::UAC1, MaxSpeed::FULL, AudioStereo44k, NoAudioPort, NoMidiPort, NoMidiPort, 2>;
 using AudioInterface48kAsyncV2 =
-    AudioInterface<UacVersion::UAC2, AudioStereo48k, NoAudioPort, NoMidiPort, NoMidiPort, 2>;
+    AudioInterface<UacVersion::UAC2, MaxSpeed::FULL, AudioStereo48k, NoAudioPort, NoMidiPort, NoMidiPort, 2>;
 using AudioInterface96kAsyncV2 =
-    AudioInterface<UacVersion::UAC2, AudioStereo96k, NoAudioPort, NoMidiPort, NoMidiPort, 2>;
+    AudioInterface<UacVersion::UAC2, MaxSpeed::FULL, AudioStereo96k, NoAudioPort, NoMidiPort, NoMidiPort, 2>;
 
 // Audio OUT + MIDI
 using AudioMidiInterface48k =
-    AudioInterface<UacVersion::UAC1, AudioStereo48k, NoAudioPort, MidiPort<1, 3>, MidiPort<1, 3>, 2>;
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL, AudioStereo48k, NoAudioPort, MidiPort<1, 3>, MidiPort<1, 3>, 2>;
 using AudioMidiInterface48kV2 =
-    AudioInterface<UacVersion::UAC2, AudioStereo48k, NoAudioPort, MidiPort<1, 3>, MidiPort<1, 3>, 2>;
+    AudioInterface<UacVersion::UAC2, MaxSpeed::FULL, AudioStereo48k, NoAudioPort, MidiPort<1, 3>, MidiPort<1, 3>, 2>;
 
 // MIDI only
-using MidiInterface = AudioInterface<UacVersion::UAC1, NoAudioPort, NoAudioPort, MidiPort<1, 1>, MidiPort<1, 1>, 0>;
-using MidiInterfaceV2 = AudioInterface<UacVersion::UAC2, NoAudioPort, NoAudioPort, MidiPort<1, 1>, MidiPort<1, 1>, 0>;
+using MidiInterface = AudioInterface<UacVersion::UAC1, MaxSpeed::FULL, NoAudioPort, NoAudioPort, MidiPort<1, 1>, MidiPort<1, 1>, 0>;
+using MidiInterfaceV2 = AudioInterface<UacVersion::UAC2, MaxSpeed::FULL, NoAudioPort, NoAudioPort, MidiPort<1, 1>, MidiPort<1, 1>, 0>;
 
 // Audio IN/OUT (full duplex)
 // EP1=Audio OUT, EP2=Feedback, EP3=Audio IN
 using AudioFullDuplex48k =
-    AudioInterface<UacVersion::UAC1, AudioStereo48k, AudioPort<2, 16, 48000, 3>, NoMidiPort, NoMidiPort, 2>;
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL, AudioStereo48k, AudioPort<2, 16, 48000, 3>, NoMidiPort, NoMidiPort, 2>;
 using AudioFullDuplex48kV2 =
-    AudioInterface<UacVersion::UAC2, AudioStereo48k, AudioPort<2, 16, 48000, 3>, NoMidiPort, NoMidiPort, 2>;
+    AudioInterface<UacVersion::UAC2, MaxSpeed::FULL, AudioStereo48k, AudioPort<2, 16, 48000, 3>, NoMidiPort, NoMidiPort, 2>;
 
 // Audio IN/OUT + MIDI (full duplex with MIDI)
 // STM32 OTG FS has EP0-3, with IN and OUT being independent:
 // EP1 OUT=Audio OUT, EP1 IN=MIDI IN, EP2 IN=Feedback, EP3 OUT=MIDI OUT, EP3 IN=Audio IN
 using AudioFullDuplexMidi48k =
-    AudioInterface<UacVersion::UAC1, AudioStereo48k, AudioPort<2, 16, 48000, 3>, MidiPort<1, 3>, MidiPort<1, 1>, 2>;
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL, AudioStereo48k, AudioPort<2, 16, 48000, 3>, MidiPort<1, 3>, MidiPort<1, 1>, 2>;
 
 // UAC1 Alt settings: expose 16-bit and 24-bit with full rate list
 using AudioAlt16_All = AudioAltSetting<16, AudioRates<44100, 48000, 96000>>;
@@ -3139,7 +3148,7 @@ using AudioAltList24Lo_16All = AudioAltList<AudioAlt16_All, AudioAlt24_Lo>;
 // Full duplex + MIDI with 96kHz max packet size support
 // Audio OUT: 16/24-bit with 44.1/48/96k. Audio IN: 16-bit 96k, 24-bit 44.1/48k only.
 using AudioFullDuplexMidi96kMaxAsync =
-    AudioInterface<UacVersion::UAC1,
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL,
                    AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
                    AudioPort<2, 24, 48000, 3, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24Lo_16All>,
                    MidiPort<1, 3>, // MIDI OUT on EP3
@@ -3148,7 +3157,7 @@ using AudioFullDuplexMidi96kMaxAsync =
                    AudioSyncMode::ASYNC>;
 
 using AudioFullDuplexMidi96kMaxAsyncFixedEps =
-    AudioInterface<UacVersion::UAC1,
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL,
                    AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
                    AudioPort<2, 24, 48000, 3, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24Lo_16All>,
                    MidiPort<1, 2>, // MIDI OUT on EP2 (OUT)
@@ -3157,7 +3166,7 @@ using AudioFullDuplexMidi96kMaxAsyncFixedEps =
                    AudioSyncMode::ASYNC>;
 
 using AudioFullDuplexMidi96kMaxAdaptive =
-    AudioInterface<UacVersion::UAC1,
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL,
                    AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
                    AudioPort<2, 24, 48000, 3, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24Lo_16All>,
                    MidiPort<1, 3>,
@@ -3166,7 +3175,7 @@ using AudioFullDuplexMidi96kMaxAdaptive =
                    AudioSyncMode::ADAPTIVE>;
 
 using AudioFullDuplexMidi96kMaxSync =
-    AudioInterface<UacVersion::UAC1,
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL,
                    AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
                    AudioPort<2, 24, 48000, 3, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24Lo_16All>,
                    MidiPort<1, 3>,
@@ -3176,7 +3185,7 @@ using AudioFullDuplexMidi96kMaxSync =
 
 // Audio OUT + MIDI with 96kHz max packet size support (Audio IN disabled)
 using AudioOutMidi96kMaxAdaptive =
-    AudioInterface<UacVersion::UAC1,
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL,
                    AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
                    NoAudioPort,
                    MidiPort<1, 3>,
@@ -3185,7 +3194,7 @@ using AudioOutMidi96kMaxAdaptive =
                    AudioSyncMode::ADAPTIVE>;
 
 using AudioOutMidi96kMaxAsync =
-    AudioInterface<UacVersion::UAC1,
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL,
                    AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
                    NoAudioPort,
                    MidiPort<1, 3>,
@@ -3195,7 +3204,7 @@ using AudioOutMidi96kMaxAsync =
 
 // Audio OUT only with 96kHz max packet size support (no MIDI)
 using AudioOut96kMaxAsync =
-    AudioInterface<UacVersion::UAC1,
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL,
                    AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
                    NoAudioPort,
                    NoMidiPort,
@@ -3205,7 +3214,7 @@ using AudioOut96kMaxAsync =
 
 // Audio OUT only with 96kHz max packet size support (no MIDI, adaptive sync)
 using AudioOut96kMaxAdaptive =
-    AudioInterface<UacVersion::UAC1,
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL,
                    AudioPort<2, 24, 48000, 1, 96000, AudioRates<44100, 48000, 96000>, AudioAltList24_16>,
                    NoAudioPort,
                    NoMidiPort,
@@ -3215,6 +3224,6 @@ using AudioOut96kMaxAdaptive =
 
 // Audio IN only (microphone)
 using AudioInOnly48k =
-    AudioInterface<UacVersion::UAC1, NoAudioPort, AudioPort<2, 16, 48000, 1>, NoMidiPort, NoMidiPort, 0>;
+    AudioInterface<UacVersion::UAC1, MaxSpeed::FULL, NoAudioPort, AudioPort<2, 16, 48000, 1>, NoMidiPort, NoMidiPort, 0>;
 
 } // namespace umiusb
