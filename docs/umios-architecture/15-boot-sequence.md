@@ -84,13 +84,13 @@ umi::irq::set_handler(IRQn::SysTick, SysTick_Handler);
 
 | 例外 / IRQ | 優先度 | 備考 |
 |-----------|--------|------|
-| DMA1_Stream5 (I2S RX) | 0x10 | 最高（オーディオ入力） |
-| DMA1_Stream3 (PDM) | 0x20 | |
-| OTG_FS (USB) | 0x40 | |
-| SysTick | 0xF0 | DMA より低く、PendSV より高い |
-| PendSV | 0xFF | 最低（コンテキストスイッチ） |
+| DMA1_Stream5 (I2S RX) | 0x00 | 最高。BASEPRI 非マスク — `signal()` + PendSV のみ使用 |
+| DMA1_Stream3 (PDM) | 0x00 | 同上 |
+| OTG_FS (USB) | 0x40 | BASEPRI でマスクされる — `notify()` 使用可 |
+| SysTick | 0xF0 | BASEPRI でマスクされる |
+| PendSV | 0xFF | 最低（コンテキストスイッチ + `resolve_pending()`） |
 
-PendSV が最低優先度であることで、ISR 処理中にコンテキストスイッチが割り込まないことを保証する。
+BASEPRI 閾値は `0x10`。Audio DMA（優先度 0x00）はクリティカルセクション中も実行可能だが、ロックフリー操作のみ許可される（[11-scheduler.md](11-scheduler.md) §signal() + PendSV パターン参照）。PendSV が最低優先度であることで、ISR 処理中にコンテキストスイッチが割り込まないことを保証する。
 
 ---
 

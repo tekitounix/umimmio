@@ -27,8 +27,14 @@
 | [10-shared-memory](10-shared-memory.md) | SharedMemory 構造体の完全定義 |
 | [11-scheduler](11-scheduler.md) | RT-Kernel（スケジューラ、コンテキストスイッチ、タスク通知） |
 | [12-memory-protection](12-memory-protection.md) | メモリ保護と監視（MPU、Fault、ヒープ/スタック監視） |
-| [13-system-services](13-system-services.md) | システムサービス（Loader、Updater、FS、Shell、Diagnostics） |
+| [13-system-services](13-system-services.md) | システムサービス概要（アーキテクチャ、ディスパッチ） |
 | [14-security](14-security.md) | セキュリティと暗号（Ed25519 署名検証、SHA、CRC） |
+| [15-boot-sequence](15-boot-sequence.md) | Boot Sequence（Reset → main → RTOS 開始） |
+| [16-app-loader](16-app-loader.md) | App Loader（.umia 検証・ロード、Processor 登録） |
+| [17-shell](17-shell.md) | Shell（SysEx stdio、コマンド体系、認証） |
+| [18-updater](18-updater.md) | Updater（DFU over SysEx、ロールバック） |
+| [19-storage-service](19-storage-service.md) | StorageService（非同期 FS、littlefs/FATfs） |
+| [20-diagnostics](20-diagnostics.md) | Diagnostics（KernelMetrics、FaultLog、LED パターン） |
 
 ### 推奨読み順
 
@@ -50,9 +56,13 @@
               11-scheduler ──→ 12-memory-protection
                     │
                     ▼
-              13-system-services
+              13-system-services ──→ 15-boot-sequence
                     │
-              09-app-binary ──→ 14-security
+                    ├──→ 16-app-loader ──→ 09-app-binary ──→ 14-security
+                    ├──→ 17-shell
+                    ├──→ 18-updater
+                    ├──→ 19-storage-service
+                    └──→ 20-diagnostics
 ```
 
 基礎概念（00→01→02）を先に読み、その後は興味に応じて分岐してよい。
@@ -78,5 +88,11 @@
 | 10-shared-memory | 01-audio-context, 04-param-system, 07-memory から構造体定義を集約 |
 | 11-scheduler | umi-kernel/spec/kernel.md, umi-kernel/ARCHITECTURE.md |
 | 12-memory-protection | umi-kernel/spec/memory-protection.md, umi-kernel/MEMORY.md |
-| 13-system-services | umi-kernel/spec/system-services.md, umi-kernel/service/*, umi-kernel/BOOT_SEQUENCE.md |
+| 13-system-services | umi-kernel/spec/system-services.md（概要のみに縮小、詳細は 15-20） |
 | 14-security | （新規。09-app-binary の署名仕様を展開） |
+| 15-boot-sequence | umi-kernel/BOOT_SEQUENCE.md, main.cc |
+| 16-app-loader | umi-kernel/ARCHITECTURE.md, loader.hh/cc |
+| 17-shell | umi-kernel/service/SHELL.md, umi_shell.hh, shell_commands.hh |
+| 18-updater | umi-kernel/BOOT_SEQUENCE.md（DFU セクション） |
+| 19-storage-service | umi-kernel/service/FILESYSTEM.md |
+| 20-diagnostics | metrics.hh, fault_handler.hh |
