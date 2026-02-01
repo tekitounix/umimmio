@@ -158,22 +158,53 @@ Shell はカーネル状態を `StateProvider` テンプレートパラメータ
 
 ```cpp
 struct KernelStateView {
+    // Time
     uint64_t uptime_us;
+    uint32_t rtc_epoch_sec;
+
+    // Audio
     uint32_t audio_buffer_count;
     uint32_t audio_drop_count;
     uint32_t dsp_load_percent_x100;     // 100 = 1.00%
+    uint32_t dsp_load_peak_x100;
+    bool     audio_running;
+
+    // MIDI
     uint32_t midi_rx_count;
     uint32_t midi_tx_count;
+
+    // Power
     uint8_t  battery_percent;
     bool     battery_charging;
+    bool     usb_connected;
+    uint32_t battery_voltage_mv;
+
+    // Watchdog
+    uint32_t watchdog_timeout_ms;
+    uint64_t watchdog_last_feed_us;
+    bool     watchdog_enabled;
+
+    // Counters
+    uint32_t irq_count;
+    uint32_t context_switches;
+    uint32_t hardfault_count;
+    uint32_t stack_overflow_count;
+
+    // Memory
     uint32_t heap_used;
     uint32_t heap_total;
     uint32_t heap_peak;
+    uint32_t sram_total;
     uint32_t flash_total;
     uint32_t flash_used;
+
+    // Tasks
     uint8_t  task_count;
     uint8_t  task_ready;
     uint8_t  task_blocked;
+
+    // Logging
+    uint8_t  log_level;
 };
 ```
 

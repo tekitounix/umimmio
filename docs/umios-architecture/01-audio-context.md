@@ -94,30 +94,51 @@ void process(umi::AudioContext& ctx) {
 
 `input_events` は当該バッファ区間に発生したイベントの配列。
 
-### umidi::Event 構造
+### umi::Event 構造
 
 ```cpp
-namespace umidi {
+namespace umi {
 
-struct Event {  // sizeof = 8B
-    uint16_t sample_pos;    // バッファ内サンプル位置 (0 ~ buffer_size-1)
-    uint8_t type;           // EventType
-    uint8_t status;         // MIDI ステータスバイト or イベント固有
-    uint32_t data;          // イベントデータ（型により解釈が異なる）
-
-    // MIDI ヘルパー
-    bool is_note_on() const;
-    bool is_note_off() const;
-    bool is_cc() const;
-    uint8_t note() const;
-    uint8_t velocity() const;
-    uint8_t cc_number() const;
-    uint8_t cc_value() const;
-    uint8_t channel() const;
+enum class EventType : uint8_t {
+    MIDI,          // MIDI メッセージ
+    PARAM,         // パラメータ変更
+    RAW,           // 生データ
+    BUTTON_DOWN,   // ボタン押下
+    BUTTON_UP,     // ボタン解放
 };
 
-} // namespace umidi
+struct Event {  // sizeof = 24B
+    port_id_t port_id = 0;          // ポート ID
+    uint32_t sample_pos = 0;        // バッファ内サンプル位置 (0 ~ buffer_size-1)
+    EventType type = EventType::MIDI;
+
+    union {
+        MidiData midi;              // MIDI バイト列 (3B + size)
+        ParamData param;            // パラメータ ID + float 値
+        RawData raw;                // 生データ (最大 8B)
+        ButtonData button;          // ボタン ID
+    };
+
+    // ファクトリメソッド
+    static Event make_midi(port_id_t port, uint32_t pos,
+                           uint8_t status, uint8_t d1, uint8_t d2 = 0);
+    static Event make_param(param_id_t id, uint32_t pos, float value);
+    static Event note_on(port_id_t port, uint32_t pos,
+                         uint8_t channel, uint8_t note, uint8_t velocity);
+    static Event note_off(port_id_t port, uint32_t pos,
+                          uint8_t channel, uint8_t note, uint8_t velocity = 0);
+    static Event cc(port_id_t port, uint32_t pos,
+                    uint8_t channel, uint8_t cc_num, uint8_t value);
+    static Event button_down(uint32_t pos, uint8_t button_id);
+    static Event button_up(uint32_t pos, uint8_t button_id);
+};
+
+} // namespace umi
 ```
+
+> **MidiData**: `bytes[3]` + `size` で MIDI 1.0 メッセージを格納。`is_note_on()`, `cc_number()` 等のヘルパーメソッドあり。
+> **ParamData**: `param_id_t id` + `float value`。
+> Event は MIDI 以外（パラメータ変更、ボタン、生データ）も統一的に扱う汎用イベントである。
 
 ### サンプル精度処理
 

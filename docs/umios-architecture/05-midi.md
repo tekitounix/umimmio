@@ -16,7 +16,7 @@ UMI 内部の MIDI メッセージ表現。MIDI 1.0 チャンネルメッセー�
 namespace umidi {
 
 struct UMP32 {  // sizeof = 4B
-    uint32_t data;
+    uint32_t word;
 
     uint8_t message_type() const;   // MT (4bit)
     uint8_t group() const;          // Group (4bit)

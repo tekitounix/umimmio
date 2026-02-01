@@ -27,7 +27,7 @@ struct SharedMemory {
 
     // === イベントキュー (Shared MIDI 2KB 領域) ===
     static constexpr size_t EVENT_QUEUE_SIZE = 64;
-    umidi::Event event_queue[EVENT_QUEUE_SIZE];                 // 512B
+    umi::Event event_queue[EVENT_QUEUE_SIZE];                   // 1536B
     std::atomic<uint32_t> event_write_idx;                     // 4B
     std::atomic<uint32_t> event_read_idx;                      // 4B
 
