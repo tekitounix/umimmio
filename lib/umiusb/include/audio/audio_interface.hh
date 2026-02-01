@@ -10,8 +10,8 @@
 #include <type_traits>
 #include <utility>
 
-#include "audio_types.hh"
-#include "types.hh"
+#include "audio/audio_types.hh"
+#include "core/types.hh"
 
 namespace umiusb {
 
@@ -62,9 +62,8 @@ struct AudioPort {
     // Add +1 sample headroom so feedback can request extra frames (e.g. 96k -> 97).
     static constexpr uint16_t PACKET_SIZE =
         (static_cast<uint16_t>(((MaxSampleRate_ + 999) / 1000) + 1) * BYTES_PER_FRAME);
-    // Buffer size: ~20ms at max sample rate, rounded up to power of 2
-    // Increased to 1024 for all rates to handle timing jitter between
-    // DMA writes (64 frames @ 750Hz) and USB reads (48 frames @ 1000Hz)
+    // Buffer size: ~20ms at max sample rate, rounded up to power of 2.
+    // Handles timing jitter between DMA writes (64 frames @ 750Hz) and USB reads (48 frames @ 1000Hz).
     static constexpr uint32_t BUFFER_FRAMES = 1024;
 
     static_assert(RATES_COUNT == 0 || MAX_SAMPLE_RATE >= Rates::max_rate,
@@ -141,8 +140,8 @@ class AudioInterface {
     static constexpr bool IS_UAC2 = (Version == UacVersion::Uac2);
     static constexpr bool USES_IAD = IS_UAC2;
     static constexpr AudioSyncMode SYNC_MODE = SyncMode_;
-    // FS feedback: 3 bytes (10.14 format) per USB 2.0 §5.12.4.2
-    // macOS FS driver uses 10.14 regardless of UAC version.
+    // FS feedback: always 3 bytes (10.14 format)
+    // macOS xHCI generates babble errors with wMaxPacketSize > 3 at Full Speed.
     static constexpr uint16_t FB_PACKET_SIZE = 3;
     static constexpr bool SAMPLE_RATE_CONTROL = SampleRateControlEnabled_;
     using SampleT = SampleT_;
@@ -160,6 +159,12 @@ class AudioInterface {
     static constexpr bool HAS_MIDI_OUT = MidiOut::ENABLED;
     static constexpr bool HAS_MIDI_IN = MidiIn::ENABLED;
     static constexpr bool HAS_MIDI = HAS_MIDI_OUT || HAS_MIDI_IN;
+
+    // Implicit feedback: when UAC2 Async duplex, Audio IN serves as implicit feedback
+    // and explicit feedback EP is omitted. Per TN2274 and XMOS reference design,
+    // macOS uses IN packet rate as feedback for OUT clock recovery.
+    static constexpr bool use_implicit_fb =
+        (SYNC_MODE == AudioSyncMode::Async) && HAS_AUDIO_OUT && HAS_AUDIO_IN;
 
     struct OutPacketStats;
 
@@ -285,8 +290,8 @@ class AudioInterface {
                 size += 9 + (alt_count * 9); // Alt 0 + active alts
                 if constexpr (IS_UAC2) {
                     size += 16 + 6 + 7 + 8; // AS General + Format + EP + CS EP
-                    if constexpr (SYNC_MODE == AudioSyncMode::Async) {
-                        size += 7; // Feedback EP (UAC2 standard endpoint)
+                    if constexpr (SYNC_MODE == AudioSyncMode::Async && !use_implicit_fb) {
+                        size += 7; // Explicit Feedback EP (UAC2 standard endpoint)
                     }
                 } else {
                     constexpr std::size_t alt_total = []<size_t... Is>(std::index_sequence<Is...>) {
@@ -606,7 +611,8 @@ class AudioInterface {
                     w(9, bDescriptorType::Interface);
                     w(audio_out_iface);
                     w(1); // bAlternateSetting
-                    w((SYNC_MODE == AudioSyncMode::Async) ? 2 : 1);
+                    // bNumEndpoints: implicit FB uses IN as feedback, no explicit FB EP
+                    w((SYNC_MODE == AudioSyncMode::Async && !use_implicit_fb) ? 2 : 1);
                     w(bDeviceClass::Audio);
                     w(SUBCLASS_AUDIOSTREAMING);
                     w(uac::uac2::IP_VERSION_02_00);
@@ -644,9 +650,8 @@ class AudioInterface {
                     w(0);    // bLockDelayUnits
                     w16(0);  // wLockDelay
 
-                    if constexpr (SYNC_MODE == AudioSyncMode::Async) {
-                        // Feedback Endpoint
-                        // UAC1: 10.14 format (3 bytes), UAC2: 16.16 format (4 bytes)
+                    if constexpr (SYNC_MODE == AudioSyncMode::Async && !use_implicit_fb) {
+                        // Explicit Feedback Endpoint (only when no implicit FB from Audio IN)
                         w(7, bDescriptorType::Endpoint);
                         w(0x80 | EP_FEEDBACK);
                         w(0x11); // Iso, Feedback
@@ -769,11 +774,23 @@ class AudioInterface {
                     w(AudioIn::BIT_DEPTH);
 
                     // Audio Endpoint (IN) - UAC2
-                    // Use Synchronous mode (0x0D) for Audio IN
-                    // Synchronous: device provides data at SOF rate
+                    // Implicit feedback: 0x25 (Async, Implicit FB data EP)
+                    // Explicit feedback: 0x05 (Async, Data EP)
+                    // Non-async: 0x0D (Synchronous)
                     w(7, bDescriptorType::Endpoint);
                     w(0x80 | EP_AUDIO_IN);
-                    w(0x0D); // Isochronous, Synchronous
+                    {
+                        uint8_t in_sync = 0x0D; // Synchronous
+                        if constexpr (use_implicit_fb) {
+                            in_sync = 0x25; // Async + Implicit Feedback
+                        }
+                        // When using explicit feedback (non-implicit), Audio IN
+                        // must be Synchronous (0x0D) not Async (0x05).
+                        // macOS AppleUSBAudio treats Async IN as implicit feedback
+                        // source and ignores the explicit feedback EP, causing
+                        // burst/starvation pattern on Audio OUT.
+                        w(in_sync);
+                    }
                     constexpr uint16_t in_packet_size =
                         static_cast<uint16_t>((((AudioIn::SAMPLE_RATE + 999) / 1000) + 1) * AudioIn::BYTES_PER_FRAME);
                     w16(in_packet_size);
@@ -1416,9 +1433,8 @@ class AudioInterface {
                     dbg_out_rx_max_len_ = 0;
                     dbg_out_rx_short_count_ = 0;
 
-                    if constexpr (SYNC_MODE == AudioSyncMode::Async) {
-                        // Async mode: configure feedback endpoint
-                        // UAC1: 3 bytes (10.14), UAC2: 4 bytes (16.16)
+                    if constexpr (SYNC_MODE == AudioSyncMode::Async && !use_implicit_fb) {
+                        // Explicit feedback mode: configure feedback endpoint
                         constexpr uint16_t fb_size = FB_PACKET_SIZE;
                         hal.ep_configure({EP_FEEDBACK, Direction::In, TransferType::Isochronous, fb_size});
                         hal.set_feedback_ep(EP_FEEDBACK);
@@ -2113,7 +2129,7 @@ class AudioInterface {
                     --out_rx_blocked_frames_;
                     ++dbg_on_sof_decrement_;
                 }
-                if constexpr (SYNC_MODE == AudioSyncMode::Async) {
+                if constexpr (SYNC_MODE == AudioSyncMode::Async && !use_implicit_fb) {
                     ++sof_count_;
                     // Update feedback value at FB_UPDATE_INTERVAL rate
                     const bool update = (!fb_last_valid_) || ((sof_count_ % FB_UPDATE_INTERVAL) == 0);
@@ -2507,12 +2523,8 @@ class AudioInterface {
             if (!audio_in_streaming_)
                 return;
 
-            // Check if EP is still busy from previous transfer
-            // If busy, skip this send to avoid data loss (HAL will silently discard)
-            if (hal.is_ep_busy(EP_AUDIO_IN)) {
-                ++dbg_in_ep_busy_skip_;
-                return;
-            }
+            // Note: EP busy check removed - was causing 50% packet loss due to
+            // iso IN even/odd frame parity timing. ep_write has its own EPENA check.
 
             ++dbg_send_audio_in_count_;
 

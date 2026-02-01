@@ -298,8 +298,7 @@ bool AppLoader::setup_memory(const AppHeader* header) noexcept {
 void AppLoader::copy_sections(const AppHeader* header, const uint8_t* image) noexcept {
     const uint8_t* src = image + sizeof(AppHeader);
 
-    // .text section - execute from flash (XIP) or copy to RAM
-    // For Cortex-M, we can execute from flash directly
+    // .text section - execute from flash (XIP)
     runtime_.text_start = const_cast<uint8_t*>(src);
 
     // Entry point (set bit 0 for Thumb mode on Cortex-M)
@@ -307,13 +306,8 @@ void AppLoader::copy_sections(const AppHeader* header, const uint8_t* image) noe
     entry_addr |= 1; // Thumb bit
     runtime_.entry = reinterpret_cast<void (*)()>(entry_addr);
 
-    // .data section - copy to RAM
-    src += header->text_size + header->rodata_size;
-    std::memcpy(runtime_.data_start, src, header->data_size);
-
-    // .bss section - zero initialize
-    uint8_t* bss_start = static_cast<uint8_t*>(runtime_.data_start) + header->data_size;
-    std::memset(bss_start, 0, header->bss_size);
+    // .data/.bss initialization is handled by _start() (crt0) using linker symbols.
+    // Loader only sets up text/entry and memory regions.
 }
 
 void AppLoader::configure_mpu() noexcept {
