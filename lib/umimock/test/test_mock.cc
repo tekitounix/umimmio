@@ -3,19 +3,17 @@
 
 #include <umimock/mock.hh>
 
-#include "test_common.hh"
+#include <umitest.hh>
 
 using namespace umi::mock;
-using umi::test::check;
-using umi::test::check_eq;
-using umi::test::check_near;
+using namespace umitest;
 
 // ============================================================================
 // Concept verification
 // ============================================================================
 
-static void test_concept() {
-    SECTION("Generatable concept");
+static void test_concept(Suite& s) {
+    s.section("Generatable concept");
 
     // MockSignal satisfies Generatable
     static_assert(Generatable<MockSignal>, "MockSignal must satisfy Generatable");
@@ -23,78 +21,78 @@ static void test_concept() {
     // int does not satisfy Generatable
     static_assert(!Generatable<int>, "int must not satisfy Generatable");
 
-    check(true, "static_assert passed");
+    s.check(true, "static_assert passed");
 }
 
 // ============================================================================
 // MockSignal basics
 // ============================================================================
 
-static void test_constant() {
-    SECTION("Constant signal");
+static void test_constant(Suite& s) {
+    s.section("Constant signal");
 
     MockSignal sig(Shape::CONSTANT, 0.5f);
 
-    CHECK_EQ(static_cast<int>(sig.get_shape()), static_cast<int>(Shape::CONSTANT), "shape is CONSTANT");
-    CHECK_NEAR(sig.get_value(), 0.5f, "value is 0.5");
-    CHECK_NEAR(sig.generate(), 0.5f, "generate returns constant");
-    CHECK_NEAR(sig.generate(), 0.5f, "generate returns constant again");
+    s.check_eq(static_cast<int>(sig.get_shape()), static_cast<int>(Shape::CONSTANT));
+    s.check_near(sig.get_value(), 0.5f);
+    s.check_near(sig.generate(), 0.5f);
+    s.check_near(sig.generate(), 0.5f);
 }
 
-static void test_ramp() {
-    SECTION("Ramp signal");
+static void test_ramp(Suite& s) {
+    s.section("Ramp signal");
 
     MockSignal sig(Shape::RAMP, 1.0f);
 
     float first = sig.generate();
     float second = sig.generate();
-    check(second > first, "ramp increases over time");
-    CHECK_NEAR(first, 0.01f, "first ramp sample");
+    s.check(second > first, "ramp increases over time");
+    s.check_near(first, 0.01f);
 }
 
 // ============================================================================
 // set_value with this-> disambiguation
 // ============================================================================
 
-static void test_set_value() {
-    SECTION("set_value (this-> disambiguation)");
+static void test_set_value(Suite& s) {
+    s.section("set_value (this-> disambiguation)");
 
     MockSignal sig;
-    CHECK_NEAR(sig.get_value(), default_value, "default value");
+    s.check_near(sig.get_value(), default_value);
 
     sig.set_value(0.75f);
-    CHECK_NEAR(sig.get_value(), 0.75f, "value after set_value");
-    CHECK_NEAR(sig.generate(), 0.75f, "generate after set_value");
+    s.check_near(sig.get_value(), 0.75f);
+    s.check_near(sig.generate(), 0.75f);
 }
 
 // ============================================================================
 // Reset
 // ============================================================================
 
-static void test_reset() {
-    SECTION("reset");
+static void test_reset(Suite& s) {
+    s.section("reset");
 
     MockSignal sig(Shape::RAMP, 1.0f);
     sig.generate();
     sig.generate();
     sig.reset();
 
-    CHECK_NEAR(sig.get_value(), default_value, "value reset to default");
+    s.check_near(sig.get_value(), default_value);
 }
 
 // ============================================================================
 // fill_buffer (concept-constrained template)
 // ============================================================================
 
-static void test_fill_buffer() {
-    SECTION("fill_buffer");
+static void test_fill_buffer(Suite& s) {
+    s.section("fill_buffer");
 
     MockSignal sig(Shape::CONSTANT, 0.25f);
     float buf[4] = {};
     fill_buffer(sig, buf, 4);
 
     for (int i = 0; i < 4; ++i) {
-        CHECK_NEAR(buf[i], 0.25f, "buffer sample");
+        s.check_near(buf[i], 0.25f);
     }
 }
 
@@ -102,25 +100,25 @@ static void test_fill_buffer() {
 // constexpr verification
 // ============================================================================
 
-static void test_constexpr() {
-    SECTION("constexpr");
+static void test_constexpr(Suite& s) {
+    s.section("constexpr");
 
     constexpr MockSignal sig(Shape::CONSTANT, 1.0f);
-    check(sig.get_value() == 1.0f, "constexpr construction");
-    check(default_value == 0.0f, "constexpr default_value");
-    check(max_ramp_steps == 100, "constexpr max_ramp_steps");
+    s.check(sig.get_value() == 1.0f, "constexpr construction");
+    s.check(default_value == 0.0f, "constexpr default_value");
+    s.check(max_ramp_steps == 100, "constexpr max_ramp_steps");
 }
 
 // ============================================================================
 // detail namespace
 // ============================================================================
 
-static void test_detail() {
-    SECTION("detail::clamp01");
+static void test_detail(Suite& s) {
+    s.section("detail::clamp01");
 
-    CHECK_NEAR(detail::clamp01(-1.0f), 0.0f, "clamp below 0");
-    CHECK_NEAR(detail::clamp01(0.5f), 0.5f, "clamp in range");
-    CHECK_NEAR(detail::clamp01(2.0f), 1.0f, "clamp above 1");
+    s.check_near(detail::clamp01(-1.0f), 0.0f);
+    s.check_near(detail::clamp01(0.5f), 0.5f);
+    s.check_near(detail::clamp01(2.0f), 1.0f);
 }
 
 // ============================================================================
@@ -128,14 +126,15 @@ static void test_detail() {
 // ============================================================================
 
 int main() {
-    test_concept();
-    test_constant();
-    test_ramp();
-    test_set_value();
-    test_reset();
-    test_fill_buffer();
-    test_constexpr();
-    test_detail();
+    Suite s("umimock");
+    test_concept(s);
+    test_constant(s);
+    test_ramp(s);
+    test_set_value(s);
+    test_reset(s);
+    test_fill_buffer(s);
+    test_constexpr(s);
+    test_detail(s);
 
-    TEST_SUMMARY();
+    return s.summary();
 }
