@@ -8,7 +8,7 @@
 #include <cstring>
 #include <span>
 
-#include "audio/audio_types.hh"
+#include "midi/midi_types.hh"
 #include "core/descriptor.hh"
 #include "core/types.hh"
 
