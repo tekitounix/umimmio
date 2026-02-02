@@ -1,212 +1,219 @@
-# FS リファクタリング計画
+# umifs クリーンルーム再実装計画
 
 ## 目的
 
-littlefs / FATfs の C++23 ポートについて、コアロジック（元ライセンス維持）と
-UMI 独自設計部分（UMI ライセンス）を明確に分離し、モダン C++23 で書き直す。
+littlefs / FATfs のコアロジックを、リファレンス実装（`.refs/fatfs/`, `.refs/littlefs/`）の
+問題点を詳細に分析した上で、公開仕様のみに基づく独自のクリーンルーム実装に全面書き換える。
 
-## 現状分析
+組み込みオーディオシステムでの使用を前提とし、安全性・堅牢性・電源遮断耐性・
+クリティカルパス性能を最優先に設計する。
 
-### ファイル構成と行数
+## リファレンス実装の欠陥分析
 
-| ファイル | 行数 | 内容 |
-|----------|------|------|
-| `littlefs/lfs.cc` | 6254 | 全ロジック（C スタイル static 関数群） |
-| `littlefs/lfs.hh` | 167 | Lfs クラス宣言（Public API） |
-| `littlefs/lfs_types.hh` | 250 | 型定義、enum、構造体 |
-| `littlefs/lfs_config.hh` | 119 | LfsConfig + make_lfs_config |
-| `littlefs/lfs_util.hh` | 154 | ユーティリティ（CRC, endian, bit ops） |
-| `fatfs/ff.cc` | 2306 | 全ロジック（FatFs メンバ関数群） |
-| `fatfs/ff.hh` | 124 | FatFs クラス宣言（Public API） |
-| `fatfs/ff_types.hh` | 182 | 型定義、enum、構造体 |
-| `fatfs/ff_config.hh` | 64 | コンフィグ定数 |
-| `fatfs/ff_diskio.hh` | 131 | DiskIo + make_diskio |
-| `fatfs/ff_unicode.hh` | 20 | Unicode 変換宣言 |
-| `fatfs/ff_unicode.cc` | 222 | CP437 ↔ Unicode テーブル + 大文字変換 |
+### FATfs R0.15 (.refs/fatfs/source/ff.c, 7249行)
 
-### 現在の問題点
+| ID | 問題 | 重大度 | 詳細 |
+|----|------|--------|------|
+| F1 | f_rename クロスリンク窓 | **Critical** | 同一クラスタチェーンが2エントリから参照される時間窓あり。コード自体が `/* Start of critical section where an interruption can cause a cross-link */` と認識 |
+| F2 | グローバル可変状態 | **Critical** | `FatFs[]`, `Fsid`, `CurrVol`, `LfnBuf[]`, `DirBuf[]`, `CodePage`, `ExCvt` 等がstatic global。複数インスタンス不可、スレッドセーフ不可 |
+| F3 | disk_write戻り値無視 | **High** | 2nd FAT書き込み(1068行)、FSInfo書き込み(1129行)の戻り値が未チェック。冗長性が黙って失われる |
+| F4 | 循環チェーン無限ループ | **High** | `remove_chain`, `f_lseek` のFATチェーン走査に循環検出なし。破損メディアで永久停止 |
+| F5 | f_truncateサイズ不整合 | **Medium** | `remove_chain`エラー後も`objsize`を更新 → 不整合がsyncで永続化 |
+| F6 | ヒープ割り当て | **Medium** | `FF_USE_LFN==3`で`ff_memalloc`使用。組み込みリアルタイムに不適 |
+| F7 | f_unlinkロストクラスタ | **Medium** | ディレクトリエントリ削除後、チェーン解放前の電源断でロストクラスタ |
+| F8 | FAT二重化不整合 | **Medium** | 1st FAT書き込み後、2nd FAT書き込み前の電源断でFAT不整合 |
 
-1. **ライセンス混在**: 全ファイルに元ライセンスヘッダが付いているが、型定義や設定は仕様から書ける
-2. **C スタイル残存**: lfs.cc は `using lfs_t = Lfs` で型を橋渡しし、`#define` でC定数を再定義している
-3. **Lfs クラスの二重構造**: Public API は Lfs メンバ関数だが、内部は全て static 関数で lfs_t* を受け取る。Lfs はメンバを全て public にして C 構造体として使っている
-4. **FatFs は比較的整理済み**: クラスメンバ関数化されているが、ff.cc 内の定数定義が冗長
+### littlefs v2.9 (.refs/littlefs/lfs.c, 6549行)
 
----
+| ID | 問題 | 重大度 | 詳細 |
+|----|------|--------|------|
+| L1 | ASSERT 70箇所がリリースで無効 | **High** | `LFS_NO_ASSERT`定義時（プロダクション）に破損データで未定義動作。特にbd_read/bd_progの境界チェック |
+| L2 | traverse深度制限がASSERTのみ | **High** | `lfs_dir_traverse`の手動スタック深度がASSERTのみ。`LFS_NO_ASSERT`時にスタックバッファオーバーフロー |
+| L3 | lfs_npw2の未定義動作 | **Medium** | `a==1`で`__builtin_clz(0)`呼び出し。未定義動作（アーキテクチャ依存で異なる結果） |
+| L4 | lock/unlock NULL未検証 | **High** | `LFS_THREADSAFE`有効時、`lfs_init`にコールバックNULLチェックなし |
+| L5 | rcacheバッファ暗黙的再利用 | **Medium** | truncate時に`rcache.buffer`を一時バッファとして借用。内部変更で壊れやすい |
+| L6 | Cスタイルフラット構造 | **Low** | 6500行のstatic関数群。`using lfs_t = Lfs`でブリッジ。状態管理が不透明 |
 
-## コアロジック vs UMI 独自実装の分類
+## 設計方針
 
-### littlefs — コアロジック（元ライセンス維持必須）
+### 共通原則
 
-以下は littlefs のオンディスクフォーマット・アルゴリズムに直結し、独自実装が困難/危険:
+| 原則 | 説明 |
+|------|------|
+| **仕様ベース実装** | FAT: Microsoft公開仕様、littlefs: SPEC.md。リファレンスは問題分析のみに参照 |
+| **全てインスタンスメンバ** | グローバル可変状態を完全排除。複数インスタンス安全 |
+| **ASSERT禁止** | 全チェックをエラーコード返却に。プロダクションでも防御的動作 |
+| **ヒープ禁止** | 全バッファはユーザー提供 or インスタンス内静的配列 |
+| **クリティカルパス最適化** | read/writeの関数呼び出し深度を最小化。オーディオ再生に耐える低レイテンシ |
+| **電源遮断耐性** | 全書き込み操作で中断安全な順序を保証 |
 
-| 機能 | lfs.cc 内の主要関数 | 理由 |
-|------|---------------------|------|
-| **ブロックキャッシュ** | `lfs_bd_read`, `lfs_bd_prog`, `lfs_bd_flush`, `lfs_bd_sync` | COW キャッシュ整合性 |
-| **メタデータペア管理** | `lfs_dir_fetchmatch`, `lfs_dir_commit`, `lfs_dir_compact` | アトミック更新の根幹 |
-| **タグシステム** | `lfs_dir_get`, `lfs_dir_getslice`, `lfs_dir_traverse` | ログ構造メタデータ |
-| **ブロックアロケータ** | `lfs_alloc`, `lfs_alloc_scan`, `lfs_alloc_ckpoint` | ウェアレベリング |
-| **CTZ スキップリスト** | `lfs_ctz_find`, `lfs_ctz_extend`, `lfs_ctz_traverse` | ファイルデータ管理 |
-| **グローバルステート** | `lfs_gstate_*`, `lfs_fs_deorphan`, `lfs_fs_forceconsistency` | 電断リカバリ |
-| **CRC** | `lfs_crc` | データ整合性検証 |
-| **コミットCRC** | `lfs_dir_commitcrc`, `lfs_dir_commitattr` | アトミックコミット |
+### FATfs 設計
 
-### littlefs — UMI 独自実装可能
+**FAT12/16/32仕様（Microsoft公開）に基づくゼロからの実装。**
 
-| ファイル/機能 | 理由 |
-|---------------|------|
-| `lfs_types.hh` (型定義) | 仕様から書ける。enum class, 構造体レイアウトは独自設計 |
-| `lfs_config.hh` (設定) | BlockDeviceLike アダプタは完全に UMI 設計 |
-| `lfs_util.hh` (ユーティリティ) | min/max/align/endian/popcount は汎用。CRC 宣言のみ |
-| `lfs.hh` (Public API) | クラスインターフェースは独自設計 |
-| **エラーコード** | 値は POSIX 準拠で仕様由来。enum class 化は独自 |
-| **lfs.cc 内の #define 群** | lfs.cc 冒頭の 160 行の互換 define はリファクタリングで消せる |
-| **Lfs:: メンバ関数ラッパー** | lfs.cc 末尾の 160 行は単なる委譲 |
+| 項目 | 設計 |
+|------|------|
+| セクタウィンドウ | 512Bバッファ。セクタアラインのフルセクタはBD直接アクセス（ウィンドウバイパス） |
+| FATテーブル | get_fat/put_fatの3分岐(12/16/32)。FAT12の1.5Bパッキングは仕様通り |
+| 循環チェーン検出 | 全チェーン走査にカウンタ上限(`n_fatent`)。超過で`DISK_ERR`返却 |
+| rename安全性 | 中間sync挿入でクロスリンク窓を最小化 |
+| エラー伝搬 | 全disk_write/disk_read戻り値をチェック・上位に伝搬 |
+| truncateの安全性 | remove_chainエラー時はobjsize更新をスキップ |
+| LFN | `if constexpr(config::USE_LFN)`でコンパイル時除去可能。バッファはインスタンス内静的 |
 
-### FATfs — コアロジック（元ライセンス維持必須）
+### littlefs 設計
 
-| 機能 | ff.cc 内の主要関数 | 理由 |
-|------|---------------------|------|
-| **FAT テーブル操作** | `get_fat`, `put_fat` | FAT12/16/32 テーブル読み書き |
-| **クラスタチェーン管理** | `create_chain`, `remove_chain` | ファイル割り当て |
-| **ディレクトリエントリ解析** | `dir_read`, `dir_find`, `dir_register`, `dir_remove` | FAT ディレクトリ構造 |
-| **LFN 処理** | `cmp_lfn`, `pick_lfn`, `put_lfn`, `gen_numname`, `sum_sfn` | Long File Name 仕様実装 |
-| **パス解析** | `follow_path`, `create_name` | SFN/LFN パス変換 |
-| **ボリュームマウント** | `mount_volume`, `check_fs`, `find_volume` | BPB/FAT 解析 |
-| **ウィンドウ管理** | `sync_window`, `move_window` | セクタバッファ管理 |
-| **FS 同期** | `sync_fs` | FSInfo 更新 |
+**SPEC.md (v2.1オンディスクフォーマット仕様) に基づくゼロからの実装。**
 
-### FATfs — UMI 独自実装可能
+| 項目 | 設計 |
+|------|------|
+| メタデータペア | 2ブロック交互書き込み。コミットログ構造。CRC-32(0x04c11db7)検証 |
+| タグXOR連鎖 | 32bitビッグエンディアンタグの隣接XOR。双方向イテレーション |
+| CTZスキップリスト | `std::countr_zero`でポインタ数計算。O(log n)シーク |
+| ブロックアロケータ | ルックアヘッドビットマップ。CRC-XORベースのランダムシード |
+| gstate | XOR分散デルタ。マウント時全ペア走査で復元。deorphan処理 |
+| コンパクション | 50%超で分割。有効エントリのみ再書き込み |
+| インラインファイル | ブロックサイズ1/4以下の小ファイルはメタデータペア内格納 |
+| 全境界チェック | ASSERT→if+エラーリターン。traverse深度は実行時チェック |
 
-| ファイル/機能 | 理由 |
-|---------------|------|
-| `ff_types.hh` (型定義) | FAT 仕様から書ける |
-| `ff_config.hh` (設定) | 純粋な定数定義 |
-| `ff_diskio.hh` (DiskIo) | BlockDeviceLike アダプタは完全に UMI 設計 |
-| `ff.hh` (Public API) | クラスインターフェースは独自設計 |
-| `ff_unicode.cc/hh` | CP437 テーブルは Unicode 仕様由来。大文字変換テーブルも仕様 |
-| **ff.cc 内の定数定義** | BPB オフセット等は FAT 仕様由来。#define → constexpr 化は独自 |
-| **ff.cc のヘルパー** | `ld_16`, `ld_32`, `st_16`, `st_32`, 文字判定等は汎用 |
-| **Disk I/O ラッパー** | `disk_initialize` 等は DiskIo 委譲 |
-
----
-
-## リファクタリング後のファイル構成
+## ファイル構成
 
 ```
-lib/umios/fs/
-  little/
-    lfs.hh              ← UMI license — Public API (Lfs class)
-    lfs_types.hh         ← UMI license — 型定義、enum class
-    lfs_config.hh        ← UMI license — LfsConfig + make_lfs_config
-    lfs_util.hh          ← UMI license — ユーティリティ
-    lfs_core.cc          ← BSD-3-Clause — コアアルゴリズム（COW, メタデータ, アロケータ等）
-  fat/
-    fat.hh               ← UMI license — Public API (FatFs class)
-    fat_types.hh         ← UMI license — 型定義、enum class
-    fat_config.hh        ← UMI license — コンフィグ
-    fat_diskio.hh        ← UMI license — DiskIo + make_diskio
-    fat_unicode.hh       ← UMI license — Unicode 変換（仕様準拠で独自実装）
-    fat_unicode.cc       ← UMI license — CP437 テーブル + 大文字変換
-    fat_core.cc          ← FatFs license — コアアルゴリズム（FAT テーブル, ディレクトリ等）
-  docs/
-    REFACTORING_PLAN.md  ← このファイル
-  test/
-    test_lfs.cc          ← 網羅テスト（littlefs）
-    test_fat.cc          ← 網羅テスト（FATfs）
-    test_lfs_compare.cc  ← C++23ポート vs リファレンス実装 比較テスト
-    test_fat_compare.cc  ← C++23ポート vs リファレンス実装 比較テスト
+lib/umifs/
+├── fat/
+│   ├── fat_core.cc        ← 新規: FATfsクリーンルーム実装 (UMIライセンス)
+│   ├── ff.hh              ← 公開API (FatFsクラス)
+│   ├── ff_types.hh        ← 型定義、enum class
+│   ├── ff_config.hh       ← コンパイル時設定
+│   ├── ff_diskio.hh       ← DiskIo + BlockDeviceLikeアダプタ
+│   ├── ff_unicode.cc      ← CP437テーブル + 大文字変換
+│   └── ff_unicode.hh      ← Unicode変換宣言
+├── little/
+│   ├── lfs_core.cc        ← 新規: littlefsクリーンルーム実装 (UMIライセンス)
+│   ├── lfs.hh             ← 公開API (Lfsクラス)
+│   ├── lfs_types.hh       ← 型定義、enum class
+│   ├── lfs_config.hh      ← LfsConfig + BlockDeviceLikeアダプタ
+│   └── lfs_util.hh        ← ユーティリティ (CRC, endian, bit ops)
+├── docs/
+│   ├── REFACTORING_PLAN.md  ← このファイル
+│   ├── FATFS_AUDIT.md       ← FATfsリファレンス監査結果
+│   ├── LITTLEFS_AUDIT.md    ← littlefsリファレンス監査結果
+│   ├── SAFETY_ANALYSIS.md   ← 安全性分析
+│   └── RENODE_COMPARISON.md ← Renodeベンチマーク比較
+├── test/
+│   ├── test_lfs.cc          ← littlefs単体テスト (113テスト)
+│   ├── test_fat.cc          ← FATfs単体テスト (96テスト)
+│   ├── test_lfs_compare.cc  ← C++23 vs リファレンスC比較 (33テスト)
+│   ├── test_fat_compare.cc  ← C++23 vs リファレンスC比較 (27テスト)
+│   ├── renode_fs_test.cc    ← Renode統合テスト (C++23)
+│   ├── renode_fs_test_ref.cc ← Renode統合テスト (リファレンスC)
+│   ├── TEST_REPORT.md       ← テストレポート
+│   └── xmake.lua            ← テスト用ビルド設定
+└── xmake.lua                ← ライブラリビルド設定
 ```
-
----
 
 ## 実施フェーズ
 
-### Phase 0: テスト基盤構築（現在）
+### Phase 1: FATfs クリーンルーム再実装
 
-既存テスト（`tests/test_littlefs.cc`, `tests/test_fatfs.cc`）のカバレッジを拡充し、
-`fs/test/` に配置。リファクタリング前後で全テストが通ることを保証する。
+`fat_core.cc` を Microsoft FAT 仕様に基づきゼロから書き直す。
 
-**テスト項目（littlefs）:**
+**実装モジュール構成:**
+1. BPB定数 (FAT仕様オフセット定義)
+2. エンディアンヘルパー (ld_u16/ld_u32/st_u16/st_u32)
+3. セクタウィンドウ管理 (sync_window, move_window)
+4. FATテーブル操作 (get_fat, put_fat — FAT12/16/32)
+5. クラスタチェーン (create_chain, remove_chain — 循環検出付き)
+6. ディレクトリ操作 (dir_sdi, dir_next, dir_alloc, dir_read, dir_find, dir_register, dir_remove)
+7. LFN処理 (lfn_cmp, lfn_pick, lfn_put, gen_numname, sfn_sum, create_name)
+8. パス解析 (follow_path)
+9. ボリューム管理 (check_fs, find_volume, mount_volume)
+10. 公開API実装 (mount, open, read, write, close, mkdir, stat, rename, unlink, getfree)
 
-| カテゴリ | テスト |
-|----------|--------|
-| 基本 | format, mount, unmount |
-| ファイル | open, close, read, write, seek, tell, truncate, rewind, size |
-| ディレクトリ | mkdir, dir_open, dir_close, dir_read, dir_seek, dir_tell, dir_rewind |
-| 操作 | remove (ファイル), remove (ディレクトリ), rename |
-| 属性 | stat, getattr, setattr, removeattr |
-| FS レベル | fs_stat, fs_size, fs_traverse, fs_mkconsistent, fs_gc, fs_grow |
-| エッジケース | 大ファイル（マルチブロック）, 深いディレクトリ, 長いファイル名, ディスクフル |
-| 永続性 | unmount → remount でデータ保持 |
+**検証:**
+```bash
+xmake build test_fs_fat && xmake run test_fs_fat            # 96テスト
+xmake build test_fs_fat_compare && xmake run test_fs_fat_compare  # 27テスト (オンディスク互換)
+```
 
-**テスト項目（FATfs）:**
+### Phase 2: littlefs クリーンルーム再実装
 
-| カテゴリ | テスト |
-|----------|--------|
-| 基本 | mount, unmount |
-| ファイル | open (各モード), close, read, write, lseek, truncate, sync |
-| ディレクトリ | opendir, closedir, readdir, mkdir |
-| 操作 | unlink (ファイル), unlink (ディレクトリ), rename, stat |
-| ボリューム | getfree |
-| LFN | 長いファイル名の作成・読み取り |
-| エッジケース | 大ファイル（マルチクラスタ）, 多ファイル, ディスクフル |
+`lfs_core.cc` を SPEC.md に基づきゼロから書き直す。
 
-### Phase 1: ファイル分離・リネーム
+**実装モジュール構成:**
+1. CRC-32 (多項式0x04c11db7, 4bitテーブル)
+2. BD操作 (bd_read, bd_prog, bd_erase — キャッシュ付き)
+3. ブロックアロケータ (alloc_scan, alloc)
+4. タグ操作 (tag_type, tag_id, tag_size, make_tag)
+5. メタデータペア読み取り (dir_fetch, dir_get, dir_getinfo)
+6. メタデータペア書き込み (dir_commit, dir_compact)
+7. CTZスキップリスト (ctz_index, ctz_find, ctz_extend, ctz_traverse)
+8. ファイル操作 (file_open, file_close, file_sync, file_read, file_write, file_seek, file_truncate)
+9. ディレクトリ操作 (dir_open, dir_close, dir_read, dir_seek, dir_rewind)
+10. パス解析 (path_next, dir_find_entry)
+11. FS操作 (mkdir, remove, rename, stat, attr操作)
+12. gstate管理 (gstate_xor, deorphan)
+13. 公開API (format, mount, unmount + ラッパー)
 
-- `lfs.cc` → `lfs_core.cc`（ライセンスヘッダ更新）
-- `ff.cc` → `fat_core.cc`（ライセンスヘッダ更新）
-- 型定義・設定・ユーティリティファイルのライセンスヘッダを UMI に変更
-- `ff_*.hh/cc` を `fat_*.hh/cc` にリネーム（命名統一）
-- **各ステップ後にテスト実行して動作確認**
+**検証:**
+```bash
+xmake build test_fs_lfs && xmake run test_fs_lfs            # 113テスト
+xmake build test_fs_lfs_compare && xmake run test_fs_lfs_compare  # 33テスト (オンディスク互換)
+```
 
-### Phase 2: UMI 独自ヘッダの書き直し
+### Phase 3: サイズ・性能最適化
 
-型定義・設定・ユーティリティを C++23 モダンスタイルで再実装:
+**サイズ目標: Flash < 69,768 B（リファレンスC以下）**
 
-- `std::bit_ceil`, `std::countl_zero`, `std::popcount` 等の C++20/23 機能を活用
-- `inline constexpr` → `constexpr` のみに統一（C++17 以降は暗黙的に inline）
-- `lfs_types.hh`: `using` エイリアス → C++23 型に合わせた見直し
-- `fat_types.hh`: 同様
-- enum class のビット演算をテンプレートで統一
-- 命名規則を CODING_STYLE.md に準拠させる（lower_case 関数名、CamelCase 型名、UPPER_CASE enum 値、lower_case constexpr定数）
-- **各ステップ後にテスト実行して動作確認**
+手法:
+- `if constexpr` で不使用機能を除去
+- LFN処理のCP437テーブル最小化
+- 共通CRCテーブル統合
+- littlefsのfs_gc/fs_growをconstexprフラグで除外可能に
 
-### Phase 3: コアファイルの内部リファクタリング
+**性能目標 (Renode Cortex-M4, DWT_CYCCNT):**
 
-`lfs_core.cc`, `fat_core.cc` 内部を段階的にモダン化:
+| 操作 | リファレンスC | 目標 |
+|------|-------------|------|
+| LFS format+mount | 88,896 cyc | < 88,896 |
+| LFS write 1KB | 217,486 cyc | < 217,486 |
+| LFS read 1KB | 40,574 cyc | < 40,574 |
+| FAT write 4KB | 91,688 cyc | < 91,688 |
+| FAT read 4KB | 57,337 cyc | < 57,337 |
+| FAT mkdir+stat x3 | 162,691 cyc | < 162,691 |
 
-- `#define` → `constexpr` / `enum`（コンパイル可能な範囲で）
-- C キャスト → `static_cast`（既にほぼ完了）
-- `using lfs_t = Lfs` ブリッジの段階的解消
-- `goto` → ループ構造化（可能な範囲で、アルゴリズム変更なし）
-- **元のライセンスヘッダは維持**
-- **各ステップ後にテスト実行して動作確認**
+手法:
+- readパスの関数呼び出し深度削減
+- セクタアラインのバルクread/writeでウィンドウバイパス
+- CTZスキップリストのジャンプ最大化
+- `[[gnu::always_inline]]` をホットパスに適用
 
-### Phase 4: Unicode 独自実装
+### Phase 4: 旧コード削除・ライセンス更新・最終検証
 
-`fat_unicode.cc/hh` を Unicode 仕様に基づいて独自実装:
+1. 旧実装ファイル (`fat_core_v2.cc` 等) を削除
+2. 全ファイルのライセンスヘッダーをUMI独自に更新
+3. ドキュメント更新 (SAFETY_ANALYSIS, RENODE_COMPARISON, TEST_REPORT)
+4. 全テスト + Renodeテスト実行
+5. サイズ・ベンチマーク確認
 
-- CP437 ↔ Unicode テーブルは Unicode コンソーシアムの公開マッピングデータから生成
-- 大文字変換テーブルは UnicodeData.txt から生成
-- **UMI ライセンスに変更**
+## 検証基準
 
----
+| 項目 | 基準 |
+|------|------|
+| test_fs_fat | 96/96 passed |
+| test_fs_lfs | 113/113 passed |
+| test_fs_fat_compare | 27/27 passed (オンディスク互換) |
+| test_fs_lfs_compare | 33/33 passed (オンディスク互換) |
+| renode_fs_test | 28/28 passed |
+| Flash size | < 69,768 B |
+| 全操作サイクル数 | リファレンスC以下 |
 
 ## リスク管理
 
 | リスク | 対策 |
 |--------|------|
-| リファクタリングでバグ混入 | Phase 0 で網羅テスト構築。各ステップ後にテスト実行 |
-| オンディスクフォーマット互換性破壊 | コアロジックのアルゴリズムは変更しない。定数値も保持 |
-| ライセンス判断ミス | コアロジック（COW, FAT テーブル操作等）は保守的に元ライセンス維持 |
-| ビルド破壊 | ファイル分離・リネーム時は xmake.lua の更新を忘れない |
-
----
-
-## 完了条件
-
-1. 全テスト（Phase 0 で作成した網羅テスト）が通る
-2. コアロジックファイルに元ライセンスが正しく残っている
-3. UMI 独自ファイルに元ライセンスが含まれていない
-4. C++23 コーディングスタイル（CLAUDE.md 準拠）が適用されている
-5. `xmake test` が全て通る
+| FAT12の1.5Bパッキングバグ | compareテストでリファレンスと同一イメージをバイト比較 |
+| littlefs gstateリカバリ不備 | write途中中断 → remount の電断シミュレーションテスト |
+| CTZスキップリスト計算ミス | ファイルサイズ別 (0B, 1B, block_size-1, 10KB) のread-backテスト |
+| サイズ目標未達 | Phase 3で段階的に最適化 |
+| コンパイラ最適化差異 | `-Os`ビルドを検証。ホットパスに`always_inline` |

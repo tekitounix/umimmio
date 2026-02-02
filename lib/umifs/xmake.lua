@@ -42,7 +42,7 @@ target("umi.fs.fatfs")
     set_group("umi")
     add_deps("umi.kernel")
 
-    add_files(path.join(umifs_dir, "fat/fat_core_v2.cc"))
+    add_files(path.join(umifs_dir, "fat/fat_core.cc"))
     add_files(path.join(umifs_dir, "fat/ff_unicode.cc"))
     add_includedirs(path.join(umifs_dir, "fat"), {public = true})
     add_includedirs(lib_dir, {public = true})
