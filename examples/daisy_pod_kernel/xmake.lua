@@ -26,7 +26,7 @@ target("daisy_pod_kernel")
     -- Source files
     add_files("src/*.cc")
     add_files("$(projectdir)/lib/umiport/common/common/irq.cc")
-    add_files("$(projectdir)/lib/umiport/arch/cm7/arch/handlers.cc")
+    -- handlers.cc replaced by local arch.cc (with kernel callback mechanism)
 
     -- Dependencies
     add_deps("umi.mmio")
