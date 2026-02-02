@@ -309,6 +309,7 @@ end  -- if has_emscripten
 
 includes("examples/stm32f4_kernel")
 includes("examples/synth_app")
+includes("examples/daisy_pod_kernel")
 
 -- =====================================================================
 -- Tasks
