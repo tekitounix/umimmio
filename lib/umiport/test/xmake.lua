@@ -8,5 +8,24 @@ local lib_dir = path.directory(umiport_dir)
 local root_dir = path.directory(lib_dir)
 
 -- =====================================================================
--- Host unit tests (placeholder - tests added as concepts are implemented)
+-- Host unit tests
 -- =====================================================================
+
+target("test_port_concepts")
+    add_rules("host.test")
+    set_default(true)
+    add_files(path.join(test_dir, "test_concepts.cc"))
+    add_includedirs(path.join(umiport_dir, "concepts"))
+    add_includedirs(path.join(root_dir, "tests"))
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+target_end()
+
+target("test_port_drivers")
+    add_rules("host.test")
+    set_default(true)
+    add_files(path.join(test_dir, "test_drivers.cc"))
+    add_includedirs(path.join(umiport_dir, "device"))
+    add_includedirs(path.join(lib_dir, "umimmio/include"))
+    add_includedirs(path.join(root_dir, "tests"))
+    add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
+target_end()
