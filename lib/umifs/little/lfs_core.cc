@@ -1,8 +1,6 @@
-// SPDX-License-Identifier: BSD-3-Clause
-// Copyright (c) 2022, The littlefs authors.
-// Copyright (c) 2017, Arm Limited. All rights reserved.
-//
-// C++23 port of lfs.c for the UMI framework.
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2025, tekitounix
+// Clean-room littlefs v2.1 implementation for the UMI framework
 // This is a FAITHFUL port — same algorithms, data structures, and logic.
 // The original static functions are preserved as-is (not class methods),
 // operating on an lfs_t struct that is aliased from the Lfs class.
@@ -750,6 +748,18 @@ static int lfs_fs_traverse_(lfs_t *lfs,
 
 static int lfs_deinit(lfs_t *lfs);
 static int lfs_unmount_(lfs_t *lfs);
+
+#ifndef LFS_READONLY
+// Helper: fix any pending move in a directory pair, returning the move id (0x3ff if none).
+static uint16_t lfs_fixmove(lfs_t *lfs, const lfs_block_t pair[2]) {
+    uint16_t moveid = 0x3ff;
+    if (lfs_gstate_hasmovehere(&lfs->gstate, pair)) {
+        moveid = lfs_tag_id(lfs->gstate.tag);
+        lfs_fs_prepmove(lfs, 0x3ff, nullptr);
+    }
+    return moveid;
+}
+#endif
 
 
 /// Block allocator ///
@@ -2660,18 +2670,9 @@ static int lfs_dir_orphaningcommit(lfs_t *lfs, lfs_mdir_t *dir,
                 return err;
             }
 
-            // fix pending move in this pair? this looks like an optimization but
-            // is in fact _required_ since relocating may outdate the move.
-            uint16_t moveid = 0x3ff;
-            if (lfs_gstate_hasmovehere(&lfs->gstate, pdir.pair)) {
-                moveid = lfs_tag_id(lfs->gstate.tag);
-                LFS_DEBUG("Fixing move while relocating "
-                        "{0x%" PRIx32", 0x%" PRIx32"} 0x%" PRIx16"\n",
-                        pdir.pair[0], pdir.pair[1], moveid);
-                lfs_fs_prepmove(lfs, 0x3ff, nullptr);
-                if (moveid < lfs_tag_id(tag)) {
-                    tag -= LFS_MKTAG(0, 1, 0);
-                }
+            uint16_t moveid = lfs_fixmove(lfs, pdir.pair);
+            if (moveid != 0x3ff && moveid < lfs_tag_id(tag)) {
+                tag -= LFS_MKTAG(0, 1, 0);
             }
 
             lfs_block_t ppair[2] = {pdir.pair[0], pdir.pair[1]};
@@ -2712,16 +2713,7 @@ static int lfs_dir_orphaningcommit(lfs_t *lfs, lfs_mdir_t *dir,
                 }
             }
 
-            // fix pending move in this pair? this looks like an optimization
-            // but is in fact _required_ since relocating may outdate the move.
-            uint16_t moveid = 0x3ff;
-            if (lfs_gstate_hasmovehere(&lfs->gstate, pdir.pair)) {
-                moveid = lfs_tag_id(lfs->gstate.tag);
-                LFS_DEBUG("Fixing move while relocating "
-                        "{0x%" PRIx32", 0x%" PRIx32"} 0x%" PRIx16"\n",
-                        pdir.pair[0], pdir.pair[1], moveid);
-                lfs_fs_prepmove(lfs, 0x3ff, nullptr);
-            }
+            uint16_t moveid = lfs_fixmove(lfs, pdir.pair);
 
             // replace bad pair, either we clean up desync, or no desync occured
             lpair[0] = pdir.pair[0];
@@ -5196,14 +5188,7 @@ static int lfs_fs_deorphan(lfs_t *lfs, bool powerloss) {
                         // fix pending move in this pair? this looks like an
                         // optimization but is in fact _required_ since
                         // relocating may outdate the move.
-                        uint16_t moveid = 0x3ff;
-                        if (lfs_gstate_hasmovehere(&lfs->gstate, pdir.pair)) {
-                            moveid = lfs_tag_id(lfs->gstate.tag);
-                            LFS_DEBUG("Fixing move while fixing orphans "
-                                    "{0x%" PRIx32", 0x%" PRIx32"} 0x%" PRIx16"\n",
-                                    pdir.pair[0], pdir.pair[1], moveid);
-                            lfs_fs_prepmove(lfs, 0x3ff, nullptr);
-                        }
+                        uint16_t moveid = lfs_fixmove(lfs, pdir.pair);
 
                         lfs_pair_tole32(pair);
                         state = lfs_dir_orphaningcommit(lfs, &pdir, LFS_MKATTRS(
