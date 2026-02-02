@@ -8,13 +8,13 @@
 #include "bsp.hh"
 
 // Platform drivers
-#include <umios/backend/cm/common/nvic.hh>
-#include <umios/backend/cm/stm32f4/cs43l22.hh>
-#include <umios/backend/cm/stm32f4/gpio.hh>
-#include <umios/backend/cm/stm32f4/i2c.hh>
-#include <umios/backend/cm/stm32f4/i2s.hh>
-#include <umios/backend/cm/stm32f4/pdm_mic.hh>
-#include <umios/backend/cm/stm32f4/rcc.hh>
+#include <common/nvic.hh>
+#include <board/cs43l22.hh>
+#include <mcu/gpio.hh>
+#include <mcu/i2c.hh>
+#include <mcu/i2s.hh>
+#include <board/pdm_mic.hh>
+#include <mcu/rcc.hh>
 
 // USB stack
 #include <audio/audio_interface.hh>
@@ -22,7 +22,7 @@
 #include <umiusb.hh>
 
 // UID for USB serial number
-#include <umios/backend/cm/stm32f4/uid.hh>
+#include <mcu/uid.hh>
 
 using umi::port::arm::NVIC;
 using umi::stm32::CicDecimator;

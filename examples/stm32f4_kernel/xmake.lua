@@ -24,7 +24,7 @@ target("stm32f4_kernel")
     add_files("src/*.cc")
     add_files("$(projectdir)/lib/bsp/stm32f4-disco/syscalls.cc")
     add_files("$(projectdir)/lib/umios/kernel/loader.cc")
-    add_files("$(projectdir)/lib/umios/backend/cm/common/irq.cc")
+    add_files("$(projectdir)/lib/umiport/common/common/irq.cc")
 
     -- Crypto library for signature verification
     add_files("$(projectdir)/lib/umios/crypto/sha512.cc")
