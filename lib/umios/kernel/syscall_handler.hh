@@ -5,54 +5,13 @@
 #pragma once
 
 #include "loader.hh"
+#include "storage_service.hh"
 #include <cstdint>
 
 namespace umi::kernel {
 
-// ============================================================================
-// Syscall Numbers (Application ABI)
-// ============================================================================
-// Must match lib/umios/app/syscall.hh nr::*
-// Sparse layout grouped by 10 (see docs/umios-architecture/06-syscall.md)
-
-namespace app_syscall {
-    // --- Group 0: Process Control (0–9) ---
-    inline constexpr uint32_t exit             = 0;
-    inline constexpr uint32_t yield            = 1;
-    inline constexpr uint32_t register_proc    = 2;
-    inline constexpr uint32_t unregister_proc  = 3;
-
-    // --- Group 1: Time / Scheduling (10–19) ---
-    inline constexpr uint32_t wait_event       = 10;
-    inline constexpr uint32_t get_time         = 11;
-    inline constexpr uint32_t sleep            = 12;
-
-    // --- Group 2: Configuration (20–29) ---
-    inline constexpr uint32_t set_app_config     = 20;
-    inline constexpr uint32_t set_route_table    = 21;
-    inline constexpr uint32_t set_param_mapping  = 22;
-    inline constexpr uint32_t set_input_mapping  = 23;
-    inline constexpr uint32_t configure_input    = 24;
-    inline constexpr uint32_t send_param_request = 25;
-
-    // --- Group 4: Info (40–49) ---
-    inline constexpr uint32_t get_shared       = 40;
-
-    // --- Group 5: I/O (50–59) ---
-    inline constexpr uint32_t log              = 50;
-    inline constexpr uint32_t panic            = 51;
-
-    // --- Group 6: Filesystem (60–69) ---
-    inline constexpr uint32_t file_open        = 60;
-    inline constexpr uint32_t file_read        = 61;
-    inline constexpr uint32_t file_write       = 62;
-    inline constexpr uint32_t file_close       = 63;
-    inline constexpr uint32_t file_seek        = 64;
-    inline constexpr uint32_t file_stat        = 65;
-    inline constexpr uint32_t dir_open         = 66;
-    inline constexpr uint32_t dir_read         = 67;
-    inline constexpr uint32_t dir_close        = 68;
-}
+// Syscall numbers: use umi::syscall::nr::* from core/syscall_nr.hh
+// (included transitively via storage_service.hh → core/syscall_nr.hh)
 
 // ============================================================================
 // Syscall Context
@@ -79,24 +38,43 @@ struct SyscallContext {
 /// This is the generic/reference implementation.
 /// Platform-specific kernels (e.g. stm32f4_kernel) may implement their
 /// own handler directly in svc_handler_impl() for efficiency.
-template <class KernelType>
+///
+/// @tparam KernelType  Kernel with yield(), notify_event() methods
+/// @tparam StorageType StorageService<FlashDev, SdDev> instance
+template <class KernelType, class StorageType>
 class SyscallHandler {
 public:
-    SyscallHandler(KernelType& kernel, AppLoader& loader, SharedMemory& shared) noexcept
-        : kernel_(kernel), loader_(loader), shared_(shared) {}
+    SyscallHandler(KernelType& kernel, AppLoader& loader, SharedMemory& shared,
+                   StorageType& storage) noexcept
+        : kernel_(kernel), loader_(loader), shared_(shared), storage_(storage) {}
 
     int32_t handle(SyscallContext& ctx) noexcept {
+        // FS request (60–83): enqueue to StorageService
+        if (syscall::is_fs_request(ctx.syscall_nr)) {
+            FsRequest req{
+                static_cast<uint8_t>(ctx.syscall_nr),
+                ctx.arg0, ctx.arg1, ctx.arg2, ctx.arg3
+            };
+            return storage_.enqueue(req) ? 0 : fs_errno::EBUSY;
+        }
+
+        // FS result (84): consume result slot
+        if (ctx.syscall_nr == syscall::nr::fs_result) {
+            return storage_.consume_result();
+        }
+
         switch (ctx.syscall_nr) {
-        case app_syscall::exit:
+        case syscall::nr::exit:
+            storage_.close_all();
             loader_.terminate(static_cast<int>(ctx.arg0));
             kernel_.yield();
             return 0;
 
-        case app_syscall::yield:
+        case syscall::nr::yield:
             kernel_.yield();
             return 0;
 
-        case app_syscall::register_proc:
+        case syscall::nr::register_proc:
             if (ctx.arg1 != 0) {
                 return loader_.register_processor(
                     reinterpret_cast<void*>(ctx.arg0),
@@ -113,6 +91,7 @@ private:
     KernelType& kernel_;
     AppLoader& loader_;
     SharedMemory& shared_;
+    StorageType& storage_;
 };
 
 } // namespace umi::kernel

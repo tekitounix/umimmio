@@ -1,79 +1,63 @@
 // SPDX-License-Identifier: MIT
-// UMI-OS Syscall Numbers (platform-independent)
-// Must match lib/umios/app/syscall.hh nr::*
+// UMI-OS Syscall Numbers — Kernel-side aliases
+// Canonical definitions are in core/syscall_nr.hh.
+// This header re-exports them with sys_* aliases for backward compatibility.
+
 #pragma once
 
-#include <cstdint>
+#include "../../core/syscall_nr.hh"
 
 namespace umi::syscall {
 
-// ============================================================================
-// Syscall Numbers
-// ============================================================================
-// Number layout (sparse, grouped by 10):
-//   0– 9:  Process Control
-//   10–19: Time / Scheduling
-//   20–29: Configuration
-//   30–39: MIDI / SysEx (reserved)
-//   40–49: Info
-//   50–59: I/O
-//   60–69: Filesystem
+// Kernel-side sys_* aliases (thin wrappers over nr::*)
+inline constexpr uint8_t sys_exit             = static_cast<uint8_t>(nr::exit);
+inline constexpr uint8_t sys_yield            = static_cast<uint8_t>(nr::yield);
+inline constexpr uint8_t sys_register_proc    = static_cast<uint8_t>(nr::register_proc);
+inline constexpr uint8_t sys_unregister_proc  = static_cast<uint8_t>(nr::unregister_proc);
 
-// --- Group 0: Process Control (0–9) ---
-inline constexpr uint8_t sys_exit             = 0;
-inline constexpr uint8_t sys_yield            = 1;
-inline constexpr uint8_t sys_register_proc    = 2;
-inline constexpr uint8_t sys_unregister_proc  = 3;
-// 4–9: reserved
+inline constexpr uint8_t sys_wait_event       = static_cast<uint8_t>(nr::wait_event);
+inline constexpr uint8_t sys_get_time         = static_cast<uint8_t>(nr::get_time);
+inline constexpr uint8_t sys_sleep            = static_cast<uint8_t>(nr::sleep);
 
-// --- Group 1: Time / Scheduling (10–19) ---
-inline constexpr uint8_t sys_wait_event       = 10;
-inline constexpr uint8_t sys_get_time         = 11;
-inline constexpr uint8_t sys_sleep            = 12;
-// 13–19: reserved
+inline constexpr uint8_t sys_set_app_config     = static_cast<uint8_t>(nr::set_app_config);
+inline constexpr uint8_t sys_set_route_table    = static_cast<uint8_t>(nr::set_route_table);
+inline constexpr uint8_t sys_set_param_mapping  = static_cast<uint8_t>(nr::set_param_mapping);
+inline constexpr uint8_t sys_set_input_mapping  = static_cast<uint8_t>(nr::set_input_mapping);
+inline constexpr uint8_t sys_configure_input    = static_cast<uint8_t>(nr::configure_input);
+inline constexpr uint8_t sys_send_param_request = static_cast<uint8_t>(nr::send_param_request);
 
-// --- Group 2: Configuration (20–29) ---
-inline constexpr uint8_t sys_set_app_config     = 20;
-inline constexpr uint8_t sys_set_route_table    = 21;
-inline constexpr uint8_t sys_set_param_mapping  = 22;
-inline constexpr uint8_t sys_set_input_mapping  = 23;
-inline constexpr uint8_t sys_configure_input    = 24;
-inline constexpr uint8_t sys_send_param_request = 25;
-// 26–29: reserved
+inline constexpr uint8_t sys_get_shared       = static_cast<uint8_t>(nr::get_shared);
 
-// --- Group 4: Info (40–49) ---
-inline constexpr uint8_t sys_get_shared       = 40;
-// 41–49: reserved
+inline constexpr uint8_t sys_log              = static_cast<uint8_t>(nr::log);
+inline constexpr uint8_t sys_panic            = static_cast<uint8_t>(nr::panic);
 
-// --- Group 5: I/O (50–59) ---
-inline constexpr uint8_t sys_log              = 50;
-inline constexpr uint8_t sys_panic            = 51;
-// 52–59: reserved
+inline constexpr uint8_t sys_file_open        = static_cast<uint8_t>(nr::file_open);
+inline constexpr uint8_t sys_file_read        = static_cast<uint8_t>(nr::file_read);
+inline constexpr uint8_t sys_file_write       = static_cast<uint8_t>(nr::file_write);
+inline constexpr uint8_t sys_file_close       = static_cast<uint8_t>(nr::file_close);
+inline constexpr uint8_t sys_file_seek        = static_cast<uint8_t>(nr::file_seek);
+inline constexpr uint8_t sys_file_tell        = static_cast<uint8_t>(nr::file_tell);
+inline constexpr uint8_t sys_file_size        = static_cast<uint8_t>(nr::file_size);
+inline constexpr uint8_t sys_file_truncate    = static_cast<uint8_t>(nr::file_truncate);
+inline constexpr uint8_t sys_file_sync        = static_cast<uint8_t>(nr::file_sync);
 
-// --- Group 6: Filesystem (60–69) ---
-inline constexpr uint8_t sys_file_open        = 60;
-inline constexpr uint8_t sys_file_read        = 61;
-inline constexpr uint8_t sys_file_write       = 62;
-inline constexpr uint8_t sys_file_close       = 63;
-inline constexpr uint8_t sys_file_seek        = 64;
-inline constexpr uint8_t sys_file_stat        = 65;
-inline constexpr uint8_t sys_dir_open         = 66;
-inline constexpr uint8_t sys_dir_read         = 67;
-inline constexpr uint8_t sys_dir_close        = 68;
-// 69: reserved
+inline constexpr uint8_t sys_dir_open         = static_cast<uint8_t>(nr::dir_open);
+inline constexpr uint8_t sys_dir_read         = static_cast<uint8_t>(nr::dir_read);
+inline constexpr uint8_t sys_dir_close        = static_cast<uint8_t>(nr::dir_close);
+inline constexpr uint8_t sys_dir_seek         = static_cast<uint8_t>(nr::dir_seek);
+inline constexpr uint8_t sys_dir_tell         = static_cast<uint8_t>(nr::dir_tell);
 
-// ============================================================================
-// Syscall Error Codes
-// ============================================================================
+inline constexpr uint8_t sys_stat             = static_cast<uint8_t>(nr::stat);
+inline constexpr uint8_t sys_fstat            = static_cast<uint8_t>(nr::fstat);
+inline constexpr uint8_t sys_mkdir            = static_cast<uint8_t>(nr::mkdir);
+inline constexpr uint8_t sys_remove           = static_cast<uint8_t>(nr::remove);
+inline constexpr uint8_t sys_rename           = static_cast<uint8_t>(nr::rename);
 
-enum class SyscallError : int32_t {
-    OK              = 0,
-    INVALID_SYSCALL = -1,
-    INVALID_PARAM   = -2,
-    ACCESS_DENIED   = -3,
-    NOT_FOUND       = -4,
-    TIMEOUT         = -5,
-    BUSY            = -6,
-};
+inline constexpr uint8_t sys_getattr          = static_cast<uint8_t>(nr::getattr);
+inline constexpr uint8_t sys_setattr          = static_cast<uint8_t>(nr::setattr);
+inline constexpr uint8_t sys_removeattr       = static_cast<uint8_t>(nr::removeattr);
+
+inline constexpr uint8_t sys_fs_stat          = static_cast<uint8_t>(nr::fs_stat);
+inline constexpr uint8_t sys_fs_result        = static_cast<uint8_t>(nr::fs_result);
 
 }  // namespace umi::syscall

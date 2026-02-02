@@ -4,87 +4,10 @@
 
 #pragma once
 
-#include <cstdint>
+#include "../core/syscall_nr.hh"
+#include "../core/fs_types.hh"
 
 namespace umi::syscall {
-
-// ============================================================================
-// Syscall Numbers (06-syscall.md spec)
-// ============================================================================
-// Number layout (sparse, 10-unit groups):
-//   0– 9:  プロセス制御 (exit, yield, register_proc)
-//  10–19:  時間・スケジューリング (wait_event, get_time, sleep)
-//  20–29:  構成・パラメータ (set_app_config, set_route_table, etc.)
-//  30–39:  MIDI / イベント (将来)
-//  40–49:  情報取得 (get_shared)
-//  50–59:  I/O (log, panic)
-//  60–69:  ファイルシステム (将来)
-
-namespace nr {
-// --- Group 0: Process Control (0–9) ---
-inline constexpr uint32_t exit = 0;              ///< Terminate application
-inline constexpr uint32_t yield = 1;             ///< Return control to kernel
-inline constexpr uint32_t register_proc = 2;     ///< Register audio processor
-inline constexpr uint32_t unregister_proc = 3;   ///< Unregister audio processor (将来)
-
-// --- Group 1: Time / Scheduling (10–19) ---
-inline constexpr uint32_t wait_event = 10;       ///< Wait for event with optional timeout
-inline constexpr uint32_t get_time = 11;         ///< Get monotonic time in microseconds
-inline constexpr uint32_t sleep = 12;            ///< Sleep for specified duration
-
-// --- Group 2: Configuration (20–29) ---
-inline constexpr uint32_t set_app_config = 20;      ///< Set full AppConfig (ptr)
-inline constexpr uint32_t set_route_table = 21;     ///< Set RouteTable (ptr)
-inline constexpr uint32_t set_param_mapping = 22;   ///< Set ParamMapping (ptr)
-inline constexpr uint32_t set_input_mapping = 23;   ///< Set InputParamMapping (ptr)
-inline constexpr uint32_t configure_input = 24;     ///< Set InputConfig (ptr)
-inline constexpr uint32_t send_param_request = 25;  ///< Request param change (id, value_bits)
-
-// --- Group 4: Info (40–49) ---
-inline constexpr uint32_t get_shared = 40;       ///< Get SharedMemory pointer
-
-// --- Group 5: I/O (50–59) ---
-inline constexpr uint32_t log = 50;              ///< Log output
-inline constexpr uint32_t panic = 51;            ///< Panic (halt)
-
-// --- Group 6: Filesystem (60–69, 将来) ---
-inline constexpr uint32_t file_open = 60;  ///< Open file (将来)
-inline constexpr uint32_t file_read = 61;  ///< Read from file (将来)
-inline constexpr uint32_t file_write = 62; ///< Write to file (将来)
-inline constexpr uint32_t file_close = 63; ///< Close file (将来)
-inline constexpr uint32_t file_seek = 64;  ///< Seek within file (将来)
-inline constexpr uint32_t file_stat = 65;  ///< Get file info (将来)
-inline constexpr uint32_t dir_open = 66;   ///< Open directory (将来)
-inline constexpr uint32_t dir_read = 67;   ///< Read directory entry (将来)
-inline constexpr uint32_t dir_close = 68;  ///< Close directory (将来)
-} // namespace nr
-
-// ============================================================================
-// Syscall Error Codes
-// ============================================================================
-
-enum class SyscallError : int32_t {
-    OK = 0,
-    INVALID_SYSCALL = -1,
-    INVALID_PARAM = -2,
-    ACCESS_DENIED = -3,
-    NOT_FOUND = -4,
-    TIMEOUT = -5,
-    BUSY = -6,
-};
-
-// ============================================================================
-// Event Bit Definitions
-// ============================================================================
-
-namespace event {
-inline constexpr uint32_t audio = (1 << 0);       ///< Audio buffer ready
-inline constexpr uint32_t midi = (1 << 1);        ///< MIDI data available
-inline constexpr uint32_t vsync = (1 << 2);       ///< Display refresh
-inline constexpr uint32_t timer = (1 << 3);       ///< Timer tick
-inline constexpr uint32_t control = (1 << 4);     ///< ControlEvent arrived
-inline constexpr uint32_t shutdown = (1u << 31);  ///< Shutdown requested
-} // namespace event
 
 // ============================================================================
 // Low-level Syscall Invocation
@@ -92,10 +15,6 @@ inline constexpr uint32_t shutdown = (1u << 31);  ///< Shutdown requested
 
 #if defined(__ARM_ARCH)
 
-/// Invoke syscall with 0-4 arguments
-/// Calling convention: r12 = syscall number, r0-r3 = arguments, return in r0
-/// Cortex-M SVC exception frame auto-stacks {r0,r1,r2,r3,r12,lr,pc,xpsr}
-/// so kernel reads syscall_nr from sp[4] and args from sp[0]-sp[3].
 [[gnu::always_inline]] inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 = 0,
                                            uint32_t a3 = 0) noexcept {
     register uint32_t r0 __asm__("r0") = a0;
@@ -111,7 +30,7 @@ inline constexpr uint32_t shutdown = (1u << 31);  ///< Shutdown requested
 
 #else
 
-// Host/simulation stub - syscalls are no-ops or simulated
+// Host/simulation stub
 inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 = 0, uint32_t a3 = 0) noexcept {
     (void)nr;
     (void)a0;
@@ -124,10 +43,9 @@ inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 =
 #endif
 
 // ============================================================================
-// Typed Syscall Wrappers
+// Typed Syscall Wrappers — Process / Time / Config / IO
 // ============================================================================
 
-/// Terminate application with exit code
 [[noreturn]] inline void exit(int code) noexcept {
     call(nr::exit, static_cast<uint32_t>(code));
     while (true) {
@@ -135,32 +53,23 @@ inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0, uint32_t a2 =
     }
 }
 
-/// Panic with error message (currently maps to exit)
 [[noreturn]] inline void panic(const char* msg) noexcept {
     (void)msg;
     exit(-1);
 }
 
-/// Yield control back to kernel
 inline void yield() noexcept {
     call(nr::yield);
 }
 
-/// Wait for events with timeout
-/// @param mask Event mask to wait for (OR of event:: bits)
-/// @param timeout_usec Timeout in microseconds (0 = wait indefinitely)
-/// @return Events that occurred (bitmask)
 inline uint32_t wait_event(uint32_t mask, uint32_t timeout_usec = 0) noexcept {
     return static_cast<uint32_t>(call(nr::wait_event, mask, timeout_usec));
 }
 
-/// Sleep for specified duration (microseconds)
 inline void sleep_usec(uint32_t usec) noexcept {
     call(nr::sleep, usec);
 }
 
-/// Get current time in microseconds (64-bit)
-/// Returns 64-bit value via r0 (low) and r1 (high)
 inline uint64_t get_time_usec() noexcept {
 #if defined(__ARM_ARCH)
     register uint32_t r0 __asm__("r0");
@@ -173,42 +82,34 @@ inline uint64_t get_time_usec() noexcept {
 #endif
 }
 
-/// Get shared memory pointer
 inline void* get_shared() noexcept {
     return reinterpret_cast<void*>(call(nr::get_shared));
 }
 
-/// Output debug log message
 inline void log(const char* msg) noexcept {
     call(nr::log, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(msg)));
 }
 
-/// Set route table (copies from app memory to kernel)
 inline int32_t set_route_table(const void* table) noexcept {
     return call(nr::set_route_table, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(table)));
 }
 
-/// Set parameter mapping (copies from app memory to kernel)
 inline int32_t set_param_mapping(const void* mapping) noexcept {
     return call(nr::set_param_mapping, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mapping)));
 }
 
-/// Set input parameter mapping (copies from app memory to kernel)
 inline int32_t set_input_mapping(const void* mapping) noexcept {
     return call(nr::set_input_mapping, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mapping)));
 }
 
-/// Configure a single hardware input
 inline int32_t configure_input(const void* config) noexcept {
     return call(nr::configure_input, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(config)));
 }
 
-/// Set full application config (copies from app memory to kernel)
 inline int32_t set_app_config(const void* config) noexcept {
     return call(nr::set_app_config, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(config)));
 }
 
-/// Request parameter value change (param_id, float value as bits)
 inline int32_t send_param_request(uint32_t param_id, float value) noexcept {
     uint32_t value_bits;
     __builtin_memcpy(&value_bits, &value, sizeof(value_bits));
@@ -216,18 +117,163 @@ inline int32_t send_param_request(uint32_t param_id, float value) noexcept {
 }
 
 // ============================================================================
+// Typed Syscall Wrappers — Filesystem (async, non-blocking)
+// ============================================================================
+// All FS syscalls (except fs::result) enqueue a request to StorageService
+// and return immediately (0 = accepted, -EBUSY = previous request pending).
+// Result is delivered via event::fs and retrieved with fs::result().
+
+namespace fs {
+
+inline int32_t open(const char* path, OpenFlags flags) noexcept {
+    return call(nr::file_open,
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(path)),
+                static_cast<uint32_t>(flags));
+}
+
+inline int32_t read(int fd, void* buf, uint32_t len) noexcept {
+    return call(nr::file_read,
+                static_cast<uint32_t>(fd),
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(buf)),
+                len);
+}
+
+inline int32_t write(int fd, const void* buf, uint32_t len) noexcept {
+    return call(nr::file_write,
+                static_cast<uint32_t>(fd),
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(buf)),
+                len);
+}
+
+inline int32_t close(int fd) noexcept {
+    return call(nr::file_close, static_cast<uint32_t>(fd));
+}
+
+inline int32_t seek(int fd, int32_t offset, Whence whence) noexcept {
+    return call(nr::file_seek,
+                static_cast<uint32_t>(fd),
+                static_cast<uint32_t>(offset),
+                static_cast<uint32_t>(whence));
+}
+
+inline int32_t tell(int fd) noexcept {
+    return call(nr::file_tell, static_cast<uint32_t>(fd));
+}
+
+inline int32_t size(int fd) noexcept {
+    return call(nr::file_size, static_cast<uint32_t>(fd));
+}
+
+inline int32_t truncate(int fd, uint32_t new_size) noexcept {
+    return call(nr::file_truncate, static_cast<uint32_t>(fd), new_size);
+}
+
+inline int32_t sync(int fd) noexcept {
+    return call(nr::file_sync, static_cast<uint32_t>(fd));
+}
+
+inline int32_t dir_open(const char* path) noexcept {
+    return call(nr::dir_open, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(path)));
+}
+
+inline int32_t dir_read(int dirfd, FsInfo* info) noexcept {
+    return call(nr::dir_read,
+                static_cast<uint32_t>(dirfd),
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(info)));
+}
+
+inline int32_t dir_close(int dirfd) noexcept {
+    return call(nr::dir_close, static_cast<uint32_t>(dirfd));
+}
+
+inline int32_t dir_seek(int dirfd, uint32_t off) noexcept {
+    return call(nr::dir_seek, static_cast<uint32_t>(dirfd), off);
+}
+
+inline int32_t dir_tell(int dirfd) noexcept {
+    return call(nr::dir_tell, static_cast<uint32_t>(dirfd));
+}
+
+inline int32_t stat(const char* path, FsInfo* info) noexcept {
+    return call(nr::stat,
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(path)),
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(info)));
+}
+
+inline int32_t fstat(int fd, FsInfo* info) noexcept {
+    return call(nr::fstat,
+                static_cast<uint32_t>(fd),
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(info)));
+}
+
+inline int32_t mkdir(const char* path) noexcept {
+    return call(nr::mkdir, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(path)));
+}
+
+inline int32_t remove(const char* path) noexcept {
+    return call(nr::remove, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(path)));
+}
+
+inline int32_t rename(const char* oldpath, const char* newpath) noexcept {
+    return call(nr::rename,
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(oldpath)),
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(newpath)));
+}
+
+/// Get custom attribute. type in low 8 bits of r1, len in bits [8..31].
+inline int32_t getattr(const char* path, uint8_t type, void* buf, uint32_t len) noexcept {
+    return call(nr::getattr,
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(path)),
+                static_cast<uint32_t>(type) | (len << 8),
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(buf)));
+}
+
+/// Set custom attribute. type in low 8 bits of r1, len in bits [8..31].
+inline int32_t setattr(const char* path, uint8_t type, const void* buf, uint32_t len) noexcept {
+    return call(nr::setattr,
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(path)),
+                static_cast<uint32_t>(type) | (len << 8),
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(buf)));
+}
+
+inline int32_t removeattr(const char* path, uint8_t type) noexcept {
+    return call(nr::removeattr,
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(path)),
+                static_cast<uint32_t>(type));
+}
+
+inline int32_t fs_stat(const char* path, FsStatInfo* info) noexcept {
+    return call(nr::fs_stat,
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(path)),
+                static_cast<uint32_t>(reinterpret_cast<uintptr_t>(info)));
+}
+
+/// Retrieve result of last FS operation.
+/// Call after receiving event::fs. Returns -EAGAIN (-11) if not ready.
+/// Clears result slot, allowing next FS request.
+inline int32_t result() noexcept {
+    return call(nr::fs_result);
+}
+
+/// Synchronous helper: enqueue request, wait for completion, return result.
+inline int32_t sync_call(auto request_fn) noexcept {
+    request_fn();
+    wait_event(event::fs);
+    return result();
+}
+
+} // namespace fs
+
+// ============================================================================
 // Coroutine Scheduler Adapters
 // ============================================================================
-// Adapters to connect syscalls with umi::coro::Scheduler
 
 namespace coro_adapter {
 
-/// Wait function for Scheduler (WaitFn signature)
 inline uint32_t wait(uint32_t mask, uint64_t timeout_us) noexcept {
     return wait_event(mask, static_cast<uint32_t>(timeout_us));
 }
 
-/// Time function for Scheduler (TimeFn signature)
 inline uint64_t get_time() noexcept {
     return static_cast<uint64_t>(get_time_usec());
 }

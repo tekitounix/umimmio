@@ -8,6 +8,7 @@
 #include "../core/audio_context.hh"
 #include "../core/event.hh"
 #include "../core/shared_state.hh"
+#include "../core/fs_types.hh"
 #include <cstdint>
 #include <cstddef>
 #include <span>
@@ -309,6 +310,9 @@ struct SharedMemory {
     // LED state (app → kernel)
     std::atomic<uint8_t> led_state{0};        ///< LED state bitmap (bit0-3 = LED0-3)
     uint8_t _pad_io[3]{};                     ///< Padding for alignment
+
+    // FS result slot (StorageService writes, app reads via fs::result() syscall)
+    umi::syscall::FsResultSlot fs_result{};
 
     // Application heap memory region
     // Set by kernel before starting app

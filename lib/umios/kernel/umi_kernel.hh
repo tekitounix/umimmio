@@ -69,6 +69,14 @@ namespace KernelEvent {
     constexpr std::uint32_t MidiReady  = midi;
 }
 
+/// Crash dump information passed to kernel panic handler
+struct CrashDump {
+    const char* reason = nullptr;
+    std::uint32_t pc = 0;
+    std::uint32_t lr = 0;
+    std::uint32_t cfsr = 0;
+};
+
 // =====================================================================
 // SECTION 2: Platform Implementer API (Hardware Abstraction)
 // =====================================================================
@@ -98,6 +106,18 @@ struct Hw {
     // --- Performance Counters ---
     static std::uint32_t cycle_count() { return Impl::cycle_count(); }
     static std::uint32_t cycles_per_usec() { return Impl::cycles_per_usec(); }
+
+    // --- Cache Maintenance (optional, defaults to no-op) ---
+    static void cache_invalidate(void* addr, std::size_t size) {
+        if constexpr (requires { Impl::cache_invalidate(addr, size); }) {
+            Impl::cache_invalidate(addr, size);
+        }
+    }
+    static void cache_clean(void* addr, std::size_t size) {
+        if constexpr (requires { Impl::cache_clean(addr, size); }) {
+            Impl::cache_clean(addr, size);
+        }
+    }
 };
 
 // =====================================================================
