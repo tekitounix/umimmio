@@ -9,8 +9,18 @@ namespace umi::stm32h7 {
 
 // NOLINTBEGIN(readability-identifier-naming)
 
+/// FMC NOR/PSRAM Bank 1 control (contains global FMCEN bit)
+/// Base: 0x5200'4000, BCR1 at offset 0x00
+struct FMC_Bank1 : mm::Device<mm::RW, mm::DirectTransportTag> {
+    static constexpr mm::Addr base_address = 0x5200'4000;
+
+    struct BCR1 : mm::Register<FMC_Bank1, 0x00, 32> {
+        struct FMCEN : mm::Field<BCR1, 31, 1> {};  // FMC controller enable
+    };
+};
+
 /// FMC SDRAM controller registers
-/// Base: 0x5200'0000 (FMC), SDRAM control starts at offset 0x140
+/// Base: 0x5200'4000, SDRAM control starts at offset 0x140
 struct FMC_SDRAM : mm::Device<mm::RW, mm::DirectTransportTag> {
     static constexpr mm::Addr base_address = 0x5200'4000;
 

@@ -70,4 +70,67 @@ inline void enable_fpu() {
     asm volatile("isb sy" ::: "memory");
 }
 
+// ============================================================================
+// MPU (Memory Protection Unit)
+// ============================================================================
+
+// NOLINTBEGIN(readability-identifier-naming)
+namespace mpu {
+inline auto* TYPE = reinterpret_cast<volatile std::uint32_t*>(0xE000'ED90);
+inline auto* CTRL = reinterpret_cast<volatile std::uint32_t*>(0xE000'ED94);
+inline auto* RNR  = reinterpret_cast<volatile std::uint32_t*>(0xE000'ED98);
+inline auto* RBAR = reinterpret_cast<volatile std::uint32_t*>(0xE000'ED9C);
+inline auto* RASR = reinterpret_cast<volatile std::uint32_t*>(0xE000'EDA0);
+
+constexpr std::uint32_t RASR_ENABLE  = 1U << 0;
+constexpr std::uint32_t RASR_AP_FULL = 0b011U << 24;
+constexpr std::uint32_t RASR_C       = 1U << 17;
+constexpr std::uint32_t RASR_B       = 1U << 16;
+constexpr std::uint32_t RASR_S       = 1U << 18;
+
+constexpr std::uint32_t rasr_size(std::uint32_t n) { return (n & 0x1F) << 1; }
+constexpr std::uint32_t rasr_tex(std::uint32_t n) { return (n & 0x7) << 19; }
+
+constexpr std::uint32_t SIZE_4KB  = 11;
+constexpr std::uint32_t SIZE_32KB = 14;
+constexpr std::uint32_t SIZE_64MB = 25;
+
+constexpr std::uint32_t CTRL_ENABLE     = 1U << 0;
+constexpr std::uint32_t CTRL_PRIVDEFENA = 1U << 2;
+} // namespace mpu
+// NOLINTEND(readability-identifier-naming)
+
+/// Configure MPU regions matching libDaisy's ConfigureMpu():
+/// Region 0: D2 SRAM (0x30000000, 32KB) — Non-cacheable, Shareable
+/// Region 1: SDRAM   (0xC0000000, 64MB) — Cacheable, Bufferable
+/// Region 2: Backup SRAM (0x38800000, 4KB) — Non-cacheable, Shareable
+inline void configure_mpu() {
+    asm volatile("dsb sy" ::: "memory");
+
+    // Disable MPU
+    *mpu::CTRL = 0;
+
+    // Region 0: D2 SRAM — non-cacheable, shareable (DMA buffer area)
+    *mpu::RNR = 0;
+    *mpu::RBAR = 0x3000'0000;
+    *mpu::RASR = mpu::RASR_ENABLE | mpu::rasr_size(mpu::SIZE_32KB)
+               | mpu::RASR_AP_FULL | mpu::rasr_tex(1) | mpu::RASR_S;
+
+    // Region 1: SDRAM — cacheable + bufferable (normal memory, write-back)
+    *mpu::RNR = 1;
+    *mpu::RBAR = 0xC000'0000;
+    *mpu::RASR = mpu::RASR_ENABLE | mpu::rasr_size(mpu::SIZE_64MB)
+               | mpu::RASR_AP_FULL | mpu::rasr_tex(0) | mpu::RASR_C | mpu::RASR_B;
+
+    // Region 2: Backup SRAM — non-cacheable, shareable
+    *mpu::RNR = 2;
+    *mpu::RBAR = 0x3880'0000;
+    *mpu::RASR = mpu::RASR_ENABLE | mpu::rasr_size(mpu::SIZE_4KB)
+               | mpu::RASR_AP_FULL | mpu::rasr_tex(1) | mpu::RASR_S;
+
+    // Enable MPU with privileged default map
+    *mpu::CTRL = mpu::CTRL_ENABLE | mpu::CTRL_PRIVDEFENA;
+    asm volatile("dsb sy\nisb sy" ::: "memory");
+}
+
 } // namespace umi::cm7
