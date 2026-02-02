@@ -480,7 +480,7 @@ SAI1 経由でオーディオ出力。外部コーデックは device/ レイヤ
 ## Phase 4: USB + Pod HID
 
 - [x] `lib/umiport/board/daisy_seed/board/usb.hh` — USB OTG HS GPIO/クロック初期化（PB14/PB15 AF12, HSI48）
-- [x] USB MIDI（umiusb Stm32HsHal + UsbMidiClass）
+- [x] USB MIDI（umiusb Stm32HsHal + UsbMidiClass → AudioClass統合済み）
     - H7 VBUS sensing修正: `GOTGCTL BVALOEN/BVALOVAL` + `GCCFG &= ~VBDEN`（F4のNOVBUSSENSとは異なる）
 - [x] `lib/umiport/mcu/stm32h7/mcu/adc.hh` — ADC1 mmioレジスタ定義 + 定数群
     - ADCクロック: per_ck (HSI 64MHz) / DIV4 = 16MHz、BOOST=0b10
@@ -491,10 +491,11 @@ SAI1 経由でオーディオ出力。外部コーデックは device/ レイヤ
     - Encoder: 2ビット遷移検出（libDaisy Encoder準拠）
     - SoftPwmLed/RgbLed: ソフトウェアPWM 120Hz（libDaisy Led準拠、inverted polarity）
     - Knobs: ADC1 DMA circular、16bit、32xオーバーサンプリング、ワンポールフィルタ2ms
-- [ ] USB Audio（umiusb AudioClass統合）— 要: DMA↔リングバッファ接続、フィードバック制御、SET_INTERFACE対応
-    - umiusbにAudioClass/CompositeClass/isochronous転送は実装済み
-    - `AudioFullDuplexMidi48k` or カスタムtypedefでAudio+MIDI統合可能
-    - DMA audio callbackからAudioClass ringbufferへのデータ受渡しが主要作業
+- [x] USB Audio（umiusb AudioClass統合）
+    - `AudioFullDuplexMidi48k` で Audio IN/OUT + MIDI 統合
+    - DMA ISR → audio task → `read_audio()` / `write_audio_in()` でリングバッファ接続
+    - macOSで "Daisy Pod Audio" として認識（2ch IN/OUT, 48kHz）
+    - USB未接続時はサイン波テスト信号にフォールバック
 - [ ] HID → UMI Event 変換 — 要: OS EventQueue/EventRouter基盤
 
 ### テスト・検証
@@ -503,7 +504,8 @@ SAI1 経由でオーディオ出力。外部コーデックは device/ レイヤ
 - [ ] `xmake test` パス
 
 **L3 (実機 Daisy Pod):**
-- [x] USB MIDI デバイス認識確認（macOS: "Daisy Pod MIDI", VID:0x1209, PID:0x000A）
+- [x] USB MIDI デバイス認識確認（macOS: "Daisy Pod MIDI" → "Daisy Pod Audio", VID:0x1209, PID:0x000B）
+- [x] USB Audio デバイス認識確認（macOS Audio MIDI Setup: 2ch IN/OUT, 48kHz）
 - [x] ADCキャリブレーション通過、HID初期化完了確認（GDB: control_task_entry到達）
 - [x] ノブ→LED デモ動作（knob1→LED1赤、knob2→LED2青、エンコーダクリック→Seed LEDトグル）
 - [ ] USB MIDI 受信→シンセ発音、ノブでパラメータ変更
@@ -522,7 +524,9 @@ SAI1 経由でオーディオ出力。外部コーデックは device/ レイヤ
 **L3 (実機 Daisy Seed):**
 - [x] SDRAM初期化通過（ハング無し）
 - [x] QSPI初期化通過（APMS修正済み）
-- [ ] SDRAM 読み書き検証 — **BusFault (IMPRECISERR)**: FMCレジスタ正常 (SDCR1=0x19E5, SDSR=Normal) だが 0xC0000000 アクセスで BusFault。デバッガからも同様。要ハードウェア検証
+- [x] SDRAM 読み書き検証 — 0xC0000000 に 0xDEADBEEF 書き込み/読み出し成功
+    - 原因1: FMC_BCR1.FMCEN (bit31) 未設定 → `__FMC_ENABLE()` 相当を追加
+    - 原因2: MPU Region設定なし → D-cache有効時にSDRAM領域のメモリ属性不正 → MPU Region 1 (Cacheable+Bufferable) 追加
 - [x] QSPI XIP 実行検証 — 0x90000000 読み取り成功 (BusFaultなし、byte0=0x00)
 - [x] SAI DMA動作確認 — DMA1 Stream0 EN=1, NDTR循環中
 

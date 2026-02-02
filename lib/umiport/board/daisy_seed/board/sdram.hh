@@ -67,6 +67,9 @@ inline void init_sdram() {
     t.modify(RCC::AHB3ENR::FMCEN::Set{});
     [[maybe_unused]] auto dummy = t.read(RCC::AHB3ENR{});
 
+    // Enable FMC peripheral (BCR1.FMCEN)
+    t.modify(FMC_Bank1::BCR1::FMCEN::Set{});
+
     init_sdram_gpio();
 
     // SDCR1: 9-col, 13-row, 32-bit, 4 banks, CAS=3, SDCLK=HCLK/2, read burst, no pipe delay

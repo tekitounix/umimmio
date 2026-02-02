@@ -18,9 +18,9 @@
 // Pod HID
 #include <board/hid.hh>
 
-// umiusb: USB MIDI
+// umiusb: USB Audio + MIDI
 #include <hal/stm32_otg.hh>
-#include <midi/usb_midi_class.hh>
+#include <audio/audio_interface.hh>
 #include <core/device.hh>
 #include <core/descriptor.hh>
 
@@ -83,11 +83,12 @@ constexpr std::uint32_t NOTIFY_AUDIO_READY = (1U << 0);
 
 // USB device uses HS peripheral with internal FS PHY (Stm32HsHal)
 umiusb::Stm32HsHal usb_hal;
-umiusb::UsbMidiClass<> usb_midi;
+using UsbAudioMidi = umiusb::AudioFullDuplexMidi48k;
+UsbAudioMidi usb_audio;
 
 constexpr umiusb::DeviceInfo usb_device_info = {
     .vendor_id = 0x1209,       // pid.codes test VID
-    .product_id = 0x000A,      // UMI MIDI
+    .product_id = 0x000B,      // UMI Audio+MIDI
     .device_version = 0x0100,
     .manufacturer_idx = 1,
     .product_idx = 2,
@@ -95,14 +96,14 @@ constexpr umiusb::DeviceInfo usb_device_info = {
 };
 
 inline constexpr auto str_mfr = umiusb::StringDesc("UMI");
-inline constexpr auto str_prod = umiusb::StringDesc("Daisy Pod MIDI");
+inline constexpr auto str_prod = umiusb::StringDesc("Daisy Pod Audio");
 
 [[maybe_unused]] inline const std::array<std::span<const uint8_t>, 2> usb_strings = {
     std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(&str_mfr), str_mfr.size()),
     std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(&str_prod), str_prod.size()),
 };
 
-umiusb::Device<umiusb::Stm32HsHal, umiusb::UsbMidiClass<>> usb_device(usb_hal, usb_midi, usb_device_info);
+umiusb::Device<umiusb::Stm32HsHal, UsbAudioMidi> usb_device(usb_hal, usb_audio, usb_device_info);
 
 // ============================================================================
 // Pod HID
@@ -178,25 +179,35 @@ constexpr std::uint32_t phase_inc = (440 * SINE_TABLE_SIZE) / AUDIO_SAMPLE_RATE 
 // Task entry functions
 // ============================================================================
 
-/// Audio task: waits for DMA notification, processes audio buffer
+/// Audio task: waits for DMA notification, bridges USB Audio ↔ SAI DMA
 void audio_task_entry(void*) {
     while (true) {
-        // Wait for notification (spin — will be replaced with WFE in future)
         while (!(task_notifications[TASK_AUDIO].load(std::memory_order_acquire) & NOTIFY_AUDIO_READY)) {
             asm volatile("wfe");
         }
         task_notifications[TASK_AUDIO].fetch_and(~NOTIFY_AUDIO_READY, std::memory_order_release);
 
-        // Process audio: fill TX buffer with sine wave
         auto* out = const_cast<std::int32_t*>(pending_tx);
+        auto* in = const_cast<std::int32_t*>(pending_rx);
+
         if (out) {
-            for (std::uint32_t i = 0; i < AUDIO_BLOCK_SIZE; ++i) {
-                auto idx = (phase_acc >> 16) % SINE_TABLE_SIZE;
-                std::int32_t sample = sine_table[idx];
-                out[i * 2] = sample;
-                out[i * 2 + 1] = sample;
-                phase_acc += phase_inc;
+            // USB Audio OUT → SAI TX (DAC): read from USB host ringbuffer
+            auto frames = usb_audio.read_audio(out, AUDIO_BLOCK_SIZE);
+            if (frames == 0) {
+                // No USB audio: fallback to sine wave test signal
+                for (std::uint32_t i = 0; i < AUDIO_BLOCK_SIZE; ++i) {
+                    auto idx = (phase_acc >> 16) % SINE_TABLE_SIZE;
+                    std::int32_t sample = sine_table[idx];
+                    out[i * 2] = sample;
+                    out[i * 2 + 1] = sample;
+                    phase_acc += phase_inc;
+                }
             }
+        }
+
+        if (in) {
+            // SAI RX (ADC) → USB Audio IN: write to USB host ringbuffer
+            usb_audio.write_audio_in(in, AUDIO_BLOCK_SIZE);
         }
     }
 }
@@ -345,9 +356,14 @@ int main() {
     umi::daisy::init_sdram();
     umi::daisy::init_qspi();
 
-    // SDRAM verification — disabled pending HW debugging
-    // FMC registers correct (SDCR1=0x19E5, SDSR=Normal) but access triggers BusFault
-    dbg_mem.sdram_result = 0;
+    // SDRAM verification
+    {
+        auto* sdram = reinterpret_cast<volatile std::uint32_t*>(0xC000'0000);
+        sdram[0] = 0xDEAD'BEEF;
+        asm volatile("dsb sy" ::: "memory");
+        dbg_mem.sdram_read = sdram[0];
+        dbg_mem.sdram_result = (dbg_mem.sdram_read == 0xDEAD'BEEF) ? 1 : 2;
+    }
 
     // QSPI XIP verification
     {
@@ -367,7 +383,6 @@ int main() {
     // USB MIDI
     umi::daisy::init_usb();
     umiusb::configure_hs_internal_phy();
-    usb_midi.build_descriptor(0, 1);  // AC interface=0, MS interface=1
     usb_device.set_strings(usb_strings);
     usb_device.init();
     usb_hal.connect();
@@ -438,6 +453,7 @@ extern "C" [[noreturn]] void Reset_Handler() {
     umi::cm7::enable_fpu();
     asm volatile("dsb\nisb" ::: "memory");
 
+    umi::cm7::configure_mpu();
     umi::cm7::enable_icache();
     umi::cm7::enable_dcache();
 
