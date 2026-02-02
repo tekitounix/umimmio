@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// Daisy Pod Kernel - Phase 6: Audio + RTOS + USB Audio/MIDI + Synth + HID Events
-// 4-task architecture: Audio (REALTIME), System (SERVER), Control (USER), Idle
+// Daisy Pod Kernel - umi::Kernel based RTOS
+// 4-task architecture: Audio (REALTIME), Control (USER), Idle
 #include <cstdint>
 #include <cstring>
 #include <atomic>
@@ -8,8 +8,6 @@
 
 #include <arch/cache.hh>
 #include <arch/context.hh>
-#include <arch/handlers.hh>
-#include <arch/switch.hh>
 #include <board/mcu_init.hh>
 #include <board/audio.hh>
 #include <board/usb.hh>
@@ -27,11 +25,16 @@
 #include <core/device.hh>
 #include <core/descriptor.hh>
 
-// umios: AudioContext, EventRouter, SharedState
+// umios: Kernel, AudioContext, EventRouter, SharedState
+#include <umios/kernel/umi_kernel.hh>
+#include <umios/kernel/fpu_policy.hh>
 #include <audio_context.hh>
 #include <event.hh>
 #include <event_router.hh>
 #include <shared_state.hh>
+
+// Local arch layer
+#include "arch.hh"
 
 // Linker-provided symbols
 extern "C" {
@@ -46,58 +49,118 @@ extern std::uint32_t _edtcm_bss;
 }
 
 // ============================================================================
-// Task definitions
+// Hardware Abstraction (Hw<Impl>)
 // ============================================================================
 
 namespace {
 
+namespace arch = umi::arch::cm7;
 using namespace umi::daisy;
-using TaskContext = umi::port::cm7::TaskContext;
 
-// Task IDs
-enum TaskId : std::uint8_t {
-    TASK_AUDIO   = 0,  // Priority: REALTIME
-    TASK_SYSTEM  = 1,  // Priority: SERVER
-    TASK_CONTROL = 2,  // Priority: USER
-    TASK_IDLE    = 3,
-    NUM_TASKS    = 4,
+// SysTick tick counter (incremented by SysTick_Handler)
+volatile umi::usec g_tick_us = 0;
+constexpr std::uint32_t SYSTICK_PERIOD_US = 1000;  // 1ms tick
+
+struct Stm32H7Hw {
+    static void set_timer_absolute(umi::usec) {}
+    static umi::usec monotonic_time_usecs() { return g_tick_us; }
+
+    // BASEPRI-based critical section.
+    // Masks priority >= 1 (BASEPRI = 0x20 on STM32H7 with 4-bit priority).
+    // Audio DMA (priority 0) is NOT masked — runs through critical sections.
+    static void enter_critical() {
+        __asm__ volatile("msr basepri, %0" ::"r"(0x20u) : "memory");
+    }
+    static void exit_critical() {
+        __asm__ volatile("msr basepri, %0" ::"r"(0u) : "memory");
+    }
+
+    static void trigger_ipi(std::uint8_t) {}
+    static std::uint8_t current_core() { return 0; }
+
+    static void request_context_switch() { arch::request_context_switch(); }
+
+    static void enter_sleep() {
+        __asm__ volatile("msr basepri, %0\n"
+                         "wfi\n"
+                         "msr basepri, %0\n" ::"r"(0u)
+                         : "memory");
+    }
+    static std::uint32_t cycle_count() { return arch::dwt_cycle(); }
+    static std::uint32_t cycles_per_usec() { return 480; }  // STM32H750 @ 480 MHz
 };
 
-// Task stacks (in words)
-constexpr std::uint32_t AUDIO_STACK_SIZE   = 512;
-constexpr std::uint32_t SYSTEM_STACK_SIZE  = 256;
-constexpr std::uint32_t CONTROL_STACK_SIZE = 256;
-constexpr std::uint32_t IDLE_STACK_SIZE    = 64;
+using HW = umi::Hw<Stm32H7Hw>;
 
-std::uint32_t audio_stack[AUDIO_STACK_SIZE];
-std::uint32_t system_stack[SYSTEM_STACK_SIZE];
-std::uint32_t control_stack[CONTROL_STACK_SIZE];
-std::uint32_t idle_stack[IDLE_STACK_SIZE];
+// ============================================================================
+// Kernel Instance
+// ============================================================================
 
-TaskContext task_contexts[NUM_TASKS];
+umi::Kernel<8, 4, HW, 1> g_kernel;
 
-// Minimal scheduler state
-volatile TaskId current_task = TASK_IDLE;
+// Compile-time FPU policy determination
+constexpr umi::TaskFpuDecl fpu_decl {
+    .audio   = true,
+    .system  = false,
+    .control = true,
+    .idle    = false,
+};
+constexpr int fpu_task_count = umi::count_fpu_tasks(fpu_decl);
+constexpr auto audio_fpu_policy   = umi::resolve_fpu_policy(fpu_decl.audio,   fpu_task_count);
+constexpr auto control_fpu_policy = umi::resolve_fpu_policy(fpu_decl.control, fpu_task_count);
+constexpr auto idle_fpu_policy    = umi::resolve_fpu_policy(fpu_decl.idle,    fpu_task_count);
 
-// Task notification bits (set by ISR, cleared by task)
-std::atomic<std::uint32_t> task_notifications[NUM_TASKS] = {};
+umi::TaskId g_audio_task_id;
+umi::TaskId g_control_task_id;
+umi::TaskId g_idle_task_id;
 
-// Notification bits
-constexpr std::uint32_t NOTIFY_AUDIO_READY = (1U << 0);
-[[maybe_unused]] constexpr std::uint32_t NOTIFY_USB_IRQ = (1U << 1);
+// ============================================================================
+// Task stacks and hardware TCBs
+// ============================================================================
+
+constexpr uint32_t AUDIO_TASK_STACK_SIZE = 2048;
+constexpr uint32_t CONTROL_TASK_STACK_SIZE = 2048;
+constexpr uint32_t IDLE_TASK_STACK_SIZE = 128;
+
+uint32_t g_audio_task_stack[AUDIO_TASK_STACK_SIZE];
+uint32_t g_control_task_stack[CONTROL_TASK_STACK_SIZE];
+uint32_t g_idle_task_stack[IDLE_TASK_STACK_SIZE];
+
+arch::TaskContext g_audio_tcb;
+arch::TaskContext g_control_tcb;
+arch::TaskContext g_idle_tcb;
+arch::TaskContext* g_current_tcb = nullptr;
+
+// Map kernel TaskId to hardware TCB pointer
+arch::TaskContext* task_id_to_hw_tcb(std::uint16_t idx) {
+    if (idx == g_audio_task_id.value) return &g_audio_tcb;
+    if (idx == g_control_task_id.value) return &g_control_tcb;
+    if (idx == g_idle_task_id.value) return &g_idle_tcb;
+    return nullptr;
+}
+
+// ============================================================================
+// SpscQueue for DMA ISR → audio task
+// ============================================================================
+
+struct AudioBuffer {
+    std::int32_t* tx;
+    std::int32_t* rx;
+};
+
+umi::SpscQueue<AudioBuffer, 4> g_audio_ready_queue;
 
 // ============================================================================
 // USB MIDI
 // ============================================================================
 
-// USB device uses HS peripheral with internal FS PHY (Stm32HsHal)
 umiusb::Stm32HsHal usb_hal;
 using UsbAudioMidi = umiusb::AudioFullDuplexMidi48k;
 UsbAudioMidi usb_audio;
 
 constexpr umiusb::DeviceInfo usb_device_info = {
-    .vendor_id = 0x1209,       // pid.codes test VID
-    .product_id = 0x000B,      // UMI Audio+MIDI
+    .vendor_id = 0x1209,
+    .product_id = 0x000B,
     .device_version = 0x0100,
     .manufacturer_idx = 1,
     .product_idx = 2,
@@ -107,7 +170,7 @@ constexpr umiusb::DeviceInfo usb_device_info = {
 inline constexpr auto str_mfr = umiusb::StringDesc("UMI");
 inline constexpr auto str_prod = umiusb::StringDesc("Daisy Pod Audio");
 
-[[maybe_unused]] inline const std::array<std::span<const uint8_t>, 2> usb_strings = {
+inline const std::array<std::span<const uint8_t>, 2> usb_strings = {
     std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(&str_mfr), str_mfr.size()),
     std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(&str_prod), str_prod.size()),
 };
@@ -120,75 +183,38 @@ umiusb::Device<umiusb::Stm32HsHal, UsbAudioMidi> usb_device(usb_hal, usb_audio, 
 
 umi::daisy::pod::PodHid pod_hid;
 
-// MIDI UART parser and state
+// MIDI UART parser
 umi::daisy::MidiUartParser midi_uart_parser;
 
-} // namespace (reopened below after DbgMemTest)
-
-// Debug: SDRAM/QSPI/SD test results (read via GDB, outside anonymous namespace for LTO visibility)
-struct DbgMemTest {
-    volatile std::uint32_t sdram_result = 0;  // 0=untested, 1=pass, 2=fail
-    volatile std::uint32_t sdram_read = 0;
-    volatile std::uint32_t qspi_byte0 = 0;
-    volatile std::uint32_t sd_result = 0;     // 0=untested, 1=pass, 2=fail
-    volatile std::uint32_t sd_byte0 = 0;
-} dbg_mem;
-
-namespace {
-
 // ============================================================================
-// DMA audio buffers
+// DMA audio buffers (D2 SRAM — non-cacheable via MPU)
 // ============================================================================
 
-__attribute__((section(".dma_buffer")))
+__attribute__((section(".sram_d2_bss")))
 std::int32_t audio_tx_buf[AUDIO_BUFFER_SIZE];
 
-__attribute__((section(".dma_buffer")))
+__attribute__((section(".sram_d2_bss")))
 std::int32_t audio_rx_buf[AUDIO_BUFFER_SIZE];
 
-// Pending audio buffer pointers (set by ISR, consumed by audio task)
-volatile std::int32_t* pending_tx = nullptr;
-volatile std::int32_t* pending_rx = nullptr;
+// Debug area in DTCM (no D-Cache, directly visible to pyOCD)
+__attribute__((section(".dtcmram_bss"), used))
+volatile std::uint32_t d2_dbg[16];
 
 // ============================================================================
 // umios: AudioContext infrastructure
 // ============================================================================
 
-// Float audio buffers for AudioContext (converted from/to int32 DMA buffers)
-float audio_float_in[2][AUDIO_BLOCK_SIZE];
-float audio_float_out[2][AUDIO_BLOCK_SIZE];
+[[maybe_unused]] float audio_float_in[2][AUDIO_BLOCK_SIZE];
+[[maybe_unused]] float audio_float_out[2][AUDIO_BLOCK_SIZE];
 
-// AudioContext state
 umi::EventQueue<> audio_event_queue;
 umi::EventQueue<> audio_output_events;
-umi::SharedParamState shared_params;
-umi::SharedChannelState shared_channel;
-umi::SharedInputState shared_input;
+[[maybe_unused]] umi::SharedParamState shared_params;
+[[maybe_unused]] umi::SharedChannelState shared_channel;
+[[maybe_unused]] umi::SharedInputState shared_input;
 umi::EventRouter event_router;
 
-// Sample position counter (monotonically increasing)
 umi::sample_position_t audio_sample_pos = 0;
-
-// Current registered processor (set via register_processor or directly)
-void* registered_processor = nullptr;
-void (*registered_process_fn)(void*, umi::AudioContext&) = nullptr;
-
-// Int32 (24-bit SAI) ↔ float conversion
-void int32_to_float_stereo(const std::int32_t* src, float* left, float* right, std::uint32_t frames) {
-    constexpr float scale = 1.0f / static_cast<float>(1 << 23);
-    for (std::uint32_t i = 0; i < frames; ++i) {
-        left[i] = static_cast<float>(src[i * 2]) * scale;
-        right[i] = static_cast<float>(src[i * 2 + 1]) * scale;
-    }
-}
-
-void float_to_int32_stereo(const float* left, const float* right, std::int32_t* dst, std::uint32_t frames) {
-    constexpr float scale = static_cast<float>(1 << 23);
-    for (std::uint32_t i = 0; i < frames; ++i) {
-        dst[i * 2] = static_cast<std::int32_t>(left[i] * scale);
-        dst[i * 2 + 1] = static_cast<std::int32_t>(right[i] * scale);
-    }
-}
 
 // ============================================================================
 // Simple Event Queue (HID → audio/control event bridge)
@@ -208,11 +234,10 @@ enum class EventType : std::uint8_t {
 struct Event {
     EventType type = EventType::NONE;
     std::uint8_t channel = 0;
-    std::uint8_t param = 0;    // note number or CC number or knob index
-    std::uint8_t value = 0;    // velocity or CC value
+    std::uint8_t param = 0;
+    std::uint8_t value = 0;
 };
 
-// Lock-free SPSC ring buffer for events (ISR/callback → audio task)
 struct EventQueue {
     static constexpr std::uint32_t CAPACITY = 64;
     Event events[CAPACITY] = {};
@@ -222,7 +247,7 @@ struct EventQueue {
     bool push(const Event& e) {
         auto h = head.load(std::memory_order_relaxed);
         auto next = (h + 1) % CAPACITY;
-        if (next == tail.load(std::memory_order_acquire)) return false;  // full
+        if (next == tail.load(std::memory_order_acquire)) return false;
         events[h] = e;
         head.store(next, std::memory_order_release);
         return true;
@@ -230,13 +255,15 @@ struct EventQueue {
 
     bool pop(Event& e) {
         auto t = tail.load(std::memory_order_relaxed);
-        if (t == head.load(std::memory_order_acquire)) return false;  // empty
+        if (t == head.load(std::memory_order_acquire)) return false;
         e = events[t];
         tail.store((t + 1) % CAPACITY, std::memory_order_release);
         return true;
     }
 };
 
+// Place in D2 SRAM (non-cacheable) to avoid D-Cache coherency issues
+// between control_task (USB poll → push) and audio_task (pop)
 EventQueue midi_event_queue;
 
 // ============================================================================
@@ -246,46 +273,27 @@ EventQueue midi_event_queue;
 struct Voice {
     std::uint32_t phase = 0;
     std::uint32_t phase_inc = 0;
-    std::int32_t amplitude = 0;  // 0 = off, 24-bit scale
+    std::int32_t amplitude = 0;
     std::uint8_t note = 0;
     bool active = false;
 
-    // Simple AR envelope state
-    std::int32_t env_level = 0;     // current level (24-bit)
-    std::int32_t env_target = 0;    // target level
-    std::int32_t env_rate = 0;      // increment per sample (positive=attack, negative=release)
+    std::int32_t env_level = 0;
+    std::int32_t env_target = 0;
+    std::int32_t env_rate = 0;
 };
 
 constexpr int NUM_VOICES = 8;
 Voice voices[NUM_VOICES];
 
-// MIDI note → phase increment (for 48kHz, 32-bit phase accumulator)
-// phase_inc = (freq * 2^32) / 48000
 constexpr std::uint32_t midi_note_to_phase_inc(std::uint8_t note) {
-    // A4 (69) = 440 Hz → phase_inc = 440 * 4294967296 / 48000 = 39370534
-    // Each semitone: multiply by 2^(1/12) ≈ 1.05946
-    // Pre-compute using integer approximation
     constexpr std::uint32_t a4_inc = 39370534U;
     if (note == 69) return a4_inc;
-    // Use lookup or compute: inc = a4_inc * 2^((note-69)/12)
-    // Simple shift-based approximation for real-time:
-    // We'll use a table for the 12 semitones within an octave
     constexpr std::uint32_t semitone_ratio[12] = {
-        // Ratios * 65536 for notes 0..11 relative to C
-        // C=65536, C#=69433, D=73562, D#=77936, E=82570, F=87480,
-        // F#=92682, G=98193, G#=104032, A=110218, A#=116772, B=123715
         65536, 69433, 73562, 77936, 82570, 87480,
         92682, 98193, 104032, 110218, 116772, 123715,
     };
-    // C0 = note 12, A4 = note 69
-    // C in octave: note % 12, octave = note / 12
     int semitone = note % 12;
     int octave = note / 12;
-    // Base: C0 phase_inc = a4_inc / 2^(69/12 - 0) ... too complex
-    // Simpler: A in octave 'oct' = a4_inc * 2^(oct - 5) (A4 is octave 5 in MIDI note/12 scheme, 69/12=5)
-    // note 69 = octave 5, semitone 9 (A)
-    // For any note: inc = (a4_inc * semitone_ratio[semitone]) / semitone_ratio[9]
-    // Then shift by (octave - 5)
     std::uint64_t inc = static_cast<std::uint64_t>(a4_inc) * semitone_ratio[semitone] / semitone_ratio[9];
     int shift = octave - 5;
     if (shift > 0) inc <<= shift;
@@ -293,17 +301,20 @@ constexpr std::uint32_t midi_note_to_phase_inc(std::uint8_t note) {
     return static_cast<std::uint32_t>(inc);
 }
 
-// Synth parameters (controlled by knobs)
-volatile float synth_volume = 0.5f;     // knob1: master volume
+volatile float synth_volume = 0.5f;
 
 // MIDI callback — called from USB poll context
-// Routes to both local synth event queue AND umios EventRouter
 void on_midi_message(std::uint8_t cable, const std::uint8_t* data, std::uint8_t len) {
+    d2_dbg[6] = d2_dbg[6] + 1;
+    // Debug: store last MIDI message bytes in d2_dbg[7]
+    d2_dbg[7] = (static_cast<std::uint32_t>(len) << 24)
+              | (static_cast<std::uint32_t>(data[0]) << 16)
+              | (static_cast<std::uint32_t>(len >= 2 ? data[1] : 0) << 8)
+              | (static_cast<std::uint32_t>(len >= 3 ? data[2] : 0));
     if (len < 2) return;
     std::uint8_t status = data[0] & 0xF0;
     std::uint8_t ch = data[0] & 0x0F;
 
-    // Route to local synth event queue
     Event ev;
     ev.channel = ch;
 
@@ -324,9 +335,8 @@ void on_midi_message(std::uint8_t cable, const std::uint8_t* data, std::uint8_t 
         midi_event_queue.push(ev);
     }
 
-    // Route through umios EventRouter (for registered processors)
     umi::RawInput raw;
-    raw.hw_timestamp = 0;  // TODO: capture actual timestamp
+    raw.hw_timestamp = 0;
     raw.source_id = cable;
     raw.size = len;
     for (std::uint8_t i = 0; i < len && i < 6; ++i) {
@@ -335,31 +345,31 @@ void on_midi_message(std::uint8_t cable, const std::uint8_t* data, std::uint8_t 
     event_router.receive(raw, 0, AUDIO_SAMPLE_RATE);
 }
 
-// Process MIDI events in audio task (voice allocation)
 void process_midi_events() {
     Event ev;
     while (midi_event_queue.pop(ev)) {
+        d2_dbg[9] = d2_dbg[9] + 1;  // pop count
+        d2_dbg[10] = static_cast<std::uint32_t>(ev.type);  // last event type
         if (ev.type == EventType::NOTE_ON) {
-            // Find free voice or steal oldest
             Voice* target = nullptr;
             for (auto& v : voices) {
                 if (!v.active) { target = &v; break; }
             }
-            if (target == nullptr) target = &voices[0];  // simple steal
+            if (target == nullptr) target = &voices[0];
 
             target->note = ev.param;
             target->phase = 0;
             target->phase_inc = midi_note_to_phase_inc(ev.param);
-            target->amplitude = static_cast<std::int32_t>(ev.value) << 16;  // velocity → 24-bit
+            target->amplitude = static_cast<std::int32_t>(ev.value) << 16;
             target->active = true;
             target->env_level = 0;
             target->env_target = target->amplitude;
-            target->env_rate = target->amplitude / 48;  // ~1ms attack at 48kHz
+            target->env_rate = target->amplitude / 48;
         } else if (ev.type == EventType::NOTE_OFF) {
             for (auto& v : voices) {
                 if (v.active && v.note == ev.param) {
                     v.env_target = 0;
-                    v.env_rate = -(v.env_level / 480);  // ~10ms release
+                    v.env_rate = -(v.env_level / 480);
                     if (v.env_rate == 0) v.env_rate = -1;
                     break;
                 }
@@ -368,9 +378,7 @@ void process_midi_events() {
     }
 }
 
-// Render synth voices into buffer (interleaved stereo, 24-bit in 32-bit)
 void render_synth(std::int32_t* out, std::uint32_t frames) {
-    // Clear buffer
     for (std::uint32_t i = 0; i < frames * 2; ++i) {
         out[i] = 0;
     }
@@ -381,7 +389,6 @@ void render_synth(std::int32_t* out, std::uint32_t frames) {
         if (!v.active) continue;
 
         for (std::uint32_t i = 0; i < frames; ++i) {
-            // Update envelope
             if (v.env_rate > 0 && v.env_level < v.env_target) {
                 v.env_level += v.env_rate;
                 if (v.env_level > v.env_target) v.env_level = v.env_target;
@@ -394,16 +401,14 @@ void render_synth(std::int32_t* out, std::uint32_t frames) {
                 }
             }
 
-            // Saw wave: phase is 0..2^32, map to -2^23..+2^23
             std::int32_t saw = static_cast<std::int32_t>(v.phase >> 8) - (1 << 23);
-
-            // Apply envelope and volume
             std::int32_t sample = static_cast<std::int32_t>(
                 (static_cast<std::int64_t>(saw) * v.env_level >> 24) * static_cast<std::int64_t>(vol * 256) >> 8
             );
 
             out[i * 2] += sample;
             out[i * 2 + 1] += sample;
+            if (i == 0) d2_dbg[13] = static_cast<std::uint32_t>(sample);
             v.phase += v.phase_inc;
         }
     }
@@ -413,126 +418,75 @@ void render_synth(std::int32_t* out, std::uint32_t frames) {
 // Task entry functions
 // ============================================================================
 
-/// Audio task: waits for DMA notification, bridges USB Audio ↔ SAI DMA + synth
-/// Also constructs AudioContext and invokes registered processor if any
+/// Audio task: waits on kernel event, processes MIDI→synth→DMA output
 void audio_task_entry(void* /*arg*/) {
     while (true) {
-        while (!(task_notifications[TASK_AUDIO].load(std::memory_order_acquire) & NOTIFY_AUDIO_READY)) {
-            asm volatile("wfe");
-        }
-        task_notifications[TASK_AUDIO].fetch_and(~NOTIFY_AUDIO_READY, std::memory_order_release);
+        // Block until DMA ISR signals audio ready
+        g_kernel.wait_block(g_audio_task_id, umi::KernelEvent::audio);
 
-        // Process pending MIDI events into voice state
+        auto buf = g_audio_ready_queue.try_pop();
+        if (!buf.has_value()) continue;
+
+        auto* out = buf->tx;
+        d2_dbg[0] = d2_dbg[0] + 1;
+
         process_midi_events();
 
-        auto* out = const_cast<std::int32_t*>(pending_tx);
-        auto* in = const_cast<std::int32_t*>(pending_rx);
-
-        // Convert DMA int32 → float for AudioContext
-        if (in != nullptr) {
-            int32_to_float_stereo(in, audio_float_in[0], audio_float_in[1], AUDIO_BLOCK_SIZE);
+        bool has_active_voice = false;
+        for (const auto& v : voices) {
+            if (v.active) { has_active_voice = true; break; }
         }
 
-        // Build AudioContext
-        const umi::sample_t* in_ptrs[2] = {audio_float_in[0], audio_float_in[1]};
-        umi::sample_t* out_ptrs[2] = {audio_float_out[0], audio_float_out[1]};
+        if (has_active_voice) {
+            d2_dbg[8] = d2_dbg[8] + 1;  // render count
+            render_synth(out, AUDIO_BLOCK_SIZE);
+            d2_dbg[11] = static_cast<std::uint32_t>(out[0]);  // first sample
+            d2_dbg[12] = static_cast<std::uint32_t>(out[1]);  // second sample
+        } else {
+            // No active synth — passthrough USB Audio OUT to SAI TX
+            usb_audio.read_audio(out, AUDIO_BLOCK_SIZE);
+        }
 
-        // Drain audio_event_queue into a span for AudioContext
-        umi::Event event_buf[64];
-        std::uint32_t event_count = 0;
+        // USB Audio IN: send output to host
+        usb_audio.write_audio_in(out, AUDIO_BLOCK_SIZE);
+
+        // D-Cache clean: flush TX buffer to SRAM so DMA can read it
         {
-            umi::Event ev;
-            while (event_count < 64 && audio_event_queue.pop(ev)) {
-                event_buf[event_count++] = ev;
+            auto addr = reinterpret_cast<std::uintptr_t>(out);
+            auto end = addr + (AUDIO_BLOCK_SIZE * 2) * sizeof(std::int32_t);
+            for (; addr < end; addr += 32) {
+                *umi::cm7::scb::DCCMVAC = static_cast<std::uint32_t>(addr);
             }
-        }
-
-        umi::AudioContext ctx{
-            .inputs = std::span<const umi::sample_t* const>(in_ptrs, 2),
-            .outputs = std::span<umi::sample_t* const>(out_ptrs, 2),
-            .input_events = std::span<const umi::Event>(event_buf, event_count),
-            .output_events = audio_output_events,
-            .sample_rate = AUDIO_SAMPLE_RATE,
-            .buffer_size = AUDIO_BLOCK_SIZE,
-            .dt = 1.0f / static_cast<float>(AUDIO_SAMPLE_RATE),
-            .sample_position = audio_sample_pos,
-            .params = &shared_params,
-            .channel = &shared_channel,
-            .input_state = &shared_input,
-        };
-
-        // Invoke registered processor if any
-        if (registered_processor != nullptr && registered_process_fn != nullptr) {
-            registered_process_fn(registered_processor, ctx);
-            // Convert float output → int32 DMA
-            if (out != nullptr) {
-                float_to_int32_stereo(audio_float_out[0], audio_float_out[1], out, AUDIO_BLOCK_SIZE);
-            }
-        } else if (out != nullptr) {
-            // No registered processor: use built-in synth/passthrough/USB audio
-            auto frames = usb_audio.read_audio(out, AUDIO_BLOCK_SIZE);
-            if (frames == 0) {
-                bool has_active_voice = false;
-                for (const auto& v : voices) {
-                    if (v.active) { has_active_voice = true; break; }
-                }
-
-                if (has_active_voice) {
-                    render_synth(out, AUDIO_BLOCK_SIZE);
-                } else if (in != nullptr) {
-                    for (std::uint32_t i = 0; i < AUDIO_BLOCK_SIZE * 2; ++i) {
-                        out[i] = in[i];
-                    }
-                } else {
-                    for (std::uint32_t i = 0; i < AUDIO_BLOCK_SIZE * 2; ++i) {
-                        out[i] = 0;
-                    }
-                }
-            }
-        }
-
-        if (in != nullptr) {
-            usb_audio.write_audio_in(in, AUDIO_BLOCK_SIZE);
+            __asm__ volatile("dsb sy" ::: "memory");
         }
 
         audio_sample_pos += AUDIO_BLOCK_SIZE;
     }
 }
 
-/// System task: USB polling
-void system_task_entry(void*) {
-    while (true) {
-        usb_device.poll();
-        asm volatile("wfe");
-    }
-}
-
 /// Control task: HID polling + USB polling + knob→synth parameter mapping
 void control_task_entry(void* /*arg*/) {
     mm::DirectTransportT<> transport;
-    constexpr float hid_rate = 1000.0f;  // ~1 kHz update rate
+    constexpr float hid_rate = 1000.0f;
     std::uint32_t loop_counter = 0;
 
     while (true) {
+        d2_dbg[5] = d2_dbg[5] + 1;
         usb_device.poll();
 
-        // Update digital controls + LED PWM at ~1 kHz
         if (++loop_counter >= 100) {
             loop_counter = 0;
             pod_hid.update_controls(transport, hid_rate);
 
-            // Knob1 → synth master volume
-            synth_volume = pod_hid.knobs.value(0);
-            // Knob2 → LED2 blue (visual feedback)
+            float knob_val = pod_hid.knobs.value(0);
+            synth_volume = (knob_val > 0.01f) ? knob_val : 0.5f;
             pod_hid.led1.set(synth_volume, 0.0f, 0.0f);
             pod_hid.led2.set(0.0f, 0.0f, pod_hid.knobs.value(1));
 
-            // Encoder click → toggle Seed board LED
             if (pod_hid.encoder.click_just_pressed()) {
                 umi::daisy::toggle_led();
             }
 
-            // Push HID events to event queue
             if (pod_hid.encoder.click_just_pressed()) {
                 midi_event_queue.push({EventType::BUTTON_DOWN, 0, 0, 127});
             }
@@ -542,8 +496,10 @@ void control_task_entry(void* /*arg*/) {
             }
         }
 
-        // Update knob filter at full loop rate
         pod_hid.process_knobs();
+
+        // Yield to let other tasks run
+        arch::yield();
     }
 }
 
@@ -555,33 +511,110 @@ void idle_task_entry(void*) {
 }
 
 // ============================================================================
-// Scheduler
+// Kernel callbacks
 // ============================================================================
 
-/// Simple priority scheduler: pick highest priority ready task
-TaskId schedule() {
-    // Audio task has highest priority
-    if (task_notifications[TASK_AUDIO].load(std::memory_order_relaxed) & NOTIFY_AUDIO_READY) {
-        return TASK_AUDIO;
+static void tick_callback() {
+    g_tick_us += SYSTICK_PERIOD_US;
+    // Resume control task periodically
+    g_kernel.resume_task(g_control_task_id);
+}
+
+static void switch_context_callback() {
+    Stm32H7Hw::enter_critical();
+    g_kernel.resolve_pending();
+    auto next_opt = g_kernel.get_next_task();
+    if (next_opt.has_value()) {
+        g_kernel.prepare_switch(*next_opt);
+        auto* next_hw_tcb = task_id_to_hw_tcb(*next_opt);
+        g_current_tcb = next_hw_tcb;
+        arch::current_tcb = next_hw_tcb;
     }
-    // Control task is always ready (running LED loop)
-    return TASK_CONTROL;
+    Stm32H7Hw::exit_critical();
+}
+
+static void svc_callback(uint32_t* sp) {
+    // Extract syscall number from R12 (saved in stack frame)
+    // Stack layout: R0, R1, R2, R3, R12, LR, PC, xPSR
+    [[maybe_unused]] uint32_t syscall_num = sp[4];  // R12
+
+    // For now, yield is the only syscall
+    g_kernel.yield();
+}
+
+// ============================================================================
+// start_rtos
+// ============================================================================
+
+void start_rtos() {
+    // Create tasks in Kernel
+    g_audio_task_id = g_kernel.create_task({
+        .entry = audio_task_entry,
+        .arg = nullptr,
+        .prio = umi::Priority::REALTIME,
+        .uses_fpu = fpu_decl.audio,
+        .name = "audio",
+    });
+
+    g_control_task_id = g_kernel.create_task({
+        .entry = control_task_entry,
+        .arg = nullptr,
+        .prio = umi::Priority::USER,
+        .uses_fpu = fpu_decl.control,
+        .name = "control",
+    });
+
+    g_idle_task_id = g_kernel.create_task({
+        .entry = idle_task_entry,
+        .arg = nullptr,
+        .prio = umi::Priority::IDLE,
+        .uses_fpu = fpu_decl.idle,
+        .name = "idle",
+    });
+
+    // Initialize hardware TCBs (port layer)
+    arch::init_task<audio_fpu_policy>(
+        g_audio_tcb, g_audio_task_stack, AUDIO_TASK_STACK_SIZE, audio_task_entry, nullptr);
+
+    arch::init_task<control_fpu_policy>(
+        g_control_tcb, g_control_task_stack, CONTROL_TASK_STACK_SIZE, control_task_entry, nullptr);
+
+    arch::init_task<idle_fpu_policy>(
+        g_idle_tcb, g_idle_task_stack, IDLE_TASK_STACK_SIZE, idle_task_entry, nullptr);
+
+    // Control task starts as Running
+    g_kernel.prepare_switch(g_control_task_id.value);
+    g_current_tcb = &g_control_tcb;
+
+    // Set arch layer callbacks
+    arch::set_tick_callback(tick_callback);
+    arch::set_switch_context_callback(switch_context_callback);
+    arch::set_svc_callback(svc_callback);
+
+    // Initialize SysTick (1ms tick)
+    arch::init_cycle_counter();
+    arch::init_systick(480'000'000, SYSTICK_PERIOD_US);
+
+    // Start scheduler (does not return)
+    uint32_t* control_stack_top = g_control_task_stack + CONTROL_TASK_STACK_SIZE;
+    arch::start_scheduler(&g_control_tcb, control_task_entry, nullptr, control_stack_top);
 }
 
 } // namespace
 
 // ============================================================================
-// RTOS linkage symbols (required by handlers.cc)
+// Debug: SDRAM/QSPI/SD test results
 // ============================================================================
 
-extern "C" __attribute__((used))
-umi::port::cm7::TaskContext* volatile umi_cm7_current_tcb = nullptr;
-
-extern "C" __attribute__((used)) void umi_cm7_switch_context() {
-    auto next = schedule();
-    current_task = next;
-    umi_cm7_current_tcb = &task_contexts[next];
-}
+struct DbgMemTest {
+    volatile std::uint32_t sdram_result = 0;
+    volatile std::uint32_t sdram_read = 0;
+    volatile std::uint32_t qspi_byte0 = 0;
+    volatile std::uint32_t sd_result = 0;
+    volatile std::uint32_t sd_byte0 = 0;
+    volatile std::uint32_t dma_isr_count = 0;
+    volatile std::uint32_t dma_lisr_last = 0;
+} dbg_mem;
 
 // ============================================================================
 // DMA IRQ handlers
@@ -594,21 +627,41 @@ void DMA1_Stream0_IRQHandler() {
     mm::DirectTransportT<> transport;
     auto lisr = transport.read(DMA1::LISR{});
 
+    d2_dbg[1] = d2_dbg[1] + 1;
+    d2_dbg[2] = lisr;
+
+    AudioBuffer buf{};
+
     if (lisr & dma_flags::S0_HTIF) {
         transport.write(DMA1::LIFCR::value(dma_flags::S0_HTIF));
-        pending_tx = audio_tx_buf;
-        pending_rx = audio_rx_buf;
-        task_notifications[TASK_AUDIO].fetch_or(NOTIFY_AUDIO_READY, std::memory_order_release);
-        umi::kernel::port::cm7::request_context_switch();
+        buf.tx = audio_tx_buf;
+        buf.rx = audio_rx_buf;
+        d2_dbg[3] = d2_dbg[3] + 1;
     }
     if (lisr & dma_flags::S0_TCIF) {
         transport.write(DMA1::LIFCR::value(dma_flags::S0_TCIF));
-        pending_tx = audio_tx_buf + AUDIO_BUFFER_SIZE / 2;
-        pending_rx = audio_rx_buf + AUDIO_BUFFER_SIZE / 2;
-        task_notifications[TASK_AUDIO].fetch_or(NOTIFY_AUDIO_READY, std::memory_order_release);
-        umi::kernel::port::cm7::request_context_switch();
+        buf.tx = audio_tx_buf + AUDIO_BUFFER_SIZE / 2;
+        buf.rx = audio_rx_buf + AUDIO_BUFFER_SIZE / 2;
+        d2_dbg[4] = d2_dbg[4] + 1;
     }
     transport.write(DMA1::LIFCR::value(lisr & dma_flags::S0_ALL));
+
+    if (buf.tx != nullptr) {
+        // D-Cache invalidate RX buffer so CPU reads fresh DMA data
+        {
+            auto addr = reinterpret_cast<std::uintptr_t>(buf.rx);
+            auto end = addr + (AUDIO_BUFFER_SIZE / 2) * sizeof(std::int32_t);
+            for (; addr < end; addr += 32) {
+                *umi::cm7::scb::DCIMVAC = static_cast<std::uint32_t>(addr);
+            }
+            __asm__ volatile("dsb sy" ::: "memory");
+        }
+        g_audio_ready_queue.try_push(buf);
+        // signal() is lock-free, safe from any ISR
+        g_kernel.signal(g_audio_task_id, umi::KernelEvent::audio);
+        // Trigger PendSV for context switch
+        umi::port::arm::SCB::trigger_pendsv();
+    }
 }
 
 void DMA1_Stream1_IRQHandler() {
@@ -623,16 +676,13 @@ void USART1_IRQHandler() {
     mm::DirectTransportT<> t;
     auto isr = t.read(USART1::ISR{});
 
-    // Clear errors
-    if (isr & ((1U << 3) | (1U << 1))) {  // ORE | FE
+    if (isr & ((1U << 3) | (1U << 1))) {
         umi::daisy::midi_uart_clear_errors();
     }
 
-    // Read data
-    if (isr & (1U << 5)) {  // RXNE
+    if (isr & (1U << 5)) {
         auto byte = umi::daisy::midi_uart_read_byte();
         if (midi_uart_parser.feed(byte)) {
-            // Complete MIDI message — route to synth + EventRouter
             std::uint8_t msg[3] = {midi_uart_parser.running_status,
                                     midi_uart_parser.data[0],
                                     midi_uart_parser.data[1]};
@@ -646,6 +696,23 @@ void USART1_IRQHandler() {
 // Fault handlers
 extern "C" {
 void HardFault_Handler() {
+    // Extract faulting PC from exception frame
+    // Determine which stack was in use from EXC_RETURN in LR
+    uint32_t* sp;
+    __asm__ volatile("tst lr, #4\n"
+                     "ite eq\n"
+                     "mrseq %0, msp\n"
+                     "mrsne %0, psp\n"
+                     : "=r"(sp));
+    // Exception frame: R0,R1,R2,R3,R12,LR,PC,xPSR at sp[0..7]
+    d2_dbg[0] = 0xDEAD0001;  // marker
+    d2_dbg[1] = sp[5];       // LR at fault
+    d2_dbg[2] = sp[6];       // PC at fault
+    d2_dbg[3] = sp[7];       // xPSR
+    d2_dbg[4] = *reinterpret_cast<volatile uint32_t*>(0xE000ED28); // CFSR
+    d2_dbg[5] = *reinterpret_cast<volatile uint32_t*>(0xE000ED38); // BFAR
+    d2_dbg[6] = reinterpret_cast<uint32_t>(sp);  // stack pointer
+    d2_dbg[7] = sp[0];       // R0
     umi::daisy::set_led(true);
     while (true) {}
 }
@@ -664,10 +731,14 @@ void UsageFault_Handler() {
 }
 
 // ============================================================================
-// main() — called from Reset_Handler, sets up tasks and starts scheduler
+// main() — called from Reset_Handler
 // ============================================================================
 
 int main() {
+    // Initialize D2 SRAM variables (NOLOAD section, not zero-init'd)
+    for (auto& d : d2_dbg) d = 0;
+    // midi_event_queue is in .bss (zero-initialized by startup code)
+
     // Initialize clocks
     umi::daisy::init_clocks();
     umi::daisy::init_pll3();
@@ -712,12 +783,9 @@ int main() {
     // Pod HID: enable ADC12 clock, then initialize all controls
     {
         mm::DirectTransportT<> transport;
-        // ADC clock source: per_ck (HSI 64 MHz by default)
-        transport.modify(umi::stm32h7::RCC::D3CCIPR::ADCSEL::value(2));  // 10 = per_ck
-        // ADC12 clock enable (AHB1)
+        transport.modify(umi::stm32h7::RCC::D3CCIPR::ADCSEL::value(2));
         transport.modify(umi::stm32h7::RCC::AHB1ENR::ADC12EN::Set{});
         [[maybe_unused]] auto dummy = transport.read(umi::stm32h7::RCC::AHB1ENR{});
-        // GPIO clocks for Pod controls (A,B,C,D,G) — most already enabled by init_clocks
         transport.modify(umi::stm32h7::RCC::AHB4ENR::GPIOAEN::Set{});
         transport.modify(umi::stm32h7::RCC::AHB4ENR::GPIOBEN::Set{});
         transport.modify(umi::stm32h7::RCC::AHB4ENR::GPIOCEN::Set{});
@@ -725,7 +793,6 @@ int main() {
         transport.modify(umi::stm32h7::RCC::AHB4ENR::GPIOGEN::Set{});
         dummy = transport.read(umi::stm32h7::RCC::AHB4ENR{});
 
-        // Audio callback rate: 48000 / 48 = 1000 Hz
         constexpr float update_rate = static_cast<float>(AUDIO_SAMPLE_RATE) / AUDIO_BLOCK_SIZE;
         pod_hid.init(transport, update_rate);
     }
@@ -733,46 +800,17 @@ int main() {
     // MIDI UART (USART1, 31250 baud)
     umi::daisy::init_midi_uart();
 
-    // microSD card (SDMMC1, 4-bit bus) — disabled until clock source configured
-    // TODO: configure D1CCIPR.SDMMCSEL before enabling
-    // {
-    //     bool sd_ok = umi::daisy::init_sdcard();
-    //     if (sd_ok) {
-    //         alignas(4) std::uint8_t mbr[512];
-    //         bool read_ok = umi::daisy::sdcard_read_block(0, mbr);
-    //         dbg_mem.sd_result = read_ok ? 1 : 2;
-    //         if (read_ok) dbg_mem.sd_byte0 = mbr[0];
-    //     } else {
-    //         dbg_mem.sd_result = 2;
-    //     }
-    // }
-
-    // Configure umios EventRouter
-    event_router.set_shared_state(&shared_params, &shared_channel);
-    event_router.set_audio_queue(&audio_event_queue);
-
-    // Initialize task stacks
-    umi::port::cm7::init_task_context(task_contexts[TASK_AUDIO],
-        audio_stack, AUDIO_STACK_SIZE, audio_task_entry, nullptr, true);
-    umi::port::cm7::init_task_context(task_contexts[TASK_SYSTEM],
-        system_stack, SYSTEM_STACK_SIZE, system_task_entry, nullptr, false);
-    umi::port::cm7::init_task_context(task_contexts[TASK_CONTROL],
-        control_stack, CONTROL_STACK_SIZE, control_task_entry, nullptr, true);
-    umi::port::cm7::init_task_context(task_contexts[TASK_IDLE],
-        idle_stack, IDLE_STACK_SIZE, idle_task_entry, nullptr, false);
-
-    // Set PendSV to lowest priority, SysTick low priority
-    // SHPR3: PendSV at [23:16], SysTick at [31:24]
-    auto* shpr3 = reinterpret_cast<volatile std::uint32_t*>(0xE000ED20);
-    *shpr3 = (*shpr3 & 0x0000FFFF) | (0xFF << 16) | (0xF0 << 24);
-
-    // Start audio DMA
+    // Start audio DMA (ISR-driven)
     umi::daisy::start_audio();
 
-    // Start scheduler: boot into control task
-    current_task = TASK_CONTROL;
-    umi_cm7_current_tcb = &task_contexts[TASK_CONTROL];
-    umi::port::cm7::start_first_task();  // Never returns
+    // Set PendSV and SysTick to lowest priority
+    umi::port::arm::SCB::set_exc_prio(14, 0xFF);  // PendSV
+    umi::port::arm::SCB::set_exc_prio(15, 0xFF);  // SysTick
+
+    // Start RTOS (does not return)
+    start_rtos();
+
+    while (true) {}
 }
 
 // ============================================================================
@@ -792,13 +830,24 @@ extern void (*__init_array_start[])(void);
 extern void (*__init_array_end[])(void);
 }
 
+// Forward declarations for arch.cc handlers
+extern "C" void PendSV_Handler();
+extern "C" void SVC_Handler();
+extern "C" void SysTick_Handler();
+
 extern "C" [[noreturn]] void Reset_Handler() {
     umi::cm7::enable_fpu();
     asm volatile("dsb\nisb" ::: "memory");
 
+    // AXI SRAM workaround (STM32H7 errata for Rev Y silicon)
+    if ((*reinterpret_cast<volatile std::uint32_t*>(0x5C001000) & 0xFFFF0000U) < 0x20000000U) {
+        *reinterpret_cast<volatile std::uint32_t*>(0x51008108) = 0x00000001U;
+    }
+
     umi::cm7::configure_mpu();
     umi::cm7::enable_icache();
-    umi::cm7::enable_dcache();
+    // D-Cache disabled for now — D2 SRAM DMA coherency debugging
+    // umi::cm7::enable_dcache();
 
     std::uint32_t* src = &_sidata;
     std::uint32_t* dst = &_sdata;
@@ -811,7 +860,6 @@ extern "C" [[noreturn]] void Reset_Handler() {
         *dst++ = 0;
     }
 
-    // Zero-init DTCM BSS (vector table lives here, must be zeroed before irq::init)
     dst = &_sdtcm_bss;
     while (dst < &_edtcm_bss) {
         *dst++ = 0;
@@ -825,9 +873,10 @@ extern "C" [[noreturn]] void Reset_Handler() {
     umi::irq::set_handler(exc::BusFault, BusFault_Handler);
     umi::irq::set_handler(exc::UsageFault, UsageFault_Handler);
 
-    // PendSV and SVC via SRAM vector table
-    umi::irq::set_handler(exc::PendSV, umi::port::cm7::PendSV_Handler);
-    umi::irq::set_handler(exc::SVCall, umi::port::cm7::SVC_Handler);
+    // PendSV, SVC, SysTick — use arch.cc handlers
+    umi::irq::set_handler(exc::PendSV, PendSV_Handler);
+    umi::irq::set_handler(exc::SVCall, SVC_Handler);
+    umi::irq::set_handler(exc::SysTick, SysTick_Handler);
 
     // DMA1 Stream 0/1
     umi::irq::set_handler(11, DMA1_Stream0_IRQHandler);
@@ -839,7 +888,7 @@ extern "C" [[noreturn]] void Reset_Handler() {
 
     // USART1 (MIDI UART RX)
     umi::irq::set_handler(37, USART1_IRQHandler);
-    umi::irq::set_priority(37, 0x40);  // Lower priority than DMA
+    umi::irq::set_priority(37, 0x40);
     umi::irq::enable(37);
 
     for (void (**p)(void) = __init_array_start; p < __init_array_end; ++p) {
