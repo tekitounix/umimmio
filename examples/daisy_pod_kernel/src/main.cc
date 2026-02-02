@@ -15,6 +15,9 @@
 #include <board/sdram.hh>
 #include <board/qspi.hh>
 
+// Pod HID
+#include <board/hid.hh>
+
 // umiusb: USB MIDI
 #include <hal/stm32_otg.hh>
 #include <midi/usb_midi_class.hh>
@@ -100,6 +103,12 @@ inline constexpr auto str_prod = umiusb::StringDesc("Daisy Pod MIDI");
 };
 
 umiusb::Device<umiusb::Stm32HsHal, umiusb::UsbMidiClass<>> usb_device(usb_hal, usb_midi, usb_device_info);
+
+// ============================================================================
+// Pod HID
+// ============================================================================
+
+umi::daisy::pod::PodHid pod_hid;
 
 // ============================================================================
 // DMA audio buffers
@@ -193,16 +202,33 @@ void system_task_entry(void*) {
     }
 }
 
-/// Control task: LED heartbeat + USB polling (user application task)
+/// Control task: HID polling + USB polling (user application task)
 void control_task_entry(void*) {
-    std::uint32_t led_counter = 0;
+    mm::DirectTransportT<> transport;
+    constexpr float hid_rate = 1000.0f;  // ~1 kHz update rate
+    std::uint32_t loop_counter = 0;
+
     while (true) {
         usb_device.poll();
 
-        if (++led_counter >= 100'000) {
-            led_counter = 0;
-            umi::daisy::toggle_led();
+        // Update digital controls + LED PWM at ~1 kHz
+        // (rough timing via loop counter — will be replaced with SysTick)
+        if (++loop_counter >= 100) {
+            loop_counter = 0;
+            pod_hid.update_controls(transport, hid_rate);
+
+            // Knob-driven LED demo: knob1 → LED1 red, knob2 → LED2 blue
+            pod_hid.led1.set(pod_hid.knobs.value(0), 0.0f, 0.0f);
+            pod_hid.led2.set(0.0f, 0.0f, pod_hid.knobs.value(1));
+
+            // Encoder click → toggle Seed board LED
+            if (pod_hid.encoder.click_just_pressed()) {
+                umi::daisy::toggle_led();
+            }
         }
+
+        // Update knob filter at full loop rate
+        pod_hid.process_knobs();
     }
 }
 
@@ -328,6 +354,27 @@ int main() {
     usb_device.set_strings(usb_strings);
     usb_device.init();
     usb_hal.connect();
+
+    // Pod HID: enable ADC12 clock, then initialize all controls
+    {
+        mm::DirectTransportT<> transport;
+        // ADC clock source: per_ck (HSI 64 MHz by default)
+        transport.modify(umi::stm32h7::RCC::D3CCIPR::ADCSEL::value(2));  // 10 = per_ck
+        // ADC12 clock enable (AHB1)
+        transport.modify(umi::stm32h7::RCC::AHB1ENR::ADC12EN::Set{});
+        [[maybe_unused]] auto dummy = transport.read(umi::stm32h7::RCC::AHB1ENR{});
+        // GPIO clocks for Pod controls (A,B,C,D,G) — most already enabled by init_clocks
+        transport.modify(umi::stm32h7::RCC::AHB4ENR::GPIOAEN::Set{});
+        transport.modify(umi::stm32h7::RCC::AHB4ENR::GPIOBEN::Set{});
+        transport.modify(umi::stm32h7::RCC::AHB4ENR::GPIOCEN::Set{});
+        transport.modify(umi::stm32h7::RCC::AHB4ENR::GPIODEN::Set{});
+        transport.modify(umi::stm32h7::RCC::AHB4ENR::GPIOGEN::Set{});
+        dummy = transport.read(umi::stm32h7::RCC::AHB4ENR{});
+
+        // Audio callback rate: 48000 / 48 = 1000 Hz
+        constexpr float update_rate = static_cast<float>(AUDIO_SAMPLE_RATE) / AUDIO_BLOCK_SIZE;
+        pod_hid.init(transport, update_rate);
+    }
 
     // Initialize task stacks
     umi::port::cm7::init_task_context(task_contexts[TASK_AUDIO],

@@ -376,6 +376,7 @@ mmio Device/Register 定義を使用し、DirectTransport でアクセス。
 - [x] `lib/umiport/mcu/stm32h7/mcu/rcc.hh` — mmio Register定義 + RCC操作
     - HSE 16MHz → PLL1 → 480MHz (boost mode)、PWR VOS0
     - HSI48 は CR bit12/13（CRRCRではない。CRRCR offset=0x08 は読み取り専用キャリブレーション）
+    - AHB1ENR::ADC12EN (bit5)、D3CCIPR::ADCSEL (bits 17:16) 追加済み
 - [x] `lib/umiport/mcu/stm32h7/mcu/pwr.hh` — 電源設定（VOS1→VOS0 boost）
 - [x] `lib/umiport/mcu/stm32h7/mcu/gpio.hh` — mmio Register定義 + GPIO操作
 - [x] `lib/umiport/mcu/stm32h7/mcu/flash.hh` — Flash wait state設定
@@ -481,11 +482,17 @@ SAI1 経由でオーディオ出力。外部コーデックは device/ レイヤ
 - [x] `lib/umiport/board/daisy_seed/board/usb.hh` — USB OTG HS GPIO/クロック初期化（PB14/PB15 AF12, HSI48）
 - [x] USB MIDI（umiusb Stm32HsHal + UsbMidiClass）
     - H7 VBUS sensing修正: `GOTGCTL BVALOEN/BVALOVAL` + `GCCFG &= ~VBDEN`（F4のNOVBUSSENSとは異なる）
-- [ ] `lib/umiport/mcu/stm32h7/mcu/adc.hh` — ADC1 (ノブ用)
+- [x] `lib/umiport/mcu/stm32h7/mcu/adc.hh` — ADC1 mmioレジスタ定義 + 定数群
+    - ADCクロック: per_ck (HSI 64MHz) / DIV4 = 16MHz、BOOST=0b10
+    - D3CCIPR ADCSEL=10 (per_ck) をmain.ccで設定
+- [x] `lib/umiport/board/daisy_pod/board/bsp.hh` — Pod固有ピン定義（libDaisy daisy_pod.cpp準拠）
+- [x] `lib/umiport/board/daisy_pod/board/hid.hh` — Pod HIDドライバ
+    - Button: 8ビットシフトレジスタデバウンス（libDaisy Switch準拠）
+    - Encoder: 2ビット遷移検出（libDaisy Encoder準拠）
+    - SoftPwmLed/RgbLed: ソフトウェアPWM 120Hz（libDaisy Led準拠、inverted polarity）
+    - Knobs: ADC1 DMA circular、16bit、32xオーバーサンプリング、ワンポールフィルタ2ms
 - [ ] USB Audio（umiusb AudioInterface + CompositeClass）
-- [ ] Pod 固有 HID — ノブ、ボタン、エンコーダ、RGB LED
 - [ ] HID → UMI Event 変換
-- [ ] `lib/umiport/board/daisy_pod/board/bsp.hh` — daisy_seedを継承 + Pod固有HID
 
 ### テスト・検証
 
@@ -494,6 +501,8 @@ SAI1 経由でオーディオ出力。外部コーデックは device/ レイヤ
 
 **L3 (実機 Daisy Pod):**
 - [x] USB MIDI デバイス認識確認（macOS: "Daisy Pod MIDI", VID:0x1209, PID:0x000A）
+- [x] ADCキャリブレーション通過、HID初期化完了確認（GDB: control_task_entry到達）
+- [x] ノブ→LED デモ動作（knob1→LED1赤、knob2→LED2青、エンコーダクリック→Seed LEDトグル）
 - [ ] USB MIDI 受信→シンセ発音、ノブでパラメータ変更
 
 ---

@@ -162,6 +162,7 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
     struct AHB1ENR : mm::Register<RCC, 0xD8, 32> {
         struct DMA1EN : mm::Field<AHB1ENR, 0, 1> {};
         struct DMA2EN : mm::Field<AHB1ENR, 1, 1> {};
+        struct ADC12EN : mm::Field<AHB1ENR, 5, 1> {};
         struct USB1OTGHSEN : mm::Field<AHB1ENR, 25, 1> {};
         struct USB1OTGHSULPIEN : mm::Field<AHB1ENR, 26, 1> {};
     };
@@ -192,6 +193,11 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
         struct USART16910SEL : mm::Field<D2CCIP2R, 3, 3> {};
         struct I2C123SEL : mm::Field<D2CCIP2R, 12, 2> {};
         struct USBSEL : mm::Field<D2CCIP2R, 20, 2> {};
+    };
+
+    /// Domain 3 kernel clock configuration register
+    struct D3CCIPR : mm::Register<RCC, 0x58, 32> {
+        struct ADCSEL : mm::Field<D3CCIPR, 16, 2> {};   // ADC clock source
     };
 
     /// APB4 peripheral clock enable register
