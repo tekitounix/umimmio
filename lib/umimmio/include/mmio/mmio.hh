@@ -324,7 +324,7 @@ private:
             // Runtime range check if policy is enabled
             if constexpr (CheckPolicy::value) {
                 if constexpr (RegionType::bit_width < sizeof(T) * bits8) {
-                    auto const max_value = (1ULL << RegionType::bit_width) - 1;
+                    [[maybe_unused]] auto const max_value = (1ULL << RegionType::bit_width) - 1;
                     assert(static_cast<std::uint64_t>(v.assigned_value) <= max_value && "Value out of range");
                 }
             }
@@ -378,7 +378,7 @@ private:
                 // Dynamic value with runtime check
                 if constexpr (CheckPolicy::value) {
                     if constexpr (RegionType::bit_width < sizeof(decltype(value.assigned_value)) * bits8) {
-                        auto const max_value = (1ULL << RegionType::bit_width) - 1;
+                        [[maybe_unused]] auto const max_value = (1ULL << RegionType::bit_width) - 1;
                         assert(static_cast<std::uint64_t>(value.assigned_value) <= max_value && "Field value out of range");
                     }
                 }
