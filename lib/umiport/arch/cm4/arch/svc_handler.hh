@@ -4,13 +4,19 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <umios/kernel/syscall/syscall_numbers.hh>
+#include <umios/core/syscall_nr.hh>
 
 namespace umi::kernel {
 
 // Forward declaration - kernel provides this
 struct KernelState;
 extern KernelState* g_kernel;
+
+/// FS syscall handler function pointers (set by kernel at init)
+/// Returns true if request was accepted (enqueued), false if busy.
+extern bool (*g_fs_enqueue)(uint8_t syscall_nr, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3);
+/// Returns result value from last completed FS operation, or EAGAIN.
+extern int32_t (*g_fs_consume_result)();
 
 // ============================================================================
 // SVC Handler Implementation
@@ -91,16 +97,29 @@ inline void handle_yield() {
 extern "C" inline void svc_dispatch(ExceptionFrame* frame, uint8_t svc_num) {
     using namespace syscall;
 
+    // FS request (60–83): enqueue to StorageService
+    if (is_fs_request(svc_num) && g_fs_enqueue != nullptr) {
+        bool ok = g_fs_enqueue(svc_num, frame->r0, frame->r1, frame->r2, frame->r3);
+        frame->r0 = ok ? 0 : static_cast<uint32_t>(-16); // -EBUSY
+        return;
+    }
+
+    // FS result (84): consume result slot
+    if (svc_num == nr::fs_result && g_fs_consume_result != nullptr) {
+        frame->r0 = static_cast<uint32_t>(g_fs_consume_result());
+        return;
+    }
+
     switch (svc_num) {
-        case sys_get_shared:
+        case nr::get_shared:
             frame->r0 = impl::handle_get_shared(frame->r0);
             break;
 
-        case sys_get_time:
+        case nr::get_time:
             impl::handle_get_time(frame);
             break;
 
-        case sys_yield:
+        case nr::yield:
             impl::handle_yield();
             break;
 

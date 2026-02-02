@@ -110,11 +110,12 @@ inline void configure_mpu() {
     // Disable MPU
     *mpu::CTRL = 0;
 
-    // Region 0: D2 SRAM — non-cacheable, shareable (DMA buffer area)
+    // Region 0: D2 SRAM — Strongly-Ordered (TEX=0,C=0,B=0,S=1)
+    // Guarantees no D-Cache caching, strict ordering for DMA buffers
     *mpu::RNR = 0;
     *mpu::RBAR = 0x3000'0000;
     *mpu::RASR = mpu::RASR_ENABLE | mpu::rasr_size(mpu::SIZE_32KB)
-               | mpu::RASR_AP_FULL | mpu::rasr_tex(1) | mpu::RASR_S;
+               | mpu::RASR_AP_FULL | mpu::rasr_tex(0) | mpu::RASR_S;
 
     // Region 1: SDRAM — cacheable + bufferable (normal memory, write-back)
     *mpu::RNR = 1;
