@@ -491,8 +491,11 @@ SAI1 経由でオーディオ出力。外部コーデックは device/ レイヤ
     - Encoder: 2ビット遷移検出（libDaisy Encoder準拠）
     - SoftPwmLed/RgbLed: ソフトウェアPWM 120Hz（libDaisy Led準拠、inverted polarity）
     - Knobs: ADC1 DMA circular、16bit、32xオーバーサンプリング、ワンポールフィルタ2ms
-- [ ] USB Audio（umiusb AudioInterface + CompositeClass）
-- [ ] HID → UMI Event 変換
+- [ ] USB Audio（umiusb AudioClass統合）— 要: DMA↔リングバッファ接続、フィードバック制御、SET_INTERFACE対応
+    - umiusbにAudioClass/CompositeClass/isochronous転送は実装済み
+    - `AudioFullDuplexMidi48k` or カスタムtypedefでAudio+MIDI統合可能
+    - DMA audio callbackからAudioClass ringbufferへのデータ受渡しが主要作業
+- [ ] HID → UMI Event 変換 — 要: OS EventQueue/EventRouter基盤
 
 ### テスト・検証
 
