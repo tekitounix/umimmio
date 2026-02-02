@@ -3,10 +3,10 @@
 
 #include "arch.hh"
 
-#include <port/cm4/context.hh>
-#include <umios/backend/cm/common/dwt.hh>
-#include <umios/backend/cm/common/scb.hh>
-#include <umios/backend/cm/common/systick.hh>
+#include <arch/context.hh>
+#include <common/dwt.hh>
+#include <common/scb.hh>
+#include <common/systick.hh>
 
 namespace umi::arch::cm4 {
 

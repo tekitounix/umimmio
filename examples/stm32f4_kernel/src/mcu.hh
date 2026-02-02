@@ -6,8 +6,8 @@
 
 #include <cstdint>
 #include <span>
-#include <umios/backend/cm/stm32f4/gpio.hh>
-#include <umios/backend/cm/stm32f4/pdm_mic.hh>
+#include <mcu/gpio.hh>
+#include <board/pdm_mic.hh>
 
 #include "bsp.hh"
 

@@ -12,7 +12,7 @@
 // =====================================================================
 
 #include "synth_processor.hh"
-#include <umios/backend/wasm/web_sim.hh>
+#include <platform/web_sim.hh>
 
 // Export the SynthProcessor for web simulation
 UMI_WEB_SIM_EXPORT_NAMED(umi::synth::SynthProcessor,

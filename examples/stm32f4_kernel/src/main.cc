@@ -4,10 +4,10 @@
 
 #include <cstdint>
 #include <mpu_config.hh>
-#include <umios/backend/cm/common/irq.hh>
-#include <umios/backend/cm/common/nvic.hh>
-#include <umios/backend/cm/common/scb.hh>
-#include <umios/backend/cm/stm32f4/irq_num.hh>
+#include <common/irq.hh>
+#include <common/nvic.hh>
+#include <common/scb.hh>
+#include <mcu/irq_num.hh>
 
 #include "arch.hh"
 #include "bsp.hh"

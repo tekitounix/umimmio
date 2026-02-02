@@ -12,7 +12,7 @@
 #pragma GCC diagnostic ignored "-Wsection"
 #endif
 
-#include <umios/backend/cm/common/vector_table.hh>
+#include <common/vector_table.hh>
 #include <umidi.hh>
 
 #include <cstdint>

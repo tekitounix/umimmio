@@ -9,9 +9,9 @@
 #include <platform/privilege.hh>
 
 // Drivers
-#include <umios/backend/cm/drivers/systick_driver.hh>
-#include <umios/backend/cm/drivers/uart_driver.hh>
-#include <umios/backend/cm/svc_handler.hh>
+#include <common/systick_driver.hh>
+#include <common/uart_driver.hh>
+#include <arch/svc_handler.hh>
 
 // Force svc_dispatch symbol emission (called from startup.cc asm)
 [[gnu::used]] static auto* const svc_dispatch_ptr = &umi::kernel::svc_dispatch;

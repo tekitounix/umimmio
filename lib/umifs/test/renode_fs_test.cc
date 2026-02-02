@@ -11,7 +11,7 @@
 #pragma GCC diagnostic ignored "-Wsection"
 #endif
 
-#include <umios/backend/cm/common/vector_table.hh>
+#include <common/vector_table.hh>
 
 #include <umifs/little/lfs.hh>
 #include <umifs/little/lfs_config.hh>
