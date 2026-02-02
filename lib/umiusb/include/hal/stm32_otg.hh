@@ -104,11 +104,18 @@ inline constexpr uint32_t GINTSTS_OEPINT = 1U << 19;
 inline constexpr uint32_t GINTSTS_IISOIXFR = 1U << 20; // Incomplete isochronous IN transfer
 inline constexpr uint32_t GINTSTS_WKUPINT = 1U << 31;
 
-// GCCFG
+// GCCFG (bit layout differs between F4 and H7)
 inline constexpr uint32_t GCCFG_PWRDWN = 1U << 16;
+// F4-specific GCCFG bits
 inline constexpr uint32_t GCCFG_VBUSASEN = 1U << 18;
 inline constexpr uint32_t GCCFG_VBUSBSEN = 1U << 19;
 inline constexpr uint32_t GCCFG_NOVBUSSENS = 1U << 21;
+// H7-specific GCCFG bits
+inline constexpr uint32_t GCCFG_VBDEN = 1U << 21;
+
+// GOTGCTL
+inline constexpr uint32_t GOTGCTL_BVALOEN = 1U << 6;
+inline constexpr uint32_t GOTGCTL_BVALOVAL = 1U << 7;
 
 // PCGCCTL
 inline constexpr uint32_t PCGCCTL_STOPCLK = 1U << 0;
@@ -415,9 +422,16 @@ class Stm32OtgHal : public HalBase<Stm32OtgHal<BaseAddr, MaxEndpoints>> {
         // Soft disconnect
         Regs::reg(Regs::DCTL) |= otg::DCTL_SDIS;
 
-        // Disable VBUS sensing
-        Regs::reg(Regs::GCCFG) |= otg::GCCFG_NOVBUSSENS;
-        Regs::reg(Regs::GCCFG) &= ~(otg::GCCFG_VBUSBSEN | otg::GCCFG_VBUSASEN);
+        // Disable VBUS sensing (register layout differs between F4 and H7)
+        if constexpr (Regs::BASE == 0x40040000) {
+            // H7 HS peripheral: disable VBUS detection, override B-session valid
+            Regs::reg(Regs::GCCFG) &= ~otg::GCCFG_VBDEN;
+            Regs::reg(Regs::GOTGCTL) |= otg::GOTGCTL_BVALOEN | otg::GOTGCTL_BVALOVAL;
+        } else {
+            // F4 FS peripheral
+            Regs::reg(Regs::GCCFG) |= otg::GCCFG_NOVBUSSENS;
+            Regs::reg(Regs::GCCFG) &= ~(otg::GCCFG_VBUSBSEN | otg::GCCFG_VBUSASEN);
+        }
 
         // Restart PHY clock
         Regs::reg(Regs::PCGCCTL) = 0;
