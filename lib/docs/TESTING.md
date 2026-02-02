@@ -28,18 +28,30 @@ xmake run test_<libname>
 
 ### テストフレームワーク
 
-共通の軽量フレームワーク `tests/test_common.hh` を使用（外部依存なし、組み込み向け）:
+`lib/umitest` を使用（マクロゼロ、C++23 `std::source_location` ベース、ヘッダオンリー、組み込み対応）:
 
 ```cpp
-#include "test_common.hh"
-using umi::test::check;
+#include <umitest.hh>
+using namespace umitest;
 
-SECTION("My Feature");
-check(result == expected, "description");
-CHECK_EQ(a, b, "values match");
-CHECK_NEAR(actual, expected, "float comparison");
+bool test_my_feature(TestContext& t) {
+    t.assert_eq(result, expected);
+    t.assert_near(actual, expected);
+    return true;
+}
 
-TEST_SUMMARY();  // 結果サマリー出力
+int main() {
+    Suite s("my_lib");
+    s.section("My Feature");
+    s.run("basic check", test_my_feature);
+
+    // インラインチェックも可能
+    s.check(condition);
+    s.check_eq(a, b);
+    s.check_near(actual, expected);
+
+    return s.summary();
+}
 ```
 
 ### テストターゲットの追加方法
@@ -52,8 +64,8 @@ target("test_<libname>")
     add_rules("host.test")          -- xmake test の対象になる
     set_default(true)               -- xmake build でもビルド対象
     add_files("test_<topic>.cc")
+    add_deps("umitest")             -- テストフレームワーク
     add_includedirs("$(projectdir)/lib/<libname>/include")
-    add_includedirs("$(projectdir)/tests")  -- test_common.hh
     add_cxxflags("-fno-exceptions", "-fno-rtti", {force = true})
 target_end()
 ```

@@ -109,7 +109,7 @@ target("libname")
 - ファイル名は `test_<topic>.cc` とする
 - 最小のライブラリでも最低1つのテストを持つこと
 - テスト固有のビルド定義は `test/xmake.lua` に記述する
-- テストフレームワークは `tests/test_common.hh` を使用する
+- テストフレームワークは `lib/umitest` (`<umitest.hh>`) を使用する
 
 ### examples/（推奨）
 
