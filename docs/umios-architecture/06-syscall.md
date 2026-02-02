@@ -29,8 +29,8 @@
  30–39:  MIDI / イベント（midi_send, midi_recv, read_sysex 等）
  40–49:  情報取得（get_shared, get_param 等）
  50–59:  I/O（log, set_led 等）
- 60–69:  ファイルシステム（将来）
- 70–255: 予約
+ 60–89:  ファイルシステム
+ 90–255: 予約
 ```
 
 > **旧ドキュメントとの差異**:
@@ -64,11 +64,11 @@
 | Nr | 名前 | アプリ API | 引数 | 戻り値 | 状態 |
 |----|------|-----------|------|--------|------|
 | 20 | `SetAppConfig` | `umi::set_app_config(cfg)` | `config: const AppConfig*` | 0 / エラー | 新設計 |
-| 21 | `SetRouteTable` | `umi::set_route_table(rt)` | `table: const RouteTable*` | 0 / エラー | 新設計 |
-| 22 | `SetParamMapping` | `umi::set_param_mapping(pm)` | `mapping: const ParamMapping*` | 0 / エラー | 新設計 |
-| 23 | `SetInputMapping` | `umi::set_input_mapping(im)` | `mapping: const InputParamMapping*` | 0 / エラー | 新設計 |
-| 24 | `ConfigureInput` | `umi::configure_input(cfg)` | `input_id: uint8_t, cfg: const InputConfig*` | 0 / エラー | 新設計 |
-| 25 | `SendParamRequest` | `umi::send_param_request(req)` | `req: const ParamSetRequest*` | 0 / エラー | 新設計 |
+| 21 | `SetRouteTable` | `umi::set_route_table(rt)` | `table: const RouteTable*` | 0 / エラー | 将来 |
+| 22 | `SetParamMapping` | `umi::set_param_mapping(pm)` | `mapping: const ParamMapping*` | 0 / エラー | 将来 |
+| 23 | `SetInputMapping` | `umi::set_input_mapping(im)` | `mapping: const InputParamMapping*` | 0 / エラー | 将来 |
+| 24 | `ConfigureInput` | `umi::configure_input(cfg)` | `input_id: uint8_t, cfg: const InputConfig*` | 0 / エラー | 将来 |
+| 25 | `SendParamRequest` | `umi::send_param_request(req)` | `req: const ParamSetRequest*` | 0 / エラー | 将来 |
 
 ### グループ 3: MIDI / SysEx (30–39)
 
@@ -92,19 +92,76 @@
 | 50 | `Log` | `umi::log(msg)` | `msg: const char*, len: uint16_t` | 0 / エラー | 実装済み |
 | 51 | `Panic` | `umi::panic(msg)` | `msg: const char*` | — (停止) | 実装済み |
 
-### グループ 6: ファイルシステム (60–69)
+### グループ 6: ファイルシステム (60–89)
+
+詳細は [19-storage-service.md](19-storage-service.md) を参照。
+
+#### ファイル操作 (60–68) — fd ベース
+
+| Nr | 名前 | アプリ API | 引数 | 戻り値 (syscall) | 結果 (result slot) | 状態 |
+|----|------|-----------|------|-----------------|-------------------|------|
+| 60 | `FileOpen` | `fs::open(path, flags)` | `path, flags` | 0=受付 / エラー | fd / エラー | 新設計 |
+| 61 | `FileRead` | `fs::read(fd, buf, len)` | `fd, buf, len` | 0=受付 / エラー | 読み取りバイト数 | 新設計 |
+| 62 | `FileWrite` | `fs::write(fd, buf, len)` | `fd, buf, len` | 0=受付 / エラー | 書き込みバイト数 | 新設計 |
+| 63 | `FileClose` | `fs::close(fd)` | `fd` | 0=受付 / エラー | 0 / エラー | 新設計 |
+| 64 | `FileSeek` | `fs::seek(fd, off, whence)` | `fd, offset, whence` | 0=受付 / エラー | 新位置 | 新設計 |
+| 65 | `FileTell` | `fs::tell(fd)` | `fd` | 0=受付 / エラー | 現在位置 | 新設計 |
+| 66 | `FileSize` | `fs::size(fd)` | `fd` | 0=受付 / エラー | ファイルサイズ | 新設計 |
+| 67 | `FileTruncate` | `fs::truncate(fd, size)` | `fd, size` | 0=受付 / エラー | 0 / エラー | 新設計 |
+| 68 | `FileSync` | `fs::sync(fd)` | `fd` | 0=受付 / エラー | 0 / エラー | 新設計 |
+
+> `FileSync` は fd 単位の fsync。FS 全体の sync は StorageService が shutdown 時に実行する。
+
+#### ディレクトリ操作 (70–74)
+
+| Nr | 名前 | アプリ API | 引数 | 戻り値 (syscall) | 結果 (result slot) | 状態 |
+|----|------|-----------|------|-----------------|-------------------|------|
+| 70 | `DirOpen` | `fs::dir_open(path)` | `path` | 0=受付 / エラー | dirfd / エラー | 新設計 |
+| 71 | `DirRead` | `fs::dir_read(dirfd, info)` | `dirfd, info` | 0=受付 / エラー | 1=あり / 0=EOF / エラー | 新設計 |
+| 72 | `DirClose` | `fs::dir_close(dirfd)` | `dirfd` | 0=受付 / エラー | 0 / エラー | 新設計 |
+| 73 | `DirSeek` | `fs::dir_seek(dirfd, off)` | `dirfd, off` | 0=受付 / エラー | 0 / エラー | 新設計 |
+| 74 | `DirTell` | `fs::dir_tell(dirfd)` | `dirfd` | 0=受付 / エラー | 位置 | 新設計 |
+
+#### パス操作 (75–79)
+
+| Nr | 名前 | アプリ API | 引数 | 戻り値 (syscall) | 結果 (result slot) | 状態 |
+|----|------|-----------|------|-----------------|-------------------|------|
+| 75 | `Stat` | `fs::stat(path, info)` | `path, info` | 0=受付 / エラー | 0 / エラー | 新設計 |
+| 76 | `Fstat` | `fs::fstat(fd, info)` | `fd, info` | 0=受付 / エラー | 0 / エラー | 新設計 |
+| 77 | `Mkdir` | `fs::mkdir(path)` | `path` | 0=受付 / エラー | 0 / エラー | 新設計 |
+| 78 | `Remove` | `fs::remove(path)` | `path` | 0=受付 / エラー | 0 / エラー | 新設計 |
+| 79 | `Rename` | `fs::rename(old, new)` | `old, new` | 0=受付 / エラー | 0 / エラー | 新設計 |
+
+> `Remove` はファイル・ディレクトリ共通。非空ディレクトリは `ENOTEMPTY` で失敗。
+
+#### カスタム属性 (80–82)
+
+| Nr | 名前 | アプリ API | 引数 | 戻り値 (syscall) | 結果 (result slot) | 状態 |
+|----|------|-----------|------|-----------------|-------------------|------|
+| 80 | `GetAttr` | `fs::getattr(path, type, buf, len)` | `path, type, buf, len` | 0=受付 / エラー | 属性サイズ / エラー | 新設計 |
+| 81 | `SetAttr` | `fs::setattr(path, type, buf, len)` | `path, type, buf, len` | 0=受付 / エラー | 0 / エラー | 新設計 |
+| 82 | `RemoveAttr` | `fs::removeattr(path, type)` | `path, type` | 0=受付 / エラー | 0 / エラー | 新設計 |
+
+> FATfs は属性非対応。`/sd/...` パスへの attr 操作は `ENOSYS` (-38) を返す。
+
+#### FS 情報 (83)
+
+| Nr | 名前 | アプリ API | 引数 | 戻り値 (syscall) | 結果 (result slot) | 状態 |
+|----|------|-----------|------|-----------------|-------------------|------|
+| 83 | `FsStat` | `fs::fs_stat(path, fsinfo)` | `path, fsinfo` | 0=受付 / エラー | 0 / エラー | 新設計 |
+
+> `FsStat` は `FsStatInfo` 構造体を返す（block_size, block_count, blocks_used）。
+> `path` でマウントポイントを指定（`"/flash"` or `"/sd"`）。
+
+#### FS 結果取得 (84)
 
 | Nr | 名前 | アプリ API | 引数 | 戻り値 | 状態 |
 |----|------|-----------|------|--------|------|
-| 60 | `FileOpen` | — | `path, flags` | fd / エラー | 将来 |
-| 61 | `FileRead` | — | `fd, buf, len` | 読み取りバイト数 | 将来 |
-| 62 | `FileWrite` | — | `fd, buf, len` | 書き込みバイト数 | 将来 |
-| 63 | `FileClose` | — | `fd` | 0 / エラー | 将来 |
-| 64 | `FileSeek` | — | `fd, offset, whence` | 新位置 | 将来 |
-| 65 | `FileStat` | — | `path, stat_buf` | 0 / エラー | 将来 |
-| 66 | `DirOpen` | — | `path` | dirfd / エラー | 将来 |
-| 67 | `DirRead` | — | `dirfd, entry_buf` | 0 / エラー | 将来 |
-| 68 | `DirClose` | — | `dirfd` | 0 / エラー | 将来 |
+| 84 | `FsResult` | `fs::result()` | — | result slot の値 | 新設計 |
+
+> `event::fs` 受信後に呼び出す。result slot をクリアし次の要求を受付可能にする。
+
+#### 85–89: 予約
 
 ## エラーコード
 
@@ -136,6 +193,7 @@ constexpr uint32_t midi     = (1 << 1);   // MIDI データ利用可能
 constexpr uint32_t vsync    = (1 << 2);   // ディスプレイリフレッシュ
 constexpr uint32_t timer    = (1 << 3);   // タイマーティック
 constexpr uint32_t control  = (1 << 4);   // ControlEvent 到着
+constexpr uint32_t fs       = (1 << 5);   // FS 操作完了
 constexpr uint32_t shutdown = (1u << 31); // シャットダウン要求
 
 } // namespace umi::syscall::event
@@ -252,6 +310,8 @@ SVC_Handler (naked)
         ├── Nr 20–25: 構成変更
         ├── Nr 40:   情報取得
         ├── Nr 50–51: I/O
+        ├── Nr 60–83: ファイルシステム → StorageService キューに投入（即 return）
+        ├── Nr 84:    FsResult → result slot から値を取得・クリア
         └── default: INVALID_SYSCALL
 ```
 
