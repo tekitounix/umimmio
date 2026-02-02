@@ -12,7 +12,7 @@ namespace umi::stm32h7 {
 /// FMC SDRAM controller registers
 /// Base: 0x5200'0000 (FMC), SDRAM control starts at offset 0x140
 struct FMC_SDRAM : mm::Device<mm::RW, mm::DirectTransportTag> {
-    static constexpr mm::Addr base_address = 0x5200'0000;
+    static constexpr mm::Addr base_address = 0x5200'4000;
 
     // SDRAM Control Register Bank 1
     struct SDCR1 : mm::Register<FMC_SDRAM, 0x140, 32> {

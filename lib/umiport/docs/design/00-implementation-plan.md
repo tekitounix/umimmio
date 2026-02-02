@@ -510,7 +510,7 @@ SAI1 経由でオーディオ出力。外部コーデックは device/ レイヤ
 ## Phase 5: QSPI + SDRAM（オプション）
 
 - [x] `lib/umiport/mcu/stm32h7/mcu/qspi.hh` — QUADSPI メモリマップドモード
-- [x] `lib/umiport/mcu/stm32h7/mcu/fmc.hh` — FMC SDRAM初期化
+- [x] `lib/umiport/mcu/stm32h7/mcu/fmc.hh` — FMC SDRAM初期化 *(base_address 0x52000000→0x52004000 修正済み)*
 - [x] `lib/umiport/board/daisy_seed/board/sdram.hh` — IS42S16160J SDRAM初期化
 - [x] `lib/umiport/board/daisy_seed/board/qspi.hh` — IS25LP064A QSPI初期化
 
@@ -519,8 +519,9 @@ SAI1 経由でオーディオ出力。外部コーデックは device/ レイヤ
 **L3 (実機 Daisy Seed):**
 - [x] SDRAM初期化通過（ハング無し）
 - [x] QSPI初期化通過（APMS修正済み）
-- [ ] SDRAM 読み書き検証
-- [ ] QSPI XIP 実行検証
+- [ ] SDRAM 読み書き検証 — **BusFault (IMPRECISERR)**: FMCレジスタ正常 (SDCR1=0x19E5, SDSR=Normal) だが 0xC0000000 アクセスで BusFault。デバッガからも同様。要ハードウェア検証
+- [x] QSPI XIP 実行検証 — 0x90000000 読み取り成功 (BusFaultなし、byte0=0x00)
+- [x] SAI DMA動作確認 — DMA1 Stream0 EN=1, NDTR循環中
 
 ---
 

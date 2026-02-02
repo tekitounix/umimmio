@@ -110,6 +110,13 @@ umiusb::Device<umiusb::Stm32HsHal, umiusb::UsbMidiClass<>> usb_device(usb_hal, u
 
 umi::daisy::pod::PodHid pod_hid;
 
+// Debug: SDRAM/QSPI test results (read via GDB)
+struct DbgMemTest {
+    volatile std::uint32_t sdram_result = 0;  // 0=untested, 1=pass, 2=fail
+    volatile std::uint32_t sdram_read = 0;
+    volatile std::uint32_t qspi_byte0 = 0;
+} dbg_mem;
+
 // ============================================================================
 // DMA audio buffers
 // ============================================================================
@@ -337,6 +344,16 @@ int main() {
     // External memory
     umi::daisy::init_sdram();
     umi::daisy::init_qspi();
+
+    // SDRAM verification — disabled pending HW debugging
+    // FMC registers correct (SDCR1=0x19E5, SDSR=Normal) but access triggers BusFault
+    dbg_mem.sdram_result = 0;
+
+    // QSPI XIP verification
+    {
+        auto* qspi = reinterpret_cast<volatile std::uint8_t*>(0x9000'0000);
+        dbg_mem.qspi_byte0 = qspi[0];
+    }
 
     // Detect board version and initialize codec
     auto board_ver = umi::daisy::detect_board_version();

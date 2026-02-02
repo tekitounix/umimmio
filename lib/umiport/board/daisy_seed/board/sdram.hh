@@ -76,6 +76,7 @@ inline void init_sdram() {
         (0b10U << 4)  |  // MWID: 32-bit
         (1U << 6)     |  // NB: 4 internal banks
         (0b11U << 7)  |  // CAS: 3 cycles
+        (0U << 9)     |  // WP: write protection disabled
         (0b10U << 10) |  // SDCLK: HCLK/2 (120MHz)
         (1U << 12)    |  // RBURST: read burst enable
         (0b00U << 13)    // RPIPE: no delay
@@ -126,7 +127,7 @@ inline void init_sdram() {
     while (t.read(FMC_SDRAM::SDSR{}) & (1U << 5)) {}
 
     // Step 5: Refresh rate (conservative, from libDaisy)
-    t.write(FMC_SDRAM::SDRTR::value(0x0806U << 1));
+    t.write(FMC_SDRAM::SDRTR::value(2054U << 1));
 }
 
 } // namespace umi::daisy
