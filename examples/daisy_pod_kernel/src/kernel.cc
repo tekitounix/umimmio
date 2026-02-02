@@ -216,12 +216,16 @@ umi::kernel::SharedMemory g_shared;
 
 umi::kernel::AppLoader g_loader;
 
+constexpr auto default_route_table = umi::RouteTable::make_default();
+
 void init_shared_memory() {
     g_shared.set_sample_rate(AUDIO_SAMPLE_RATE);
     g_shared.buffer_size = AUDIO_BLOCK_SIZE;
     g_shared.sample_position = 0;
 
     event_router.set_shared_state(&g_shared.params, &g_shared.channel);
+    event_router.set_audio_queue(&audio_event_queue);
+    event_router.set_route_table(&default_route_table);
 }
 
 void init_loader() {
@@ -478,15 +482,27 @@ void control_task_entry(void*) {
 
             if (pod_hid.encoder.click_just_pressed()) {
                 umi::daisy::toggle_led();
-            }
-
-            if (pod_hid.encoder.click_just_pressed()) {
+                // Route encoder click via EventRouter (input_id=0, button)
+                event_router.receive_input(0, 0xFFFF, true, umi::ROUTE_AUDIO | umi::ROUTE_CONTROL);
+                // Also feed fallback synth directly
                 g_synth.event_queue().push({EventType::BUTTON_DOWN, 0, 0, 127});
             }
             if (pod_hid.encoder.increment() != 0) {
+                uint16_t enc_val = pod_hid.encoder.increment() > 0 ? 1 : 0xFFFF;
+                // Route encoder rotation via EventRouter (input_id=1, analog)
+                event_router.receive_input(1, enc_val, false, umi::ROUTE_CONTROL);
+                // Also feed fallback synth
                 g_synth.event_queue().push({EventType::ENCODER_INCREMENT, 0, 0,
                     static_cast<std::uint8_t>(pod_hid.encoder.increment() > 0 ? 1 : 0xFF)});
             }
+
+            // Route knob values via EventRouter (input_id=2,3 for knob0,1)
+            event_router.receive_input(2,
+                static_cast<uint16_t>(pod_hid.knobs.value(0) * 65535.0f),
+                false, umi::ROUTE_CONTROL | umi::ROUTE_PARAM);
+            event_router.receive_input(3,
+                static_cast<uint16_t>(pod_hid.knobs.value(1) * 65535.0f),
+                false, umi::ROUTE_CONTROL | umi::ROUTE_PARAM);
         }
 
         pod_hid.process_knobs();
