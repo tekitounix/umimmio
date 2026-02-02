@@ -204,6 +204,11 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
         struct USBSEL : mm::Field<D2CCIP2R, 20, 2> {};
     };
 
+    /// Domain 1 kernel clock configuration register
+    struct D1CCIPR : mm::Register<RCC, 0x4C, 32> {
+        struct SDMMCSEL : mm::Field<D1CCIPR, 16, 1> {}; // SDMMC clock source (bit 16)
+    };
+
     /// Domain 3 kernel clock configuration register
     struct D3CCIPR : mm::Register<RCC, 0x58, 32> {
         struct ADCSEL : mm::Field<D3CCIPR, 16, 2> {};   // ADC clock source
@@ -263,6 +268,73 @@ constexpr std::uint32_t I2S_CKIN = 3;
 constexpr std::uint32_t PER_CK = 4;
 } // namespace rcc_saisel
 
+// SDMMC clock source selection (D1CCIPR.SDMMCSEL, 1-bit)
+namespace rcc_sdmmcsel {
+constexpr std::uint32_t PLL1Q = 0;  // PLL1 Q output
+constexpr std::uint32_t PLL2R = 1;  // PLL2 R output
+} // namespace rcc_sdmmcsel
+
 // NOLINTEND(readability-identifier-naming)
+
+// ============================================================================
+// Clock calculation helpers (constexpr, testable on host)
+// ============================================================================
+
+/// PLL output frequency: VCO = (src_hz / M) * N, P output = VCO / P
+struct PllConfig {
+    std::uint32_t src_hz;  // Input clock (e.g. 16'000'000 for HSE)
+    std::uint32_t m;       // Input divider (1-63)
+    std::uint32_t n;       // VCO multiplier (4-512)
+    std::uint32_t p;       // P output divider (1-128)
+};
+
+constexpr std::uint32_t pll_vco_hz(const PllConfig& cfg) {
+    return (cfg.src_hz / cfg.m) * cfg.n;
+}
+
+constexpr std::uint32_t pll_p_hz(const PllConfig& cfg) {
+    return pll_vco_hz(cfg) / cfg.p;
+}
+
+constexpr std::uint32_t pll_ref_hz(const PllConfig& cfg) {
+    return cfg.src_hz / cfg.m;
+}
+
+/// Required flash wait states for given HCLK and VOS level
+/// VOS0 (boost): WS4 for 210-225MHz AXI, actual 240MHz HCLK
+/// VOS1: WS2 for up to 200MHz
+constexpr std::uint32_t flash_wait_states(std::uint32_t hclk_hz, bool vos0_boost) {
+    if (vos0_boost) {
+        if (hclk_hz <= 70'000'000)  return 0;
+        if (hclk_hz <= 140'000'000) return 1;
+        if (hclk_hz <= 185'000'000) return 2;
+        if (hclk_hz <= 210'000'000) return 3;
+        return 4;  // up to 240MHz
+    }
+    // VOS1
+    if (hclk_hz <= 70'000'000)  return 0;
+    if (hclk_hz <= 140'000'000) return 1;
+    return 2;  // up to 200MHz
+}
+
+/// GPIO pin bit mask for 2-bit fields (MODER, OSPEEDR, PUPDR)
+constexpr std::uint32_t gpio_2bit_mask(std::uint8_t pin) {
+    return 0x3U << (pin * 2);
+}
+
+/// GPIO pin bit mask for 1-bit fields (OTYPER, ODR, IDR)
+constexpr std::uint32_t gpio_1bit_mask(std::uint8_t pin) {
+    return 1U << pin;
+}
+
+/// GPIO AF register index: 0 for pins 0-7 (AFRL), 1 for pins 8-15 (AFRH)
+constexpr std::uint8_t gpio_af_reg_index(std::uint8_t pin) {
+    return pin >> 3;  // 0 or 1
+}
+
+/// GPIO AF field shift within AFR register
+constexpr std::uint8_t gpio_af_shift(std::uint8_t pin) {
+    return (pin & 7) * 4;
+}
 
 } // namespace umi::stm32h7
