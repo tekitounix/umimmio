@@ -168,6 +168,13 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
         struct USB1OTGHSULPIEN : mm::Field<AHB1ENR, 26, 1> {};
     };
 
+    /// AHB2 peripheral clock enable register (D2 domain)
+    struct AHB2ENR : mm::Register<RCC, 0xDC, 32> {
+        struct D2SRAM1EN : mm::Field<AHB2ENR, 29, 1> {};
+        struct D2SRAM2EN : mm::Field<AHB2ENR, 30, 1> {};
+        struct D2SRAM3EN : mm::Field<AHB2ENR, 31, 1> {};
+    };
+
     /// APB1L peripheral clock enable register
     struct APB1LENR : mm::Register<RCC, 0xE8, 32> {
         struct I2C1EN : mm::Field<APB1LENR, 21, 1> {};

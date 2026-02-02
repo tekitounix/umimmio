@@ -94,33 +94,36 @@ inline void init_sai() {
     // Wait until SAI is disabled
     // (in practice: poll until SAIEN reads back 0)
 
-    // CR1: Master TX, 24-bit, MSB first, falling edge clock strobe,
-    //       master clock generation enabled, no divider (use MCKDIV)
+    // CR1: Master TX, 24-bit, MSB first, rising edge clock strobe (TX),
+    //       master clock generation enabled, NODIV=0 (divider enabled)
+    // SAI_MASTERDIVIDER_ENABLE = 0x00000000 → NODIV bit = 0 (divider enabled)
+    // MCKDIV: NODIV=0, OSR=0 → MCKDIV = SAI_CK / (FS × (OSR+1) × 256)
+    //         = 49.17MHz / (48kHz × 1 × 256) ≈ 4
     transport.write(
         SAI1_A::CR1::MODE::value(sai_mode::MASTER_TX),
         SAI1_A::CR1::DS::value(sai_ds::DS_24BIT),
-        SAI1_A::CR1::CKSTR::Set{},       // Clock strobing: falling edge
+        SAI1_A::CR1::CKSTR::Reset{},     // Clock strobing: rising edge (TX, matches libDaisy)
         SAI1_A::CR1::SYNCEN::value(sai_sync::ASYNC),  // Async (master)
         SAI1_A::CR1::OUTDRIV::Reset{},   // Output drive disabled
         SAI1_A::CR1::MCKEN::Set{},        // Master clock generation
-        SAI1_A::CR1::MCKDIV::value(0),   // MCLK divider = 1 (SAI_CK / (MCKDIV*2))
+        SAI1_A::CR1::MCKDIV::value(4),   // FS = PLL3P / (MCKDIV × 256) = 49.17MHz / 1024 ≈ 48kHz
         SAI1_A::CR1::DMAEN::Set{},       // DMA enable
-        SAI1_A::CR1::NODIV::Reset{}      // Divider enabled
+        SAI1_A::CR1::NODIV::Reset{}      // Divider enabled (matches libDaisy)
     );
 
-    // CR2: FIFO threshold empty, no mute
+    // CR2: FIFO threshold empty (matches libDaisy)
     transport.write(
         SAI1_A::CR2::FTH::value(sai_fth::EMPTY)
     );
 
-    // Frame: 48-bit frame (24-bit × 2 slots), FS active low, FS offset before first bit
-    // For MSB-justified: FRL = 48-1 = 47, FSALL = 24-1 = 23
+    // Frame: 64-bit frame (2 × 32-bit slots for 24-bit MSB-justified)
+    // FRL = 64-1 = 63, FSALL = 32-1 = 31
     transport.write(
-        SAI1_A::FRCR::FRL::value(47),
-        SAI1_A::FRCR::FSALL::value(23),
+        SAI1_A::FRCR::FRL::value(63),
+        SAI1_A::FRCR::FSALL::value(31),
         SAI1_A::FRCR::FSDEF::Set{},      // FS is channel identification
-        SAI1_A::FRCR::FSPOL::Reset{},    // FS active low
-        SAI1_A::FRCR::FSOFF::Set{}       // FS one bit before first data
+        SAI1_A::FRCR::FSPOL::Set{},      // FS active high (MSB-justified)
+        SAI1_A::FRCR::FSOFF::Reset{}     // FS on first bit (MSB-justified)
     );
 
     // Slots: 2 slots, 32-bit slot size, first bit offset = 0, both slots enabled
@@ -137,7 +140,7 @@ inline void init_sai() {
     transport.write(
         SAI1_B::CR1::MODE::value(sai_mode::SLAVE_RX),
         SAI1_B::CR1::DS::value(sai_ds::DS_24BIT),
-        SAI1_B::CR1::CKSTR::Set{},
+        SAI1_B::CR1::CKSTR::Set{},       // Clock strobing: falling edge (RX, matches libDaisy)
         SAI1_B::CR1::SYNCEN::value(sai_sync::INTERNAL),  // Sync to Block A
         SAI1_B::CR1::DMAEN::Set{},
         SAI1_B::CR1::NODIV::Set{}         // No divider for slave
@@ -147,13 +150,13 @@ inline void init_sai() {
         SAI1_B::CR2::FTH::value(sai_fth::EMPTY)
     );
 
-    // Same frame config as Block A
+    // Same frame config as Block A (64-bit frame for 24-bit MSB-justified)
     transport.write(
-        SAI1_B::FRCR::FRL::value(47),
-        SAI1_B::FRCR::FSALL::value(23),
+        SAI1_B::FRCR::FRL::value(63),
+        SAI1_B::FRCR::FSALL::value(31),
         SAI1_B::FRCR::FSDEF::Set{},
-        SAI1_B::FRCR::FSPOL::Reset{},
-        SAI1_B::FRCR::FSOFF::Set{}
+        SAI1_B::FRCR::FSPOL::Set{},      // FS active high (MSB-justified)
+        SAI1_B::FRCR::FSOFF::Reset{}     // FS on first bit (MSB-justified)
     );
 
     transport.write(
@@ -171,9 +174,11 @@ inline void init_audio_dma(std::int32_t* tx_buf, std::int32_t* rx_buf, std::uint
     using namespace stm32h7;
     mm::DirectTransportT<> transport;
 
-    // Enable DMA1 clock
+    // Enable DMA1 clock and D2 SRAM clocks (DMA buffers in D2 SRAM)
     transport.modify(RCC::AHB1ENR::DMA1EN::Set{});
-    [[maybe_unused]] auto dummy = transport.read(RCC::AHB1ENR{});
+    transport.modify(RCC::AHB2ENR::D2SRAM1EN::Set{});
+    transport.modify(RCC::AHB2ENR::D2SRAM2EN::Set{});
+    [[maybe_unused]] auto dummy = transport.read(RCC::AHB2ENR{});
 
     // --- DMAMUX: route SAI1_A to DMA1_Stream0, SAI1_B to DMA1_Stream1 ---
     transport.write(DMAMUX1_Ch0::CCR::value(dmamux_req::SAI1_A));
@@ -199,6 +204,9 @@ inline void init_audio_dma(std::int32_t* tx_buf, std::int32_t* rx_buf, std::uint
         DMA1_Stream0::CR::TCIE::Set{}          // Transfer complete interrupt
     );
 
+    // Direct mode (no FIFO) — DMDIS=0, FTH=don't care
+    transport.write(DMA1_Stream0::FCR::value(0));
+
     // Set addresses and count
     transport.write(DMA1_Stream0::PAR::value(SAI1_A::base_address + 0x1C));  // SAI1_A DR
     transport.write(DMA1_Stream0::M0AR::value(reinterpret_cast<std::uint32_t>(tx_buf)));
@@ -219,6 +227,9 @@ inline void init_audio_dma(std::int32_t* tx_buf, std::int32_t* rx_buf, std::uint
         DMA1_Stream1::CR::HTIE::Set{},
         DMA1_Stream1::CR::TCIE::Set{}
     );
+
+    // Direct mode (no FIFO)
+    transport.write(DMA1_Stream1::FCR::value(0));
 
     transport.write(DMA1_Stream1::PAR::value(SAI1_B::base_address + 0x1C));  // SAI1_B DR
     transport.write(DMA1_Stream1::M0AR::value(reinterpret_cast<std::uint32_t>(rx_buf)));
