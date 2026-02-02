@@ -1,0 +1,8 @@
+target("test_umitest")
+    set_kind("binary")
+    set_default(false)
+    set_languages("c++23")
+    add_files("test_self.cc")
+    add_deps("umitest")
+    add_cxxflags("-fno-exceptions", "-fno-rtti", { force = true })
+target_end()
