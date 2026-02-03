@@ -6,7 +6,6 @@ add_rules("mode.debug", "mode.release")
 
 target("umi_fs_fatfs")
     set_kind("static")
-    add_rules("coding.umi_library")
     add_includedirs("fat", {public = true})
     add_includedirs(".", {public = true})
 
@@ -27,7 +26,6 @@ target_end()
 
 target("umi_fs_slimfs")
     set_kind("static")
-    add_rules("coding.umi_library")
     add_includedirs("slim", {public = true})
     add_includedirs(".", {public = true})
 
