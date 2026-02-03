@@ -27,6 +27,10 @@
 #include <protocol/standard_io.hh>
 #include <umios/kernel/shell_commands.hh>
 
+// AppConfig triple-buffer support
+#include <umios/core/triple_buffer.hh>
+#include <umios/core/param_mapping.hh>
+
 namespace umi::kernel {
 
 // ============================================================================
@@ -129,7 +133,11 @@ umi::SpscQueue<uint16_t*, 4> g_audio_ready_queue;
 static EventRouter g_event_router;
 static ControlEventQueue<> g_control_event_queue;
 static EventQueue<INPUT_EVENT_CAPACITY> g_router_audio_queue;
-static RouteTable g_route_table = RouteTable::make_default();
+
+// AppConfig triple-buffer: writer = Controller task (SVC), reader = Audio ISR
+// Placed in CCM to reduce SRAM pressure (~6KB for 3× AppConfig)
+__attribute__((section(".audio_ccm")))
+static umi::TripleBuffer<umi::AppConfig> g_app_config_buf;
 
 // ============================================================================
 // Global State
@@ -429,6 +437,14 @@ static void pack_i2s_24(uint16_t* out, const int32_t* in, uint32_t frames, uint3
 }
 
 static void process_audio_frame(uint16_t* buf) {
+    // Block-boundary AppConfig swap: update route table & param mapping if new config published
+    if (g_app_config_buf.update()) {
+        const auto& cfg = g_app_config_buf.read_buffer();
+        g_event_router.set_route_table(&cfg.route_table);
+        g_event_router.set_param_mapping(&cfg.param_mapping);
+        g_event_router.set_input_param_mapping(&cfg.input_mapping);
+    }
+
     g_dbg_out_buf_addr = reinterpret_cast<uint32_t>(buf);
     g_dbg_dma_callback_count = g_dbg_dma_callback_count + 1;
     const float dt = g_shared.dt;
@@ -863,37 +879,12 @@ static void svc_handler_impl(uint32_t* sp) {
         }
         break;
 
-    case app_syscall::set_route_table: {
-        auto* table = reinterpret_cast<const RouteTable*>(arg0);
-        if (table != nullptr) {
-            g_route_table = *table;
-        }
-        result = 0;
-        break;
-    }
-
-    case app_syscall::set_param_mapping: {
-        // Store pointer directly — app memory is accessible to kernel
-        auto* mapping = reinterpret_cast<const ParamMapping*>(arg0);
-        g_event_router.set_param_mapping(mapping);
-        result = 0;
-        break;
-    }
-
-    case app_syscall::set_input_mapping: {
-        // TODO: implement InputParamMapping storage
-        result = 0;
-        break;
-    }
-
-    case app_syscall::configure_input: {
-        // TODO: implement InputConfig storage
-        result = 0;
-        break;
-    }
-
     case app_syscall::set_app_config: {
-        // TODO: implement full AppConfig (requires more RAM for double-buffer)
+        auto* config = reinterpret_cast<const umi::AppConfig*>(arg0);
+        if (config != nullptr) {
+            g_app_config_buf.write_buffer() = *config;
+            g_app_config_buf.publish();
+        }
         result = 0;
         break;
     }
@@ -1019,8 +1010,11 @@ void init_shared_memory() {
     g_shared.buffer_size = mcu::audio::buffer_size;
     g_shared.sample_position = 0;
 
+    // Initialize AppConfig triple-buffer (CCM NOLOAD section, needs explicit init)
+    new (&g_app_config_buf) umi::TripleBuffer<umi::AppConfig>(umi::AppConfig::make_default());
+
     // Initialize EventRouter
-    g_event_router.set_route_table(&g_route_table);
+    g_event_router.set_route_table(&g_app_config_buf.read_buffer().route_table);
     g_event_router.set_shared_state(&g_shared.params, &g_shared.channel);
     g_event_router.set_audio_queue(&g_router_audio_queue);
     g_event_router.set_control_queue(&g_control_event_queue);

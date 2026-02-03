@@ -9,12 +9,15 @@
 
 // Platform drivers
 #include <common/nvic.hh>
-#include <board/cs43l22.hh>
 #include <mcu/gpio.hh>
 #include <mcu/i2c.hh>
 #include <mcu/i2s.hh>
 #include <board/pdm_mic.hh>
 #include <mcu/rcc.hh>
+
+// CS43L22 via mmio device driver
+#include <umimmio.hh>
+#include <cs43l22/cs43l22.hh>
 
 // USB stack
 #include <audio/audio_interface.hh>
@@ -26,7 +29,6 @@
 
 using umi::port::arm::NVIC;
 using umi::stm32::CicDecimator;
-using umi::stm32::CS43L22;
 using umi::stm32::DMA_I2S;
 using umi::stm32::DmaPdm;
 using umi::stm32::GPIO;
@@ -39,6 +41,48 @@ namespace bsp = umi::bsp::board;
 
 namespace {
 
+/// Adapter: wraps umi::stm32::I2C to satisfy mm::ByteAdapter's raw_write/raw_read interface
+class Stm32F4I2cBus {
+    I2C& i2c;
+
+public:
+    explicit Stm32F4I2cBus(I2C& i2c) : i2c(i2c) {}
+
+    void write(std::uint8_t device_addr, std::uint8_t reg_addr, const void* data, std::size_t size) noexcept {
+        if (size == 1) {
+            i2c.write(device_addr, reg_addr, *static_cast<const std::uint8_t*>(data));
+        }
+    }
+
+    void write_then_read(std::uint8_t device_addr, const void* tx_data, std::size_t tx_size,
+                         void* rx_data, std::size_t rx_size) noexcept {
+        if (tx_size == 1 && rx_size == 1) {
+            auto reg_addr = *static_cast<const std::uint8_t*>(tx_data);
+            *static_cast<std::uint8_t*>(rx_data) = i2c.read(device_addr, reg_addr);
+        }
+    }
+};
+
+/// I2C transport for mmio device drivers (same pattern as test::I2cTransport)
+class Stm32F4I2cTransport : public mm::ByteAdapter<Stm32F4I2cTransport> {
+    Stm32F4I2cBus& bus;
+    std::uint8_t device_address;
+
+public:
+    using TransportTag = mm::I2CTransportTag;
+
+    Stm32F4I2cTransport(Stm32F4I2cBus& bus, std::uint8_t addr) noexcept
+        : bus(bus), device_address(addr) {}
+
+    void raw_write(std::uint8_t reg_addr, const void* data, std::size_t size) const noexcept {
+        bus.write(device_address, reg_addr, data, size);
+    }
+
+    void raw_read(std::uint8_t reg_addr, void* data, std::size_t size) const noexcept {
+        bus.write_then_read(device_address, &reg_addr, 1, data, size);
+    }
+};
+
 // Hardware instances
 GPIO gpio_a_inst('A');
 GPIO gpio_b_inst('B');
@@ -47,7 +91,9 @@ GPIO gpio_d_inst('D');
 I2C i2c1;
 I2S i2s3;
 DMA_I2S dma_i2s;
-CS43L22 codec(i2c1);
+Stm32F4I2cBus i2c1_bus(i2c1);
+Stm32F4I2cTransport i2c1_transport(i2c1_bus, device::CS43L22::i2c_address);
+device::CS43L22Driver codec(i2c1_transport);
 
 // PDM microphone
 PdmMic pdm_mic;
