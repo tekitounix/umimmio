@@ -1,98 +1,35 @@
-# UMI-OS アーキテクチャ仕様
+# UMI-OS Architecture Specification
 
-本ディレクトリは UMI-OS の**目標設計仕様**である。
-各ドキュメント内の「状態」欄（実装済み / 新設計 / 将来）が実装状況を示す。
-「新設計」「将来」の項目は仕様として確定済みだが、実装は未着手または進行中である。
+This directory contains the target design specifications for UMI-OS.
 
-## 設計原則
+## Quick Start
 
-- **One Source, Multi Target** — 同一の Processor コードが組み込み・WASM・プラグイン（VST3/AU/CLAP）で動作する
-- **ターゲット非依存の API** — `process(AudioContext&)` を中心としたポータブルなインターフェース
-- **ターゲット固有部分はアダプタに隔離** — AudioContext の構築・イベント変換・パラメータ同期はバックエンドが担う
+- **New to UMI?** → Start with [Fundamentals](00-fundamentals/)
+- **Building an App?** → See [Application Guide](01-application/)
+- **Working on Kernel?** → See [Kernel Documentation](02-kernel/)
+- **Full Documentation** → See [Complete Index](index.md)
 
-## ドキュメント一覧
+## Structure
 
-| ファイル | 内容 |
-|---------|------|
-| [00-overview](00-overview.md) | システム全体像・タスクモデル |
-| [01-audio-context](01-audio-context.md) | AudioContext 統一仕様 |
-| [02-processor-controller](02-processor-controller.md) | Processor / Controller モデル |
-| [03-event-system](03-event-system.md) | イベントシステム（RouteTable, キュー, 経路分類） |
-| [04-param-system](04-param-system.md) | パラメータシステム（SharedParamState, AppConfig） |
-| [05-midi](05-midi.md) | MIDI 統合（UMP, トランスポート, SysEx, ジッター補正） |
-| [06-syscall](06-syscall.md) | Syscall 仕様（番号体系） |
-| [07-memory](07-memory.md) | メモリレイアウト（組み込みターゲット） |
-| [08-backend-adapters](08-backend-adapters.md) | バックエンド別アダプタ（組み込み / WASM / Plugin） |
-| [09-app-binary](09-app-binary.md) | アプリバイナリ仕様（.umia / .umim） |
-| [10-shared-memory](10-shared-memory.md) | SharedMemory 構造体の完全定義 |
-| [11-scheduler](11-scheduler.md) | RT-Kernel（スケジューラ、コンテキストスイッチ、タスク通知） |
-| [12-memory-protection](12-memory-protection.md) | メモリ保護と監視（MPU、Fault、ヒープ/スタック監視） |
-| [13-system-services](13-system-services.md) | システムサービス概要（アーキテクチャ、ディスパッチ） |
-| [14-security](14-security.md) | セキュリティと暗号（Ed25519 署名検証、SHA、CRC） |
-| [15-boot-sequence](15-boot-sequence.md) | Boot Sequence（Reset → main → RTOS 開始） |
-| [16-app-loader](16-app-loader.md) | App Loader（.umia 検証・ロード、Processor 登録） |
-| [17-shell](17-shell.md) | Shell（SysEx stdio、コマンド体系、認証） |
-| [18-updater](18-updater.md) | Updater（DFU over SysEx、ロールバック） |
-| [19-storage-service](19-storage-service.md) | StorageService（非同期 FS、littlefs/FATfs） |
-| [20-diagnostics](20-diagnostics.md) | Diagnostics（KernelMetrics、FaultLog、LED パターン） |
+Documentation is organized to match `lib/umi/` code structure:
 
-### 推奨読み順
+| Section | Code Location | Description |
+|---------|---------------|-------------|
+| `00-fundamentals/` | `lib/umi/core/` | Core concepts (AudioContext, Processor) |
+| `01-application/` | `lib/umi/app/` | App development (Events, Parameters, MIDI) |
+| `02-kernel/` | `lib/umi/kernel/` | RTOS implementation (Scheduler, MPU, Boot) |
+| `03-port/` | `lib/umi/port/` | Platform abstraction (Syscalls, Memory) |
+| `04-services/` | `lib/umi/service/` | System services (Shell, Updater, Storage) |
+| `05-binary/` | `lib/umi/boot/` | Binary format & security (.umia, Ed25519) |
 
-```
-00-overview ─→ 01-audio-context ─→ 02-processor-controller
-                    │                      │
-                    ▼                      ▼
-              10-shared-memory ←── 04-param-system
-                    │                      ▲
-                    ▼                      │
-              07-memory            03-event-system ←── 05-midi
-                    │
-                    ▼
-              09-app-binary        06-syscall
-                                         │
-              08-backend-adapters ←──────┘
-                    │
-                    ▼
-              11-scheduler ──→ 12-memory-protection
-                    │
-                    ▼
-              13-system-services ──→ 15-boot-sequence
-                    │
-                    ├──→ 16-app-loader ──→ 09-app-binary ──→ 14-security
-                    ├──→ 17-shell
-                    ├──→ 18-updater
-                    ├──→ 19-storage-service
-                    └──→ 20-diagnostics
-```
+## Status Legend
 
-基礎概念（00→01→02）を先に読み、その後は興味に応じて分岐してよい。
-10-shared-memory は 01/04/07 から参照されるため、パラメータやメモリの詳細に入る前に目を通しておくとよい。
+- **実装済み** — Fully implemented
+- **新設計** — Spec finalized, implementation in progress  
+- **将来** — Future direction
 
-## 既存ドキュメントとの関係
+## Legacy Note
 
-本仕様は以下の既存ドキュメントの内容を統合・整理したものである。
-既存ドキュメントは参考資料として維持するが、矛盾がある場合は**本仕様を正とする**。
+Previous versions used a flat numbered structure (00-21). The current hierarchical structure aligns with the codebase organization in `lib/umi/`.
 
-| 新 | 旧（主な参照元） |
-|---|---|
-| 00-overview | umi-kernel/OVERVIEW.md, umi-kernel/ARCHITECTURE.md |
-| 01-audio-context | umi-api/API_CONTEXT.md, umidi/EVENT_SYSTEM_DESIGN.md |
-| 02-processor-controller | umi-api/APPLICATION.md, umi-api/API_CONTEXT.md |
-| 03-event-system | umidi/EVENT_SYSTEM_DESIGN.md, umidi/event_state.md |
-| 04-param-system | umidi/EVENT_SYSTEM_DESIGN.md, umi-api/EVENT_STATE_GUIDE.md |
-| 05-midi | umidi/MIDI_TRANSPORT_DESIGN.md, umidi/SYSEX_ROUTING.md, umidi/JITTER_COMPENSATION.md |
-| 06-syscall | umi-kernel/ARCHITECTURE.md, umi-kernel/spec/*, umidi/EVENT_SYSTEM_DESIGN.md |
-| 07-memory | umi-kernel/MEMORY.md, umi-kernel/platform/stm32f4.md |
-| 08-backend-adapters | （新規） |
-| 09-app-binary | umi-kernel/ARCHITECTURE.md, umi-kernel/spec/application.md |
-| 10-shared-memory | 01-audio-context, 04-param-system, 07-memory から構造体定義を集約 |
-| 11-scheduler | umi-kernel/spec/kernel.md, umi-kernel/ARCHITECTURE.md |
-| 12-memory-protection | umi-kernel/spec/memory-protection.md, umi-kernel/MEMORY.md |
-| 13-system-services | umi-kernel/spec/system-services.md（概要のみに縮小、詳細は 15-20） |
-| 14-security | （新規。09-app-binary の署名仕様を展開） |
-| 15-boot-sequence | umi-kernel/BOOT_SEQUENCE.md, main.cc |
-| 16-app-loader | umi-kernel/ARCHITECTURE.md, loader.hh/cc |
-| 17-shell | umi-kernel/service/SHELL.md, umi_shell.hh, shell_commands.hh |
-| 18-updater | umi-kernel/BOOT_SEQUENCE.md（DFU セクション） |
-| 19-storage-service | umi-kernel/service/FILESYSTEM.md |
-| 20-diagnostics | metrics.hh, fault_handler.hh |
+本仕様は以下の既存ドキュメントの内容を統合・整理したものである。既存ドキュメントは参考資料として維持するが、矛盾がある場合は**本仕様を正とする**。
