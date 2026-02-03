@@ -341,10 +341,11 @@ enum class InputMode : uint8_t {
 
 ```cpp
 void init() {
-    RouteTable rt = default_route_table();
-    rt.control_change[1]  = ROUTE_PARAM;  // CC#1 (Mod) → ParamMapping
-    rt.control_change[74] = ROUTE_PARAM;  // CC#74 (Filter) → ParamMapping
-    umi::set_route_table(rt);
+    AppConfig cfg = AppConfig::make_default();
+    cfg.route_table.control_change[1]  = ROUTE_PARAM;  // CC#1 (Mod) → ParamMapping
+    cfg.route_table.control_change[74] = ROUTE_PARAM;  // CC#74 (Filter) → ParamMapping
+    cfg.param_mapping.entries[74] = {0, {}, 20.0f, 20000.0f};  // CC#74 → Cutoff
+    umi::set_app_config(&cfg);
 }
 ```
 
@@ -354,29 +355,26 @@ RouteTable と ParamMapping の動的書き換えにより、MIDI Learn の**メ
 
 ```cpp
 void on_learn_start() {
-    RouteTable rt = current_route_table;
+    AppConfig cfg = current_config;
     for (int i = 0; i < 128; ++i)
-        rt.control_change[i] = ROUTE_CONTROL;  // 全 CC を Controller に
-    umi::set_route_table(rt);
+        cfg.route_table.control_change[i] = ROUTE_CONTROL;  // 全 CC を Controller に
+    umi::set_app_config(&cfg);
 }
 
 void on_learn_complete(uint8_t learned_cc, param_id_t target) {
-    RouteTable rt = current_route_table;
+    AppConfig cfg = current_config;
     for (int i = 0; i < 128; ++i)
-        rt.control_change[i] = ROUTE_NONE;
-    rt.control_change[learned_cc] = ROUTE_PARAM;
-    umi::set_route_table(rt);
-
-    ParamMapping pm = current_param_mapping;
-    pm.control_change[learned_cc] = {target, {}, 0.0f, 1.0f};
-    umi::set_param_mapping(pm);
+        cfg.route_table.control_change[i] = ROUTE_NONE;
+    cfg.route_table.control_change[learned_cc] = ROUTE_PARAM;
+    cfg.param_mapping.entries[learned_cc] = {target, {}, 0.0f, 1.0f};
+    umi::set_app_config(&cfg);
 
     // 割り当て結果を永続化（次回起動時に復元するため）
     save_mapping_to_flash(learned_cc, target);
 }
 ```
 
-Learn 結果の永続化は `umi::flash_write()` syscall（将来）または SysEx 経由でホスト側に保存する。組み込みでは Flash セクタへの書き込み、Plugin ではホストのプリセットシステム、WASM では IndexedDB 等、バックエンドにより永続化先が異なる。AppConfig の一部として保存し、起動時に `set_route_table()` / `set_param_mapping()` で復元するのが標準パターンとなる。
+Learn 結果の永続化は `umi::flash_write()` syscall（将来）または SysEx 経由でホスト側に保存する。組み込みでは Flash セクタへの書き込み、Plugin ではホストのプリセットシステム、WASM では IndexedDB 等、バックエンドにより永続化先が異なる。AppConfig の一部として保存し、起動時に `umi::set_app_config()` で復元するのが標準パターンとなる。
 
 ### 複数フラグの組み合わせ
 

@@ -114,8 +114,34 @@ auth <admin|factory> <password>
 | `config midi transpose <-24..24>` | MIDI トランスポーズ |
 | `config audio gain <0-100>` | オーディオゲイン |
 | `config power sleep <0-60>` | スリープタイムアウト（分） |
-| `config save` | 設定を永続化 |
+| `config save` | 設定を永続化（非同期） |
 | `config reset` | 設定をデフォルトに戻す |
+
+#### config save の非同期動作
+
+`config save` は StorageService を経由して Flash に書き込むため、**非同期で実行**される。
+
+```
+Shell                         StorageService
+  │                              │
+  │  config save 入力            │
+  │  → "Saving..." を即座に出力  │
+  │                              │
+  │  fs::open() ────────────→   │
+  │  ←────────────── event::fs  │
+  │                              │
+  │  fs::write() ───────────→   │
+  │  ←────────────── event::fs  │
+  │                              │
+  │  fs::close() ───────────→   │
+  │  ←────────────── event::fs  │
+  │                              │
+  │  "Config saved." を出力      │
+```
+
+- Shell は `config save` 実行中も他のコマンド入力を受け付ける
+- 書き込み完了後に結果メッセージを出力
+- エラー発生時は `"Config save failed: <reason>"` を出力
 
 ### MIDI コマンド（User）
 
