@@ -25,7 +25,7 @@
 ```
   0– 9:  プロセス制御（exit, yield, register_proc 等）
  10–19:  時間・スケジューリング（wait_event, get_time, sleep 等）
- 20–29:  構成・パラメータ（set_app_config, set_route_table 等）
+ 20–29:  構成・パラメータ（set_app_config, send_param_request）
  30–39:  MIDI / イベント（midi_send, midi_recv, read_sysex 等）
  40–49:  情報取得（get_shared, get_param 等）
  50–59:  I/O（log, set_led 等）
@@ -63,21 +63,46 @@
 
 | Nr | 名前 | アプリ API | 引数 | 戻り値 | 状態 |
 |----|------|-----------|------|--------|------|
-| 20 | `SetAppConfig` | `umi::set_app_config(cfg)` | `config: const AppConfig*` | 0 / エラー | 新設計 |
-| 21 | `SetRouteTable` | `umi::set_route_table(rt)` | `table: const RouteTable*` | 0 / エラー | 将来 |
-| 22 | `SetParamMapping` | `umi::set_param_mapping(pm)` | `mapping: const ParamMapping*` | 0 / エラー | 将来 |
-| 23 | `SetInputMapping` | `umi::set_input_mapping(im)` | `mapping: const InputParamMapping*` | 0 / エラー | 将来 |
-| 24 | `ConfigureInput` | `umi::configure_input(cfg)` | `input_id: uint8_t, cfg: const InputConfig*` | 0 / エラー | 将来 |
+| 20 | `SetAppConfig` | `umi::set_app_config(cfg)` | `config: const AppConfig*` | 0 / エラー | 実装済み |
+| 21–24 | _(reserved)_ | — | — | — | `SetAppConfig` に統合済み |
 | 25 | `SendParamRequest` | `umi::send_param_request(req)` | `req: const ParamSetRequest*` | 0 / エラー | 将来 |
 
 ### グループ 3: MIDI / SysEx (30–39)
 
-| Nr | 名前 | アプリ API | 引数 | 戻り値 | 状態 |
-|----|------|-----------|------|--------|------|
-| 30 | `MidiSend` | `umi::midi_send(data, len, dest)` | `data: const uint8_t*, len: uint16_t, dest: uint8_t` | 0 / エラー | 将来 |
-| 31 | `MidiRecv` | `umi::midi_recv(buf, maxlen, &src)` | `buf: uint8_t*, maxlen: uint16_t, src: uint8_t*` | 受信バイト数 | 将来 |
-| 32 | `ReadSysex` | `umi::read_sysex(buf, len, &src)` | `buf: uint8_t*, len: uint16_t, src: uint8_t*` | 受信バイト数 | 将来 |
-| 33 | `SendSysex` | `umi::send_sysex(data, len, dest)` | `data: const uint8_t*, len: uint16_t, dest: uint8_t` | 0 / エラー | 将来 |
+MIDI syscall は **非同期（ノンブロッキング）** で動作する。送受信要求と結果取得を分離し、`event::midi` で完了を通知する。
+
+| Nr | 名前 | アプリ API | 引数 | 戻り値 (syscall) | 結果 (result slot) | 状態 |
+|----|------|-----------|------|-----------------|-------------------|------|
+| 30 | `MidiSend` | `midi::send(data, len, dest)` | `data: const uint8_t*, len: uint16_t, dest: uint8_t` | 0=受付 / エラー | 送信バイト数 / エラー | 新設計 |
+| 31 | `MidiRecv` | `midi::recv(buf, maxlen, &src)` | `buf: uint8_t*, maxlen: uint16_t, src: uint8_t*` | 0=受付 / エラー | 受信バイト数 / エラー | 新設計 |
+| 32 | `ReadSysex` | `midi::read_sysex(buf, len, &src)` | `buf: uint8_t*, len: uint16_t, src: uint8_t*` | 0=受付 / エラー | 受信バイト数 / エラー | 新設計 |
+| 33 | `SendSysex` | `midi::send_sysex(data, len, dest)` | `data: const uint8_t*, len: uint16_t, dest: uint8_t` | 0=受付 / エラー | 送信バイト数 / エラー | 新設計 |
+| 34 | `MidiResult` | `midi::result()` | — | result slot の値 | — | 新設計 |
+
+> `MidiResult` は `event::midi` 受信後に呼び出す。result slot をクリアし、次の MIDI 要求を受付可能にする。
+> `event::midi` を待たずに呼び出した場合、結果未到着なら `EAGAIN` (-11) を返す。
+
+#### 非同期フロー
+
+```cpp
+// SysEx 送信（非同期）
+midi::send_sysex(data, len, MIDI_DEST_USB);
+wait_event(event::midi);
+int sent = midi::result();  // 送信完了、送信バイト数取得
+
+// MIDI 受信（非同期）
+midi::recv(buf, sizeof(buf), &src);
+wait_event(event::midi);
+int n = midi::result();  // 受信完了、受信バイト数取得
+```
+
+#### dest / src の値
+
+| 値 | 意味 |
+|----|------|
+| 0 | USB MIDI |
+| 1 | UART MIDI |
+| 2–7 | 予約 |
 
 ### グループ 4: 情報取得 (40–49)
 
@@ -91,6 +116,24 @@
 |----|------|-----------|------|--------|------|
 | 50 | `Log` | `umi::log(msg)` | `msg: const char*, len: uint16_t` | 0 / エラー | 実装済み |
 | 51 | `Panic` | `umi::panic(msg)` | `msg: const char*` | — (停止) | 実装済み |
+
+#### Log の動作仕様
+
+`Log` syscall は **同期的だが非ブロッキング**で動作する。
+
+- 出力は SysEx stdio バッファ（リングバッファ）にコピーされ、即座に return する
+- USB 送信は SystemTask が非同期で実行する
+- **バッファ満杯時の動作**: メッセージをドロップし、`ENOSPC` (-28) を返す
+- ドロップはメトリクス（`KernelMetrics.log_drops`）でカウントされる
+
+リアルタイムタスク（process() 内）から呼び出しても安全だが、高頻度の呼び出しはバッファ溢れを引き起こすため推奨しない。デバッグ用途に限定すること。
+
+```cpp
+// 使用例（デバッグ用）
+if (umi::log("tick") == -ENOSPC) {
+    // バッファ満杯、メッセージはドロップされた
+}
+```
 
 ### グループ 6: ファイルシステム (60–89)
 
@@ -189,18 +232,24 @@ enum class SyscallError : int32_t {
 namespace umi::syscall::event {
 
 constexpr uint32_t audio    = (1 << 0);   // オーディオバッファ準備完了
-constexpr uint32_t midi     = (1 << 1);   // MIDI データ利用可能
+constexpr uint32_t midi_in  = (1 << 1);   // MIDI 入力データ到着（従来の midi）
 constexpr uint32_t vsync    = (1 << 2);   // ディスプレイリフレッシュ
 constexpr uint32_t timer    = (1 << 3);   // タイマーティック
 constexpr uint32_t control  = (1 << 4);   // ControlEvent 到着
 constexpr uint32_t fs       = (1 << 5);   // FS 操作完了
+constexpr uint32_t midi     = (1 << 6);   // MIDI syscall 完了（送受信）
 constexpr uint32_t shutdown = (1u << 31); // シャットダウン要求
 
 } // namespace umi::syscall::event
 ```
 
+> **イベントの使い分け**:
+> - `midi_in`: EventRouter 経由で MIDI 入力が到着した（process() の input_events に格納済み）
+> - `midi`: MIDI syscall（`midi::send()`, `midi::recv()` 等）の操作が完了した
+
 > **旧ドキュメントとの差異**:
 > - `Button` (1 << 4) → `Control` に変更。ハードウェア入力は ControlEvent に統合されたため
+> - `midi` (1 << 1) → `midi_in` にリネーム、`midi` (1 << 6) を MIDI syscall 完了用に追加
 
 ## Syscall 詳細
 

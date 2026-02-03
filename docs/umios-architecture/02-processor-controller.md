@@ -212,7 +212,7 @@ int main() {
 
 ### Controller の責務
 
-- **設定変更**: `umi::set_app_config()`, `umi::set_route_table()` 等
+- **設定変更**: `umi::set_app_config()` で RouteTable/ParamMapping/InputMapping を一括適用
 - **UI 更新**: LED、ディスプレイ等の出力（共有メモリ経由）
 - **レイヤー切り替え**: ボタン入力に応じて AppConfig を切り替え
 - **MIDI Learn**: CC 番号とパラメータの動的マッピング
@@ -227,11 +227,7 @@ int main() {
 | `umi::wait_event(mask, timeout)` | イベント待機（ブロッキング） | 10 |
 | `umi::get_time()` | 現在時刻（マイクロ秒） | 11 |
 | `umi::sleep(duration)` | 指定時間スリープ | 12 |
-| `umi::set_app_config(cfg)` | AppConfig 一括適用 | 20 |
-| `umi::set_route_table(rt)` | RouteTable 設定 | 21 |
-| `umi::set_param_mapping(pm)` | ParamMapping 設定 | 22 |
-| `umi::set_input_mapping(im)` | InputParamMapping 設定 | 23 |
-| `umi::configure_input(cfg)` | 入力モード設定 | 24 |
+| `umi::set_app_config(cfg)` | AppConfig 一括適用（RouteTable+ParamMapping+InputMapping+InputConfig） | 20 |
 | `umi::send_param_request(req)` | パラメータ変更要求 | 25 |
 | `umi::read_sysex(buf, len, &src)` | SysEx 受信 | 32 |
 | `umi::send_sysex(data, len, dest)` | SysEx 送信 | 33 |

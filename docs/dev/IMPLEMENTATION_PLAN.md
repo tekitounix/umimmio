@@ -10,7 +10,7 @@
 
 ### 実装済み ✅
 - 基本syscall: exit(0), yield(1), wait_event(2), get_time(3), get_shared(4), register_proc(5)
-- 新syscall (20-25): set_route_table, set_param_mapping, set_input_mapping, configure_input, set_app_config, send_param_request
+- 新syscall: set_app_config(20, Nr 21-24統合済み), send_param_request(25)
 - Syscall呼出規約: r12=nr に統一 (app/syscall.hh + kernel svc_handler_impl)
 - AudioContext: inputs/outputs/events/timing + params/channel/input_state ポインタ
 - SharedMemory: SharedParamState (values[32]+changed_flags+version), SharedChannelState (16ch), SharedInputState (raw[16])
