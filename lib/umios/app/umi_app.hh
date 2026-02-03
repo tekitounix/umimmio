@@ -143,32 +143,13 @@ inline void log(const char* msg) noexcept {
 // get_param / set_param: use SharedParamState via get_shared() or request_param()
 
 // ============================================================================
-// Configuration API (RouteTable, ParamMapping)
+// Configuration API
 // ============================================================================
 
-/// Set the MIDI routing table
-/// @param table Pointer to RouteTable (must remain valid)
-/// @return 0 on success
-inline int32_t set_route_table(const void* table) noexcept {
-    return syscall::set_route_table(table);
-}
-
-/// Set the CC-to-parameter mapping
-/// @param mapping Pointer to ParamMapping (must remain valid)
-/// @return 0 on success
-inline int32_t set_param_mapping(const void* mapping) noexcept {
-    return syscall::set_param_mapping(mapping);
-}
-
-/// Set the hardware input-to-parameter mapping
-/// @param mapping Pointer to InputParamMapping (must remain valid)
-/// @return 0 on success
-inline int32_t set_input_mapping(const void* mapping) noexcept {
-    return syscall::set_input_mapping(mapping);
-}
-
-/// Set full application configuration
-/// @param config Pointer to AppConfig (must remain valid)
+/// Set full application configuration (RouteTable + ParamMapping + InputMapping + InputConfig)
+/// The kernel copies this into an inactive triple-buffer and swaps at the next
+/// audio block boundary, ensuring process() always sees a consistent snapshot.
+/// @param config Pointer to AppConfig
 /// @return 0 on success
 inline int32_t set_app_config(const void* config) noexcept {
     return syscall::set_app_config(config);

@@ -20,10 +20,7 @@ inline constexpr uint8_t sys_get_time         = static_cast<uint8_t>(nr::get_tim
 inline constexpr uint8_t sys_sleep            = static_cast<uint8_t>(nr::sleep);
 
 inline constexpr uint8_t sys_set_app_config     = static_cast<uint8_t>(nr::set_app_config);
-inline constexpr uint8_t sys_set_route_table    = static_cast<uint8_t>(nr::set_route_table);
-inline constexpr uint8_t sys_set_param_mapping  = static_cast<uint8_t>(nr::set_param_mapping);
-inline constexpr uint8_t sys_set_input_mapping  = static_cast<uint8_t>(nr::set_input_mapping);
-inline constexpr uint8_t sys_configure_input    = static_cast<uint8_t>(nr::configure_input);
+// 21-24: reserved (consolidated into set_app_config)
 inline constexpr uint8_t sys_send_param_request = static_cast<uint8_t>(nr::send_param_request);
 
 inline constexpr uint8_t sys_get_shared       = static_cast<uint8_t>(nr::get_shared);
