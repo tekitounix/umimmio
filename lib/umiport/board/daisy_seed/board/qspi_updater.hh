@@ -21,9 +21,9 @@ constexpr std::uint8_t FW_VERIFY = 0x14;
 constexpr std::uint8_t FW_COMMIT = 0x15;
 constexpr std::uint8_t FW_REBOOT = 0x17;
 constexpr std::uint8_t FW_ACK = 0x18;
-constexpr std::uint8_t FW_READ_CRC = 0x19;   // Read CRC from QSPI flash
-constexpr std::uint8_t FW_READ_DATA = 0x1A;  // Read raw data from QSPI flash (debug)
-constexpr std::uint8_t FW_DEBUG_QSPI = 0x1B; // Dump QSPI registers (debug)
+constexpr std::uint8_t FW_READ_CRC = 0x19;     // Read CRC from QSPI flash
+constexpr std::uint8_t FW_READ_DATA = 0x1A;    // Read raw data from QSPI flash (debug)
+constexpr std::uint8_t FW_DEBUG_QSPI = 0x1B;   // Dump QSPI registers (debug)
 constexpr std::uint8_t FW_FLASH_STATUS = 0x1C; // Read flash Status Register directly
 constexpr std::uint8_t FW_JEDEC_ID = 0x1D;     // Read JEDEC ID (Manufacturer/Device ID)
 constexpr std::uint8_t FW_WRITE_TEST = 0x1E;   // Write-then-read test (debug)
@@ -144,6 +144,41 @@ class QspiUpdater {
     }
 
   private:
+    static bool qspi_indirect_read(std::uint32_t address, std::uint8_t* out, std::uint32_t size) {
+        using namespace ::umi::stm32h7;
+        mm::DirectTransportT<> t;
+
+        qspi_wait_busy();
+        auto cr = t.read(QUADSPI::CR{});
+        t.write(QUADSPI::CR::value(cr | (1U << 1))); // ABORT
+        while (t.read(QUADSPI::CR{}) & (1U << 1)) {
+        }
+        t.write(QUADSPI::FCR::value(0x1F));
+
+        t.write(QUADSPI::DLR::value(size - 1));
+        t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(0x03) | (qspi_mode::SINGLE << 8) |
+                                    (qspi_mode::SINGLE << 10) | (qspi_adsize::ADDR_24BIT << 12) |
+                                    (qspi_mode::SINGLE << 24) | (qspi_fmode::INDIRECT_READ << 26)));
+        t.write(QUADSPI::AR::value(address & 0x00FFFFFF));
+
+        std::uint32_t timeout = 1000000;
+        while (!(t.read(QUADSPI::SR{}) & (1U << 1)) && timeout > 0) {
+            --timeout;
+        }
+
+        if (timeout == 0) {
+            t.write(QUADSPI::FCR::value(1U << 1));
+            return false;
+        }
+
+        auto* dr = reinterpret_cast<volatile std::uint8_t*>(0x52005020);
+        for (std::uint32_t i = 0; i < size; ++i) {
+            out[i] = *dr;
+        }
+
+        t.write(QUADSPI::FCR::value(1U << 1));
+        return true;
+    }
     // 7-bit decode helper
     static std::size_t decode_7bit(const std::uint8_t* in, std::size_t in_len, std::uint8_t* out) {
         std::size_t out_pos = 0;
@@ -305,17 +340,13 @@ class QspiUpdater {
             return true;
         }
 
-        // Send ACK immediately before starting erase (erase can take seconds)
-        // This allows the host to know we received the command
         state_ = QspiUpdateState::ERASING;
         received_bytes_ = 0;
         running_crc_ = 0xFFFFFFFF;
         expected_seq_ = (seq + 1) & 0x7F;
 
-        send_ack(seq, 0x00, send_fn); // OK - erase starting
+        send_ack(seq, 0x00, send_fn);
 
-        // Perform erase with USB polling between sectors
-        // This allows USB to stay responsive during the long erase operation
         auto poll = [this]() {
             if (poll_fn_) {
                 poll_fn_();
@@ -324,7 +355,6 @@ class QspiUpdater {
 
         if (!qspi_erase_range_with_poll(QSPI_APP_BASE, expected_size_, poll)) {
             state_ = QspiUpdateState::ERROR;
-            // Note: Already sent ACK, host will get error on first FW_DATA
             return true;
         }
 
@@ -336,6 +366,11 @@ class QspiUpdater {
         // Check if still erasing (async erase not yet complete)
         if (state_ == QspiUpdateState::ERASING) {
             send_ack(seq, 0x0C, send_fn); // ERASE_IN_PROGRESS - retry later
+            return true;
+        }
+
+        if (state_ == QspiUpdateState::ERROR) {
+            send_ack(seq, 0x08, send_fn); // FLASH_ERROR
             return true;
         }
 
@@ -394,8 +429,31 @@ class QspiUpdater {
         std::uint32_t expected_crc = (std::uint32_t(decoded[0]) << 24) | (std::uint32_t(decoded[1]) << 16) |
                                      (std::uint32_t(decoded[2]) << 8) | decoded[3];
 
-        std::uint32_t final_crc = running_crc_ ^ 0xFFFFFFFF;
-        if (final_crc != expected_crc) {
+        qspi_exit_memory_mapped();
+        std::uint32_t actual_crc = 0xFFFFFFFF;
+        std::uint32_t remaining = received_bytes_;
+        std::uint32_t offset = 0;
+        std::uint8_t buffer[32];
+
+        while (remaining > 0) {
+            std::uint32_t chunk = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
+
+            if (!qspi_indirect_read(offset, buffer, chunk)) {
+                state_ = QspiUpdateState::ERROR;
+                send_ack(seq, 0x0A, send_fn); // VERIFY_FAILED
+                qspi_enter_memory_mapped();
+                return true;
+            }
+
+            actual_crc = crc32_update(actual_crc, buffer, chunk);
+            remaining -= chunk;
+            offset += chunk;
+        }
+
+        actual_crc ^= 0xFFFFFFFF;
+        qspi_enter_memory_mapped();
+
+        if (actual_crc != expected_crc) {
             state_ = QspiUpdateState::ERROR;
             send_ack(seq, 0x0A, send_fn); // VERIFY_FAILED
             return true;
@@ -492,9 +550,10 @@ class QspiUpdater {
         std::uint32_t offset = (std::uint32_t(decoded[0]) << 24) | (std::uint32_t(decoded[1]) << 16) |
                                (std::uint32_t(decoded[2]) << 8) | decoded[3];
         std::uint8_t size = decoded[4];
-        
+
         // Limit read size
-        if (size > 32) size = 32;
+        if (size > 32)
+            size = 32;
 
         // Validate range
         if (offset + size > QSPI_APP_MAX_SIZE) {
@@ -502,18 +561,14 @@ class QspiUpdater {
             return true;
         }
 
-        // Re-enter memory-mapped mode to ensure fresh state after any writes
-        qspi_enter_memory_mapped();
-
-        // Read from QSPI
-        const auto* qspi_data = reinterpret_cast<const std::uint8_t*>(QSPI_APP_BASE + offset);
-        
-        // Response: [status(1)][data...]
         std::uint8_t response[33];
-        response[0] = 0x00; // OK
-        for (std::uint8_t i = 0; i < size; ++i) {
-            response[1 + i] = qspi_data[i];
+        qspi_exit_memory_mapped();
+        if (qspi_indirect_read(offset, &response[1], size)) {
+            response[0] = 0x00;
+        } else {
+            response[0] = 0x0A;
         }
+        qspi_enter_memory_mapped();
         send_response(dfu::FW_ACK, seq, response, 1 + size, send_fn);
         return true;
     }
@@ -533,7 +588,7 @@ class QspiUpdater {
         auto abr = t.read(QUADSPI::ABR{});
 
         // Response: [status(1)][registers...]
-        std::uint8_t response[29];
+        std::uint8_t response[38];
         response[0] = 0x00; // OK
 
         // CR (4 bytes, big endian)
@@ -578,88 +633,113 @@ class QspiUpdater {
         response[27] = static_cast<std::uint8_t>((abr >> 8) & 0xFF);
         response[28] = static_cast<std::uint8_t>(abr & 0xFF);
 
+        std::uint32_t fail_code = g_qspi_fail.code;
+        std::uint32_t fail_sr = g_qspi_fail.sr;
+
+        response[29] = static_cast<std::uint8_t>((fail_code >> 24) & 0xFF);
+        response[30] = static_cast<std::uint8_t>((fail_code >> 16) & 0xFF);
+        response[31] = static_cast<std::uint8_t>((fail_code >> 8) & 0xFF);
+        response[32] = static_cast<std::uint8_t>(fail_code & 0xFF);
+
+        response[33] = static_cast<std::uint8_t>((fail_sr >> 24) & 0xFF);
+        response[34] = static_cast<std::uint8_t>((fail_sr >> 16) & 0xFF);
+        response[35] = static_cast<std::uint8_t>((fail_sr >> 8) & 0xFF);
+        response[36] = static_cast<std::uint8_t>(fail_sr & 0xFF);
+
+        response[37] = g_qspi_fail.flash_sr;
+
         send_response(dfu::FW_ACK, seq, response, sizeof(response), send_fn);
         return true;
     }
 
-    /// Handle FW_FLASH_STATUS: Read flash Status Register and first 8 bytes via indirect read
-    /// Response: [status(1)][flash_sr(1)][data0-7(8)]
+    /// Handle FW_FLASH_STATUS: Read flash Status Register and first 16 bytes via indirect read
+    /// Response: [status(1)][flash_sr(1)][data0-15(16)]
     bool handle_flash_status(std::uint8_t seq, SendFn send_fn) {
         using namespace ::umi::stm32h7;
         mm::DirectTransportT<> t;
-        
+
         // Exit memory-mapped mode to perform indirect read
         qspi_exit_memory_mapped();
-        
+
         // Read flash Status Register
-        std::uint8_t flash_sr = qspi_read_byte(is25lp::READ_STATUS);
-        
+        std::uint8_t flash_sr = qspi_read_byte(Flash::READ_STATUS);
+
         // Clear all flags and abort any pending operation before starting new read
         auto cr = t.read(QUADSPI::CR{});
         t.write(QUADSPI::CR::value(cr | (1U << 1))); // ABORT
-        while (t.read(QUADSPI::CR{}) & (1U << 1)) {}
+        while (t.read(QUADSPI::CR{}) & (1U << 1)) {
+        }
         t.write(QUADSPI::FCR::value(0x1F)); // Clear all flags
-        
-        // Now try to read first 8 bytes via indirect read (single line)
-        std::uint8_t data[8] = {0};
-        
+
+        // Now try to read first 16 bytes via indirect read (single line)
+        std::uint8_t data[16] = {0};
+
         qspi_wait_busy();
-        t.write(QUADSPI::DLR::value(7)); // 8 bytes - BEFORE CCR
-        
+        t.write(QUADSPI::DLR::value(15)); // 16 bytes - BEFORE CCR
+
         // Use simple single-line read (command 0x03)
         // IMPORTANT: CCR must be written BEFORE AR!
-        t.write(QUADSPI::CCR::value(
-            static_cast<std::uint32_t>(0x03) |  // READ command
-            (qspi_mode::SINGLE << 8) |          // IMODE: single line
-            (qspi_mode::SINGLE << 10) |         // ADMODE: single line
-            (qspi_adsize::ADDR_24BIT << 12) |   // ADSIZE: 24-bit
-            (qspi_mode::SINGLE << 24) |         // DMODE: single line
-            (qspi_fmode::INDIRECT_READ << 26)
-        ));
-        
+        t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(0x03) | // READ command
+                                    (qspi_mode::SINGLE << 8) |         // IMODE: single line
+                                    (qspi_mode::SINGLE << 10) |        // ADMODE: single line
+                                    (qspi_adsize::ADDR_24BIT << 12) |  // ADSIZE: 24-bit
+                                    (qspi_mode::SINGLE << 24) |        // DMODE: single line
+                                    (qspi_fmode::INDIRECT_READ << 26)));
+
         // AR - set address AFTER CCR (this starts the address phase)
         t.write(QUADSPI::AR::value(0)); // Address 0
-        
+
         // Wait for transfer complete with timeout
         std::uint32_t timeout = 1000000;
-        while (!(t.read(QUADSPI::SR{}) & (1U << 1)) && timeout > 0) { 
+        while (!(t.read(QUADSPI::SR{}) & (1U << 1)) && timeout > 0) {
             --timeout;
         }
-        
+
         if (timeout > 0) {
             // Read data from FIFO
             auto* dr = reinterpret_cast<volatile std::uint8_t*>(0x52005020);
-            for (int i = 0; i < 8; ++i) {
+            for (int i = 0; i < 16; ++i) {
                 data[i] = *dr;
             }
         }
-        
+
         t.write(QUADSPI::FCR::value(1U << 1)); // Clear TCF
-        
+
         // Re-enter memory-mapped mode WITHOUT calling qspi_wait_ready()
         // (flash should already be ready since we didn't write anything)
         qspi_wait_busy();
         t.write(QUADSPI::ABR::value(0x000000A0));
-        t.write(QUADSPI::CCR::value(
-            static_cast<std::uint32_t>(is25lp::QUAD_READ) | 
-            (qspi_mode::SINGLE << 8) |   // IMODE
-            (qspi_mode::QUAD << 10) |    // ADMODE
-            (qspi_adsize::ADDR_24BIT << 12) | 
-            (qspi_mode::QUAD << 14) |    // ABMODE
-            (0U << 16) |                 // ABSIZE
-            (6U << 18) |                 // DCYC
-            (qspi_mode::QUAD << 24) |    // DMODE
-            (qspi_fmode::MEMORY_MAPPED << 26) | 
-            (1U << 28)                   // SIOO
-        ));
+        t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(Flash::QUAD_IO_FAST_READ) |
+                                    (qspi_mode::SINGLE << 8) |                                  // IMODE
+                                    (qspi_mode::QUAD << 10) |                                   // ADMODE
+                                    (qspi_adsize::ADDR_24BIT << 12) | (qspi_mode::QUAD << 14) | // ABMODE
+                                    (0U << 16) |                                                // ABSIZE
+                                    (8U << 18) |                                                // DCYC
+                                    (qspi_mode::QUAD << 24) |                                   // DMODE
+                                    (qspi_fmode::MEMORY_MAPPED << 26) | (1U << 28)              // SIOO
+                                    ));
         qspi_invalidate_icache();
         qspi_invalidate_dcache();
-        
-        std::uint8_t response[10] = {
+
+        std::uint8_t response[18] = {
             0x00, // OK
             flash_sr,
-            data[0], data[1], data[2], data[3],
-            data[4], data[5], data[6], data[7],
+            data[0],
+            data[1],
+            data[2],
+            data[3],
+            data[4],
+            data[5],
+            data[6],
+            data[7],
+            data[8],
+            data[9],
+            data[10],
+            data[11],
+            data[12],
+            data[13],
+            data[14],
+            data[15],
         };
         send_response(dfu::FW_ACK, seq, response, sizeof(response), send_fn);
         return true;
@@ -671,132 +751,147 @@ class QspiUpdater {
     bool handle_jedec_id(std::uint8_t seq, SendFn send_fn) {
         using namespace ::umi::stm32h7;
         mm::DirectTransportT<> t;
-        
+
         // Exit memory-mapped mode
         qspi_exit_memory_mapped();
-        
+
         // First verify basic communication by reading Status Register
-        std::uint8_t sr = qspi_read_byte(is25lp::READ_STATUS);
-        
-        // Now read JEDEC ID 
+        std::uint8_t sr = qspi_read_byte(Flash::READ_STATUS);
+
+        // Now read JEDEC ID
         std::uint8_t id[3] = {0};
         std::uint8_t timeout_flag = 0;
         std::uint8_t fifo_level = 0;
-        
+
         qspi_wait_busy();
         t.write(QUADSPI::DLR::value(2)); // 3 bytes (DLR = length - 1)
-        
+
         // RDID command: single line for instruction and data, no address
-        t.write(QUADSPI::CCR::value(
-            static_cast<std::uint32_t>(is25lp::READ_ID) |  // RDID command (0x9F)
-            (qspi_mode::SINGLE << 8) |          // IMODE: single line
-            (qspi_mode::NONE << 10) |           // ADMODE: none (no address)
-            (qspi_mode::SINGLE << 24) |         // DMODE: single line
-            (qspi_fmode::INDIRECT_READ << 26)
-        ));
-        
+        t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(Flash::READ_ID) | // RDID command (0x9F)
+                                    (qspi_mode::SINGLE << 8) |                   // IMODE: single line
+                                    (qspi_mode::NONE << 10) |                    // ADMODE: none (no address)
+                                    (qspi_mode::SINGLE << 24) |                  // DMODE: single line
+                                    (qspi_fmode::INDIRECT_READ << 26)));
+
         // Wait for transfer complete with timeout
         std::uint32_t timeout = 1000000;
-        while (!(t.read(QUADSPI::SR{}) & (1U << 1)) && timeout > 0) { 
+        while (!(t.read(QUADSPI::SR{}) & (1U << 1)) && timeout > 0) {
             --timeout;
         }
-        
+
         if (timeout == 0) {
             timeout_flag = 1;
         }
-        
+
         // Get FIFO level from SR (bits 13:8 = FLEVEL)
         std::uint32_t sr_val = t.read(QUADSPI::SR{});
         fifo_level = static_cast<std::uint8_t>((sr_val >> 8) & 0x3F);
-        
+
         // Read all data as 32-bit value and extract bytes
         // DR register returns data in LSB-first order for FIFO reads
         std::uint32_t dr_val = t.read(QUADSPI::DR{});
         id[0] = static_cast<std::uint8_t>(dr_val & 0xFF);
         id[1] = static_cast<std::uint8_t>((dr_val >> 8) & 0xFF);
         id[2] = static_cast<std::uint8_t>((dr_val >> 16) & 0xFF);
-        
+
         t.write(QUADSPI::FCR::value(1U << 1)); // Clear TCF
         qspi_wait_busy();
-        
+
         // Re-enter memory-mapped mode
         qspi_enter_memory_mapped();
-        
+
         std::uint8_t response[7] = {
             0x00, // OK
-            id[0], id[1], id[2], // Manufacturer ID, Device ID (2 bytes)
-            sr,             // Status Register for comparison
-            timeout_flag,   // Did timeout occur?
-            fifo_level,     // FIFO level after transfer
+            id[0],
+            id[1],
+            id[2],        // Manufacturer ID, Device ID (2 bytes)
+            sr,           // Status Register for comparison
+            timeout_flag, // Did timeout occur?
+            fifo_level,   // FIFO level after transfer
         };
         send_response(dfu::FW_ACK, seq, response, sizeof(response), send_fn);
         return true;
     }
 
-    /// Handle FW_WRITE_TEST: Simple indirect read test (no write, no wait)
+    /// Handle FW_WRITE_TEST: Simple indirect read test (like HAL_QSPI_Receive)
     /// Just read 8 bytes from address 0 via indirect mode
     /// Response: [status(1)][data(8)][fifo_level(1)]
     bool handle_write_test(std::uint8_t seq, SendFn send_fn) {
         using namespace ::umi::stm32h7;
         mm::DirectTransportT<> t;
-        
+
         // Exit memory-mapped mode
         qspi_exit_memory_mapped();
-        
+
         // Clear any leftover flags
         t.write(QUADSPI::FCR::value(0x1F));
-        
+
         // Read 8 bytes via indirect read (single line 0x03)
         std::uint8_t read_data[8] = {0};
-        
+        constexpr std::uint32_t read_size = 8;
+
         qspi_wait_busy();
-        t.write(QUADSPI::DLR::value(7)); // 8 bytes - must be BEFORE CCR
-        
-        // CCR - configure command (this starts the instruction phase)
-        // IMPORTANT: CCR must be written BEFORE AR for address-based commands!
-        t.write(QUADSPI::CCR::value(
-            static_cast<std::uint32_t>(0x03) |  // READ command
-            (qspi_mode::SINGLE << 8) |          // IMODE
-            (qspi_mode::SINGLE << 10) |         // ADMODE
-            (qspi_adsize::ADDR_24BIT << 12) |
-            (qspi_mode::SINGLE << 24) |         // DMODE
-            (qspi_fmode::INDIRECT_READ << 26)
-        ));
-        
-        // AR - set address (this starts the address phase, then data phase)
-        t.write(QUADSPI::AR::value(0));  // Address 0 - must be AFTER CCR!
-        
-        // Wait for transfer complete with timeout
+
+        // DLR must be set before CCR
+        t.write(QUADSPI::DLR::value(read_size - 1));
+
+        // CCR - configure command using FAST_READ (0x0B) with 8 dummy cycles
+        // This is more reliable than basic READ for IS25LP064A
+        t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(0x0B) |             // FAST_READ command
+                                    (qspi_mode::SINGLE << 8) |                     // IMODE
+                                    (qspi_mode::SINGLE << 10) |                    // ADMODE
+                                    (qspi_adsize::ADDR_24BIT << 12) | (8U << 18) | // DCYC: 8 dummy cycles for FAST_READ
+                                    (qspi_mode::SINGLE << 24) |                    // DMODE
+                                    (qspi_fmode::INDIRECT_READ << 26)));
+
+        // AR - set address (this starts the transfer)
+        t.write(QUADSPI::AR::value(0));
+
+        // Read data like HAL_QSPI_Receive: wait for FT or TC, then read 1 byte
+        // FT = FIFO Threshold flag (SR bit 2)
+        // TC = Transfer Complete flag (SR bit 1)
+        constexpr std::uint32_t QSPI_SR_FT = (1U << 2); // FIFO Threshold
+        constexpr std::uint32_t QSPI_SR_TC = (1U << 1); // Transfer Complete
+
+        auto* const dr_byte = reinterpret_cast<volatile std::uint8_t*>(0x52005020);
         std::uint32_t timeout = 100000;
-        while (!(t.read(QUADSPI::SR{}) & (1U << 1)) && timeout > 0) {
-            --timeout;
+        std::uint32_t rx_count = read_size;
+        std::uint8_t* rx_ptr = read_data;
+
+        while (rx_count > 0 && timeout > 0) {
+            std::uint32_t sr = t.read(QUADSPI::SR{});
+            if (sr & (QSPI_SR_FT | QSPI_SR_TC)) {
+                *rx_ptr++ = *dr_byte;
+                rx_count--;
+            }
+            timeout--;
         }
-        
-        // Get FIFO level
+
+        // Wait for TC
+        while (!(t.read(QUADSPI::SR{}) & QSPI_SR_TC) && timeout > 0) {
+            timeout--;
+        }
+
+        // Get FIFO level for diagnostics
         std::uint32_t sr_val = t.read(QUADSPI::SR{});
         std::uint8_t fifo_level = static_cast<std::uint8_t>((sr_val >> 8) & 0x3F);
-        
-        // Read data from FIFO - read as 32-bit words
-        std::uint32_t data0 = t.read(QUADSPI::DR{});
-        std::uint32_t data1 = t.read(QUADSPI::DR{});
-        read_data[0] = data0 & 0xFF;
-        read_data[1] = (data0 >> 8) & 0xFF;
-        read_data[2] = (data0 >> 16) & 0xFF;
-        read_data[3] = (data0 >> 24) & 0xFF;
-        read_data[4] = data1 & 0xFF;
-        read_data[5] = (data1 >> 8) & 0xFF;
-        read_data[6] = (data1 >> 16) & 0xFF;
-        read_data[7] = (data1 >> 24) & 0xFF;
-        
-        t.write(QUADSPI::FCR::value(1U << 1)); // Clear TCF
-        
+
+        // Clear TCF
+        t.write(QUADSPI::FCR::value(QSPI_SR_TC));
+
         // Re-enter memory-mapped mode
         qspi_enter_memory_mapped();
-        
+
         std::uint8_t response[10] = {
             static_cast<std::uint8_t>(timeout > 0 ? 0x00 : 0x01), // OK or timeout
-            read_data[0], read_data[1], read_data[2], read_data[3],
-            read_data[4], read_data[5], read_data[6], read_data[7],
+            read_data[0],
+            read_data[1],
+            read_data[2],
+            read_data[3],
+            read_data[4],
+            read_data[5],
+            read_data[6],
+            read_data[7],
             fifo_level,
         };
         send_response(dfu::FW_ACK, seq, response, sizeof(response), send_fn);

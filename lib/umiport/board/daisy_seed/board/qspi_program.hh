@@ -7,18 +7,9 @@
 #include <mcu/qspi.hh>
 #include <transport/direct.hh>
 
-#include "qspi.hh"
+#include "qspi.hh" // Includes flash_is25lp064a.hh
 
 namespace umi::daisy {
-
-// Additional IS25LP064A constants for programming (extends qspi.hh)
-namespace is25lp {
-constexpr std::uint8_t BLOCK_ERASE = 0xD8; // 64KB Block Erase
-
-constexpr std::uint32_t PAGE_SIZE = 256;    // 256 bytes per page
-constexpr std::uint32_t SECTOR_SIZE = 4096; // 4KB sector
-constexpr std::uint32_t BLOCK_SIZE = 65536; // 64KB block
-} // namespace is25lp
 
 /// Exit memory-mapped mode and enter indirect mode
 inline void qspi_exit_memory_mapped() {
@@ -35,6 +26,13 @@ inline void qspi_exit_memory_mapped() {
     t.write(QUADSPI::FCR::value(0x1F));
 
     qspi_wait_busy();
+
+    auto cr2 = t.read(QUADSPI::CR{});
+    t.write(QUADSPI::CR::value(cr2 & ~1U));
+    t.write(QUADSPI::CCR::value(0));
+    t.write(QUADSPI::AR::value(0));
+    t.write(QUADSPI::DLR::value(0));
+    t.write(QUADSPI::CR::value(cr2 | 1U));
 }
 
 /// Re-enter memory-mapped mode (call after programming)
@@ -47,15 +45,15 @@ inline void qspi_enter_memory_mapped() {
     t.write(QUADSPI::CR::value(cr | (1U << 1))); // ABORT
     while (t.read(QUADSPI::CR{}) & (1U << 1)) {
     }
-    
+
     // Clear all flags
     t.write(QUADSPI::FCR::value(0x1F));
 
     // Wait for flash to be ready (WIP=0) before entering memory-mapped mode
     // Use simple polling instead of auto-poll to avoid potential hang
     for (int retry = 0; retry < 1000000; ++retry) {
-        std::uint8_t status = qspi_read_byte(is25lp::READ_STATUS);
-        if ((status & is25lp::SR_WIP) == 0) {
+        std::uint8_t status = qspi_read_byte(Flash::READ_STATUS);
+        if ((status & Flash::SR_WIP) == 0) {
             break;
         }
     }
@@ -67,15 +65,16 @@ inline void qspi_enter_memory_mapped() {
     t.write(QUADSPI::ABR::value(0x000000A0));
 
     // Configure CCR for memory-mapped quad I/O read
-    t.write(QUADSPI::CCR::value(
-        static_cast<std::uint32_t>(is25lp::QUAD_READ) | (qspi_mode::SINGLE << 8) | // IMODE: single line for instruction
-        (qspi_mode::QUAD << 10) |                                                  // ADMODE: quad for address
-        (qspi_adsize::ADDR_24BIT << 12) | (qspi_mode::QUAD << 14) |                // ABMODE: quad for alternate bytes
-        (0U << 16) |                                                               // ABSIZE: 8-bit
-        (6U << 18) |                                                               // DCYC: 6 dummy cycles
-        (qspi_mode::QUAD << 24) |                                                  // DMODE: quad for data
-        (qspi_fmode::MEMORY_MAPPED << 26) | (1U << 28)                             // SIOO
-        ));
+    t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(Flash::QUAD_IO_FAST_READ) |
+                                (qspi_mode::SINGLE << 8) | // IMODE: single line for instruction
+                                (qspi_mode::QUAD << 10) |  // ADMODE: quad for address
+                                (qspi_adsize::ADDR_24BIT << 12) |
+                                (qspi_mode::QUAD << 14) |                      // ABMODE: quad for alternate bytes
+                                (0U << 16) |                                   // ABSIZE: 8-bit
+                                (8U << 18) |                                   // DCYC: 8 dummy cycles
+                                (qspi_mode::QUAD << 24) |                      // DMODE: quad for data
+                                (qspi_fmode::MEMORY_MAPPED << 26) | (1U << 28) // SIOO
+                                ));
 
     // Invalidate both I-Cache and D-Cache for QSPI region
     qspi_invalidate_icache();
@@ -95,15 +94,27 @@ inline bool qspi_erase_sector(std::uint32_t address) {
     qspi_exit_memory_mapped();
 
     // Enable write
-    qspi_write_enable();
+    if (!qspi_write_enable()) {
+        qspi_record_fail(1);
+        return false;
+    }
+
+    {
+        std::uint8_t sr = qspi_read_byte(Flash::READ_STATUS);
+        if ((sr & Flash::SR_WEL) == 0) {
+            qspi_record_fail(7);
+            return false;
+        }
+    }
 
     qspi_wait_busy();
 
     // Send sector erase command with address
     // IMPORTANT: Register write order must be DLR → CCR → AR (per STM32 HAL)
     t.write(QUADSPI::DLR::value(0)); // No data
-    t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(is25lp::SECTOR_ERASE) | (qspi_mode::SINGLE << 8) | // IMODE
-                                (qspi_mode::SINGLE << 10) |                                                   // ADMODE
+    t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(Flash::SECTOR_ERASE_ALT) |
+                                (qspi_mode::SINGLE << 8) |                                  // IMODE
+                                (qspi_mode::SINGLE << 10) |                                 // ADMODE
                                 (qspi_adsize::ADDR_24BIT << 12) | (qspi_mode::NONE << 24) | // DMODE: no data
                                 (qspi_fmode::INDIRECT_WRITE << 26)));
     t.write(QUADSPI::AR::value(address)); // AR must be AFTER CCR!
@@ -121,14 +132,14 @@ inline bool qspi_erase_sector(std::uint32_t address) {
 /// @return true on success
 inline bool qspi_erase_range(std::uint32_t start, std::uint32_t size) {
     // Align to sector boundaries
-    std::uint32_t sector_start = start & ~(is25lp::SECTOR_SIZE - 1);
+    std::uint32_t sector_start = start & ~(Flash::SECTOR_SIZE - 1);
     std::uint32_t end = start + size;
 
     while (sector_start < end) {
         if (!qspi_erase_sector(sector_start)) {
             return false;
         }
-        sector_start += is25lp::SECTOR_SIZE;
+        sector_start += Flash::SECTOR_SIZE;
     }
     return true;
 }
@@ -142,15 +153,18 @@ inline bool qspi_erase_sector_no_remap(std::uint32_t address) {
     mm::DirectTransportT<> t;
 
     // Enable write
-    qspi_write_enable();
+    if (!qspi_write_enable()) {
+        return false;
+    }
 
     qspi_wait_busy();
 
     // Send sector erase command with address
     // IMPORTANT: Register write order must be DLR → CCR → AR (per STM32 HAL)
     t.write(QUADSPI::DLR::value(0)); // No data
-    t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(is25lp::SECTOR_ERASE) | (qspi_mode::SINGLE << 8) | // IMODE
-                                (qspi_mode::SINGLE << 10) |                                                   // ADMODE
+    t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(Flash::SECTOR_ERASE_ALT) |
+                                (qspi_mode::SINGLE << 8) |                                  // IMODE
+                                (qspi_mode::SINGLE << 10) |                                 // ADMODE
                                 (qspi_adsize::ADDR_24BIT << 12) | (qspi_mode::NONE << 24) | // DMODE: no data
                                 (qspi_fmode::INDIRECT_WRITE << 26)));
     t.write(QUADSPI::AR::value(address)); // AR must be AFTER CCR!
@@ -172,7 +186,7 @@ inline bool qspi_erase_range_with_poll(std::uint32_t start, std::uint32_t size, 
     qspi_exit_memory_mapped();
 
     // Align to sector boundaries
-    std::uint32_t sector_start = (start & 0x00FFFFFF) & ~(is25lp::SECTOR_SIZE - 1);
+    std::uint32_t sector_start = (start & 0x00FFFFFF) & ~(Flash::SECTOR_SIZE - 1);
     std::uint32_t end = (start & 0x00FFFFFF) + size;
 
     while (sector_start < end) {
@@ -184,7 +198,7 @@ inline bool qspi_erase_range_with_poll(std::uint32_t start, std::uint32_t size, 
         // Call poll function between sector erases
         poll_fn();
 
-        sector_start += is25lp::SECTOR_SIZE;
+        sector_start += Flash::SECTOR_SIZE;
     }
 
     // Re-enter memory-mapped mode at the end
@@ -203,19 +217,31 @@ qspi_program_page(std::uint32_t address, const std::uint8_t* data, std::uint32_t
     using namespace ::umi::stm32h7;
     mm::DirectTransportT<> t;
 
-    if (len == 0 || len > is25lp::PAGE_SIZE) {
+    if (len == 0 || len > Flash::PAGE_SIZE) {
         return false;
     }
 
     // Convert to flash-relative address
-    address &= 0x00FFFFFF;
+    if (address >= 0x90000000) {
+        address -= 0x90000000;
+    }
 
     if (reset_mode) {
         qspi_exit_memory_mapped();
     }
 
+    qspi_preinit();
+    qspi_deinit();
+    init_qspi();
+    qspi_exit_memory_mapped();
+
+    t.write(QUADSPI::FCR::value(0x1F));
+
     // Enable write
-    qspi_write_enable();
+    if (!qspi_write_enable()) {
+        qspi_record_fail(1);
+        return false;
+    }
 
     qspi_wait_busy();
 
@@ -224,8 +250,8 @@ qspi_program_page(std::uint32_t address, const std::uint8_t* data, std::uint32_t
     t.write(QUADSPI::DLR::value(len - 1));
 
     // Configure for page program (single line) - CCR must be BEFORE AR!
-    t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(is25lp::PAGE_PROGRAM) | (qspi_mode::SINGLE << 8) | // IMODE
-                                (qspi_mode::SINGLE << 10) |                                                   // ADMODE
+    t.write(QUADSPI::CCR::value(static_cast<std::uint32_t>(Flash::PAGE_PROGRAM) | (qspi_mode::SINGLE << 8) | // IMODE
+                                (qspi_mode::SINGLE << 10) |                                                  // ADMODE
                                 (qspi_adsize::ADDR_24BIT << 12) |
                                 (qspi_mode::SINGLE << 24) | // DMODE: single line for data
                                 (qspi_fmode::INDIRECT_WRITE << 26)));
@@ -236,24 +262,63 @@ qspi_program_page(std::uint32_t address, const std::uint8_t* data, std::uint32_t
     // Write data to FIFO (libDaisy HAL compatible)
     // DR register must be accessed as byte for proper FIFO operation
     auto* const dr_byte = reinterpret_cast<volatile std::uint8_t*>(0x52005020);
-    
+
     for (std::uint32_t i = 0; i < len; ++i) {
         // Wait for FIFO Threshold Flag (FTF) - indicates FIFO has room
         // FTF is set when FIFO level <= FTHRES
+        std::uint32_t timeout = 100000;
         while (!(t.read(QUADSPI::SR{}) & (1U << 2))) {
-            // Timeout check (simple counter)
+            if (--timeout == 0) {
+                t.write(QUADSPI::CR::value(t.read(QUADSPI::CR{}) | (1U << 1)));
+                while (t.read(QUADSPI::CR{}) & (1U << 1)) {
+                }
+                t.write(QUADSPI::FCR::value(0x1F));
+                qspi_record_fail(2);
+                return false;
+            }
         }
-        // Write byte directly to DR (like HAL does)
         *dr_byte = data[i];
     }
 
-    // Wait for transfer complete (TCF)
-    while (!(t.read(QUADSPI::SR{}) & (1U << 1))) {
+    std::uint32_t tc_timeout = 100000;
+    while (tc_timeout > 0) {
+        std::uint32_t sr = t.read(QUADSPI::SR{});
+        if (sr & (1U << 1)) {
+            break;
+        }
+        if (sr & (1U << 0)) {
+            t.write(QUADSPI::CR::value(t.read(QUADSPI::CR{}) | (1U << 1)));
+            while (t.read(QUADSPI::CR{}) & (1U << 1)) {
+            }
+            t.write(QUADSPI::FCR::value(0x1F));
+            qspi_record_fail(3);
+            return false;
+        }
+        if (sr & (1U << 4)) {
+            t.write(QUADSPI::CR::value(t.read(QUADSPI::CR{}) | (1U << 1)));
+            while (t.read(QUADSPI::CR{}) & (1U << 1)) {
+            }
+            t.write(QUADSPI::FCR::value(0x1F));
+            qspi_record_fail(4);
+            return false;
+        }
+        --tc_timeout;
     }
-    t.write(QUADSPI::FCR::value(1U << 1)); // Clear TCF
+    if (tc_timeout == 0) {
+        t.write(QUADSPI::CR::value(t.read(QUADSPI::CR{}) | (1U << 1)));
+        while (t.read(QUADSPI::CR{}) & (1U << 1)) {
+        }
+        t.write(QUADSPI::FCR::value(0x1F));
+        qspi_record_fail(5);
+        return false;
+    }
+    t.write(QUADSPI::FCR::value(1U << 1));
 
     // Wait for programming to complete
-    qspi_wait_ready();
+    if (!qspi_wait_ready()) {
+        qspi_record_fail(6);
+        return false;
+    }
 
     if (reset_mode) {
         qspi_enter_memory_mapped();
@@ -275,8 +340,8 @@ inline bool qspi_program(std::uint32_t address, const std::uint8_t* data, std::u
 
     while (len > 0) {
         // Calculate bytes to write in this page
-        std::uint32_t page_offset = flash_addr % is25lp::PAGE_SIZE;
-        std::uint32_t page_remain = is25lp::PAGE_SIZE - page_offset;
+        std::uint32_t page_offset = flash_addr % Flash::PAGE_SIZE;
+        std::uint32_t page_remain = Flash::PAGE_SIZE - page_offset;
         std::uint32_t chunk = (len < page_remain) ? len : page_remain;
 
         // reset_mode=false: don't exit/enter memory-mapped mode per page

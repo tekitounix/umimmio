@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: MIT
 // Daisy Pod Kernel - Entry point, vector table, IRQ handlers
 // All kernel logic lives in kernel.cc; this file is the hardware boundary.
-#include "kernel.hh"
-
-#include <cstdint>
-#include <common/irq.hh>
-
 #include <arch/cache.hh>
-#include <board/mcu_init.hh>
 #include <board/audio.hh>
-#include <board/usb.hh>
-#include <board/sdram.hh>
-#include <board/qspi.hh>
+#include <board/mcu_init.hh>
 #include <board/midi_uart.hh>
+#include <board/qspi.hh>
 #include <board/sdcard.hh>
+#include <board/sdram.hh>
+#include <board/usb.hh>
+#include <common/irq.hh>
+#include <cstdint>
+
+#include "kernel.hh"
 
 using namespace umi::daisy;
 
@@ -33,11 +32,9 @@ extern std::uint32_t _edtcm_bss;
 // DMA audio buffers (D2 SRAM — non-cacheable via MPU)
 // ============================================================================
 
-__attribute__((section(".sram_d2_bss")))
-std::int32_t audio_tx_buf[AUDIO_BUFFER_SIZE];
+__attribute__((section(".sram_d2_bss"))) std::int32_t audio_tx_buf[AUDIO_BUFFER_SIZE];
 
-__attribute__((section(".sram_d2_bss")))
-std::int32_t audio_rx_buf[AUDIO_BUFFER_SIZE];
+__attribute__((section(".sram_d2_bss"))) std::int32_t audio_rx_buf[AUDIO_BUFFER_SIZE];
 
 // ============================================================================
 // Debug: SDRAM/QSPI/SD test results
@@ -113,9 +110,9 @@ void USART1_IRQHandler() {
 extern "C" {
 extern volatile std::uint32_t d2_dbg[16];
 }
-#define DBG(idx, expr) (d2_dbg[(idx)] = (expr))
+    #define DBG(idx, expr) (d2_dbg[(idx)] = (expr))
 #else
-#define DBG(idx, expr) ((void)0)
+    #define DBG(idx, expr) ((void)0)
 #endif
 
 extern "C" {
@@ -128,28 +125,32 @@ void HardFault_Handler() {
                      "mrsne %0, psp\n"
                      : "=r"(sp));
     DBG(0, 0xDEAD0001);
-    DBG(1, sp[5]);  // LR
-    DBG(2, sp[6]);  // PC
-    DBG(3, sp[7]);  // xPSR
-    DBG(4, *reinterpret_cast<volatile uint32_t*>(0xE000ED28));  // CFSR
-    DBG(5, *reinterpret_cast<volatile uint32_t*>(0xE000ED38));  // MMFAR
+    DBG(1, sp[5]);                                             // LR
+    DBG(2, sp[6]);                                             // PC
+    DBG(3, sp[7]);                                             // xPSR
+    DBG(4, *reinterpret_cast<volatile uint32_t*>(0xE000ED28)); // CFSR
+    DBG(5, *reinterpret_cast<volatile uint32_t*>(0xE000ED38)); // MMFAR
     DBG(6, reinterpret_cast<uint32_t>(sp));
-    DBG(7, sp[0]);  // R0
+    DBG(7, sp[0]); // R0
 #endif
     umi::daisy::set_led(true);
-    while (true) {}
+    while (true) {
+    }
 }
 void MemManage_Handler() {
     umi::daisy::set_led(true);
-    while (true) {}
+    while (true) {
+    }
 }
 void BusFault_Handler() {
     umi::daisy::set_led(true);
-    while (true) {}
+    while (true) {
+    }
 }
 void UsageFault_Handler() {
     umi::daisy::set_led(true);
-    while (true) {}
+    while (true) {
+    }
 }
 }
 
@@ -163,9 +164,6 @@ int main() {
     // Initialize clocks
     umi::daisy::init_clocks();
     umi::daisy::init_pll3();
-
-    // SDMMC clock source = PLL1Q (D1CCIPR.SDMMCSEL bit 16 = 0)
-    umi::cm7::detail::reg(0x5802'4400 + 0x4C) &= ~(1U << 16);
 
     umi::daisy::init_led();
 
@@ -187,6 +185,28 @@ int main() {
         auto* qspi = reinterpret_cast<volatile std::uint8_t*>(0x9000'0000);
         dbg_mem.qspi_byte0 = qspi[0];
     }
+
+    // Load application from QSPI (must be after init_qspi)
+    // Temporarily disabled to debug USB issue
+    // daisy_kernel::load_app();
+
+    // microSD verification (skip if no SD slot on this board variant)
+    // Daisy Pod has no SD slot; Daisy Seed breakout may have one.
+    // Uncomment to test when SD hardware is available:
+    // {
+    //     umi::daisy::init_sdcard_gpio();
+    //     if (umi::daisy::init_sdcard()) {
+    //         std::uint8_t sd_buf[512];
+    //         if (umi::daisy::sdcard_read_block(0, sd_buf)) {
+    //             dbg_mem.sd_result = 1;  // success
+    //             dbg_mem.sd_byte0 = sd_buf[0];
+    //         } else {
+    //             dbg_mem.sd_result = 3;  // read failed
+    //         }
+    //     } else {
+    //         dbg_mem.sd_result = 2;  // init failed (no card?)
+    //     }
+    // }
 
     // Detect board version and initialize codec
     auto board_ver = umi::daisy::detect_board_version();
@@ -217,7 +237,8 @@ int main() {
     // Start RTOS (does not return)
     daisy_kernel::start_rtos();
 
-    while (true) {}
+    while (true) {
+    }
 }
 
 // ============================================================================
@@ -226,8 +247,7 @@ int main() {
 
 extern "C" [[noreturn]] void Reset_Handler();
 
-__attribute__((section(".isr_vector"), used))
-const void* const g_boot_vectors[2] = {
+__attribute__((section(".isr_vector"), used)) const void* const g_boot_vectors[2] = {
     reinterpret_cast<const void*>(&_estack),
     reinterpret_cast<const void*>(Reset_Handler),
 };
@@ -314,5 +334,6 @@ extern "C" [[noreturn]] void Reset_Handler() {
     // D-Cache + IRQ + main — in separate noinline function
     // to guarantee ordering after .data/.bss initialization
     post_data_init();
-    while (true) {}
+    while (true) {
+    }
 }
