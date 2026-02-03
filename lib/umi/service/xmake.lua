@@ -2,7 +2,6 @@ add_rules("mode.debug", "mode.release")
 
 target("umi_service")
     set_kind("static")
-    add_rules("coding.umi_library")
     add_includedirs(".", {public = true})
     
     -- Source files

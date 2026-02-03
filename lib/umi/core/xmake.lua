@@ -4,7 +4,6 @@ add_rules("mode.debug", "mode.release")
 local target_name = "umi_core"
 target(target_name)
     set_kind("static")
-    add_rules("coding.umi_library")
     
     -- Include directory
     add_includedirs(".", {public = true})

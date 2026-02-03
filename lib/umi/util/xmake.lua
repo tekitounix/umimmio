@@ -4,7 +4,6 @@ add_rules("mode.debug", "mode.release")
 local target_name = "umi_util"
 target(target_name)
     set_kind("static")
-    add_rules("coding.umi_library")
     
     -- Include directory
     add_includedirs(".", {public = true})
@@ -13,7 +12,7 @@ target(target_name)
     add_headerfiles("*.hh")
     
     -- Dependencies
-    add_deps("umitest")
+    add_deps("umi.test")
     
     -- Tests
     for _, file in ipairs(os.files("test/**/test_*.cc")) do

@@ -14,7 +14,6 @@ add_rules("mode.debug", "mode.release")
 
 target("umi_port")
     set_kind("static")
-    add_rules("coding.umi_library")
     add_includedirs(".", {public = true})
 
     -- Core include directories (always included)
