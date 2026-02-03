@@ -90,22 +90,6 @@ inline void log(const char* msg) noexcept {
     call(nr::log, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(msg)));
 }
 
-inline int32_t set_route_table(const void* table) noexcept {
-    return call(nr::set_route_table, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(table)));
-}
-
-inline int32_t set_param_mapping(const void* mapping) noexcept {
-    return call(nr::set_param_mapping, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mapping)));
-}
-
-inline int32_t set_input_mapping(const void* mapping) noexcept {
-    return call(nr::set_input_mapping, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mapping)));
-}
-
-inline int32_t configure_input(const void* config) noexcept {
-    return call(nr::configure_input, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(config)));
-}
-
 inline int32_t set_app_config(const void* config) noexcept {
     return call(nr::set_app_config, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(config)));
 }

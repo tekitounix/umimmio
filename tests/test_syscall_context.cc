@@ -26,7 +26,7 @@ bool test_syscall_groups(TestContext& t) {
 
     // Configuration (20–29)
     t.assert_eq(sc::nr::set_app_config, 20u);
-    t.assert_eq(sc::nr::set_route_table, 21u);
+    // Nr 21-24: reserved (consolidated into set_app_config)
 
     // Info (40–49)
     t.assert_eq(sc::nr::get_shared, 40u);

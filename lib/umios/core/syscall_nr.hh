@@ -38,10 +38,8 @@ inline constexpr uint32_t sleep            = 12;
 
 // --- Group 2: Configuration (20–29) ---
 inline constexpr uint32_t set_app_config     = 20;
-inline constexpr uint32_t set_route_table    = 21;
-inline constexpr uint32_t set_param_mapping  = 22;
-inline constexpr uint32_t set_input_mapping  = 23;
-inline constexpr uint32_t configure_input    = 24;
+// 21-24: reserved (formerly set_route_table, set_param_mapping,
+//        set_input_mapping, configure_input — consolidated into set_app_config)
 inline constexpr uint32_t send_param_request = 25;
 // 26–29: reserved
 
