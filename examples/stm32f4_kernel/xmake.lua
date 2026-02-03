@@ -37,6 +37,8 @@ target("stm32f4_kernel")
     add_includedirs("src")
     add_includedirs("$(projectdir)/lib/umios/kernel")
     add_includedirs("$(projectdir)/lib/umios/crypto")
+    add_includedirs("$(projectdir)/lib/umimmio/include")
+    add_includedirs("$(projectdir)/lib/umiport/device")
 
     -- Defines
     add_defines("UMIOS_KERNEL=1")
