@@ -40,6 +40,7 @@ target("daisy_pod_kernel")
 
     -- Include paths (umiport layers)
     add_includedirs("src")
+    add_includedirs(path.join(os.projectdir(), "lib/umimmio/include"))
     add_includedirs(path.join(os.projectdir(), "lib/umiport/arch/cm7"))
     add_includedirs(path.join(os.projectdir(), "lib/umiport/mcu/stm32h7"))
     add_includedirs(path.join(os.projectdir(), "lib/umiport/common"))

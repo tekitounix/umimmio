@@ -2,8 +2,8 @@
 // STM32H750 RCC (Reset and Clock Control) - mmio register definitions
 #pragma once
 
-#include <umimmio.hh>
 #include <transport/direct.hh>
+#include <umimmio.hh>
 
 namespace umi::stm32h7 {
 
@@ -18,8 +18,8 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
     struct CR : mm::Register<RCC, 0x00, 32> {
         struct HSION : mm::Field<CR, 0, 1> {};
         struct HSIRDY : mm::Field<CR, 2, 1> {};
-        struct HSIDIV : mm::Field<CR, 3, 2> {};    // HSI divider
-        struct HSIDIVF : mm::Field<CR, 5, 1> {};   // HSI divider flag
+        struct HSIDIV : mm::Field<CR, 3, 2> {};  // HSI divider
+        struct HSIDIVF : mm::Field<CR, 5, 1> {}; // HSI divider flag
         struct CSION : mm::Field<CR, 7, 1> {};
         struct CSIRDY : mm::Field<CR, 8, 1> {};
         struct HSI48ON : mm::Field<CR, 12, 1> {};
@@ -38,7 +38,7 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
 
     /// HSI48 clock recovery RC register (offset 0x08, read-only calibration)
     struct CRRCR : mm::Register<RCC, 0x08, 32> {
-        struct HSI48CAL : mm::Field<CRRCR, 0, 10> {};  // Read-only calibration
+        struct HSI48CAL : mm::Field<CRRCR, 0, 10> {}; // Read-only calibration
     };
 
     /// Clock configuration register
@@ -53,8 +53,8 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
     /// Domain 1 clock configuration register
     struct D1CFGR : mm::Register<RCC, 0x18, 32> {
         struct HPRE : mm::Field<D1CFGR, 0, 4> {};   // AHB prescaler
-        struct D1PPRE : mm::Field<D1CFGR, 4, 3> {};  // D1 APB3 prescaler
-        struct D1CPRE : mm::Field<D1CFGR, 8, 4> {};  // D1 core prescaler
+        struct D1PPRE : mm::Field<D1CFGR, 4, 3> {}; // D1 APB3 prescaler
+        struct D1CPRE : mm::Field<D1CFGR, 8, 4> {}; // D1 core prescaler
     };
 
     /// Domain 2 clock configuration register
@@ -65,22 +65,22 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
 
     /// Domain 3 clock configuration register
     struct D3CFGR : mm::Register<RCC, 0x20, 32> {
-        struct D3PPRE : mm::Field<D3CFGR, 4, 3> {};  // D3 APB4 prescaler
+        struct D3PPRE : mm::Field<D3CFGR, 4, 3> {}; // D3 APB4 prescaler
     };
 
     /// PLL clock source selection register
     struct PLLCKSELR : mm::Register<RCC, 0x28, 32> {
-        struct PLLSRC : mm::Field<PLLCKSELR, 0, 2> {};   // PLL source: 0=HSI, 1=CSI, 2=HSE
-        struct DIVM1 : mm::Field<PLLCKSELR, 4, 6> {};    // PLL1 prescaler
-        struct DIVM2 : mm::Field<PLLCKSELR, 12, 6> {};   // PLL2 prescaler
-        struct DIVM3 : mm::Field<PLLCKSELR, 20, 6> {};   // PLL3 prescaler
+        struct PLLSRC : mm::Field<PLLCKSELR, 0, 2> {}; // PLL source: 0=HSI, 1=CSI, 2=HSE
+        struct DIVM1 : mm::Field<PLLCKSELR, 4, 6> {};  // PLL1 prescaler
+        struct DIVM2 : mm::Field<PLLCKSELR, 12, 6> {}; // PLL2 prescaler
+        struct DIVM3 : mm::Field<PLLCKSELR, 20, 6> {}; // PLL3 prescaler
     };
 
     /// PLL configuration register
     struct PLLCFGR : mm::Register<RCC, 0x2C, 32> {
         struct PLL1FRACEN : mm::Field<PLLCFGR, 0, 1> {};
-        struct PLL1VCOSEL : mm::Field<PLLCFGR, 1, 1> {};  // 0=wide VCO, 1=medium
-        struct PLL1RGE : mm::Field<PLLCFGR, 2, 2> {};     // PLL1 input freq range
+        struct PLL1VCOSEL : mm::Field<PLLCFGR, 1, 1> {}; // 0=wide VCO, 1=medium
+        struct PLL1RGE : mm::Field<PLLCFGR, 2, 2> {};    // PLL1 input freq range
         struct PLL2FRACEN : mm::Field<PLLCFGR, 4, 1> {};
         struct PLL2VCOSEL : mm::Field<PLLCFGR, 5, 1> {};
         struct PLL2RGE : mm::Field<PLLCFGR, 6, 2> {};
@@ -100,10 +100,10 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
 
     /// PLL1 dividers register
     struct PLL1DIVR : mm::Register<RCC, 0x30, 32> {
-        struct DIVN1 : mm::Field<PLL1DIVR, 0, 9> {};     // PLL1 N multiplier (actual = field + 1)
-        struct DIVP1 : mm::Field<PLL1DIVR, 9, 7> {};     // PLL1 P divider (actual = field + 1)
-        struct DIVQ1 : mm::Field<PLL1DIVR, 16, 7> {};    // PLL1 Q divider
-        struct DIVR1 : mm::Field<PLL1DIVR, 24, 7> {};    // PLL1 R divider
+        struct DIVN1 : mm::Field<PLL1DIVR, 0, 9> {};  // PLL1 N multiplier (actual = field + 1)
+        struct DIVP1 : mm::Field<PLL1DIVR, 9, 7> {};  // PLL1 P divider (actual = field + 1)
+        struct DIVQ1 : mm::Field<PLL1DIVR, 16, 7> {}; // PLL1 Q divider
+        struct DIVR1 : mm::Field<PLL1DIVR, 24, 7> {}; // PLL1 R divider
     };
 
     /// PLL1 fractional divider register
@@ -137,11 +137,17 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
         struct FRACN3 : mm::Field<PLL3FRACR, 3, 13> {};
     };
 
+    /// AHB3 peripheral reset register (FMC, QSPI)
+    struct AHB3RSTR : mm::Register<RCC, 0x7C, 32> {
+        struct QSPIRST : mm::Field<AHB3RSTR, 14, 1> {};
+        struct FMCRST : mm::Field<AHB3RSTR, 12, 1> {};
+    };
+
     /// AHB3 peripheral clock enable register (FMC, QSPI)
     struct AHB3ENR : mm::Register<RCC, 0xD4, 32> {
         struct SDMMC1EN : mm::Field<AHB3ENR, 16, 1> {};
-        struct FMCEN    : mm::Field<AHB3ENR, 12, 1> {};
-        struct QSPIEN   : mm::Field<AHB3ENR, 14, 1> {};
+        struct FMCEN : mm::Field<AHB3ENR, 12, 1> {};
+        struct QSPIEN : mm::Field<AHB3ENR, 14, 1> {};
     };
 
     /// AHB4 peripheral clock enable register (GPIO clocks)
@@ -185,8 +191,8 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
     /// APB2 peripheral clock enable register
     struct APB2ENR : mm::Register<RCC, 0xF0, 32> {
         struct USART1EN : mm::Field<APB2ENR, 4, 1> {};
-        struct SAI1EN   : mm::Field<APB2ENR, 22, 1> {};
-        struct SAI2EN   : mm::Field<APB2ENR, 23, 1> {};
+        struct SAI1EN : mm::Field<APB2ENR, 22, 1> {};
+        struct SAI2EN : mm::Field<APB2ENR, 23, 1> {};
     };
 
     /// Domain 2 kernel clock configuration register (peripheral clock mux)
@@ -207,12 +213,12 @@ struct RCC : mm::Device<mm::RW, mm::DirectTransportTag> {
     /// Domain 1 kernel clock configuration register
     struct D1CCIPR : mm::Register<RCC, 0x4C, 32> {
         struct FMCSEL : mm::Field<D1CCIPR, 0, 2> {};    // FMC clock source
-        struct SDMMCSEL : mm::Field<D1CCIPR, 16, 1> {};  // SDMMC clock source (bit 16)
+        struct SDMMCSEL : mm::Field<D1CCIPR, 16, 1> {}; // SDMMC clock source (bit 16)
     };
 
     /// Domain 3 kernel clock configuration register
     struct D3CCIPR : mm::Register<RCC, 0x58, 32> {
-        struct ADCSEL : mm::Field<D3CCIPR, 16, 2> {};   // ADC clock source
+        struct ADCSEL : mm::Field<D3CCIPR, 16, 2> {}; // ADC clock source
     };
 
     /// APB4 peripheral clock enable register
@@ -254,10 +260,10 @@ constexpr std::uint32_t HSE = 2;
 
 // PLL RGE (input frequency range)
 namespace rcc_pllrge {
-constexpr std::uint32_t RANGE_1_2MHZ = 0;   // 1-2 MHz
-constexpr std::uint32_t RANGE_2_4MHZ = 1;   // 2-4 MHz
-constexpr std::uint32_t RANGE_4_8MHZ = 2;   // 4-8 MHz
-constexpr std::uint32_t RANGE_8_16MHZ = 3;  // 8-16 MHz
+constexpr std::uint32_t RANGE_1_2MHZ = 0;  // 1-2 MHz
+constexpr std::uint32_t RANGE_2_4MHZ = 1;  // 2-4 MHz
+constexpr std::uint32_t RANGE_4_8MHZ = 2;  // 4-8 MHz
+constexpr std::uint32_t RANGE_8_16MHZ = 3; // 8-16 MHz
 } // namespace rcc_pllrge
 
 // SAI clock source selection
@@ -271,30 +277,30 @@ constexpr std::uint32_t PER_CK = 4;
 
 // FMC clock source selection (D1CCIPR.FMCSEL, 2-bit)
 namespace rcc_fmcsel {
-constexpr std::uint32_t HCLK = 0;   // D1 HCLK (default)
-constexpr std::uint32_t PLL1Q = 1;  // PLL1 Q output
-constexpr std::uint32_t PLL2R = 2;  // PLL2 R output
-constexpr std::uint32_t CLKP = 3;   // per_ck
+constexpr std::uint32_t HCLK = 0;  // D1 HCLK (default)
+constexpr std::uint32_t PLL1Q = 1; // PLL1 Q output
+constexpr std::uint32_t PLL2R = 2; // PLL2 R output
+constexpr std::uint32_t CLKP = 3;  // per_ck
 } // namespace rcc_fmcsel
 
 // SDMMC clock source selection (D1CCIPR.SDMMCSEL, 1-bit)
 namespace rcc_sdmmcsel {
-constexpr std::uint32_t PLL1Q = 0;  // PLL1 Q output
-constexpr std::uint32_t PLL2R = 1;  // PLL2 R output
+constexpr std::uint32_t PLL1Q = 0; // PLL1 Q output
+constexpr std::uint32_t PLL2R = 1; // PLL2 R output
 } // namespace rcc_sdmmcsel
 
 // ADC clock source selection (D3CCIPR.ADCSEL, 2-bit)
 namespace rcc_adcsel {
-constexpr std::uint32_t PLL2P = 0;  // PLL2 P output
-constexpr std::uint32_t PLL3R = 1;  // PLL3 R output
-constexpr std::uint32_t CLKP = 2;   // per_ck
+constexpr std::uint32_t PLL2P = 0; // PLL2 P output
+constexpr std::uint32_t PLL3R = 1; // PLL3 R output
+constexpr std::uint32_t CLKP = 2;  // per_ck
 } // namespace rcc_adcsel
 
 // SPI1/2/3 clock source selection (D2CCIP1R.SPI123SEL, 3-bit)
 namespace rcc_spi123sel {
-constexpr std::uint32_t PLL1Q = 0;  // PLL1 Q output
-constexpr std::uint32_t PLL2P = 1;  // PLL2 P output
-constexpr std::uint32_t PLL3P = 2;  // PLL3 P output
+constexpr std::uint32_t PLL1Q = 0; // PLL1 Q output
+constexpr std::uint32_t PLL2P = 1; // PLL2 P output
+constexpr std::uint32_t PLL3P = 2; // PLL3 P output
 constexpr std::uint32_t I2S_CKIN = 3;
 constexpr std::uint32_t PER_CK = 4;
 } // namespace rcc_spi123sel
@@ -307,10 +313,10 @@ constexpr std::uint32_t PER_CK = 4;
 
 /// PLL output frequency: VCO = (src_hz / M) * N, P output = VCO / P
 struct PllConfig {
-    std::uint32_t src_hz;  // Input clock (e.g. 16'000'000 for HSE)
-    std::uint32_t m;       // Input divider (1-63)
-    std::uint32_t n;       // VCO multiplier (4-512)
-    std::uint32_t p;       // P output divider (1-128)
+    std::uint32_t src_hz; // Input clock (e.g. 16'000'000 for HSE)
+    std::uint32_t m;      // Input divider (1-63)
+    std::uint32_t n;      // VCO multiplier (4-512)
+    std::uint32_t p;      // P output divider (1-128)
 };
 
 constexpr std::uint32_t pll_vco_hz(const PllConfig& cfg) {
@@ -330,16 +336,22 @@ constexpr std::uint32_t pll_ref_hz(const PllConfig& cfg) {
 /// VOS1: WS2 for up to 200MHz
 constexpr std::uint32_t flash_wait_states(std::uint32_t hclk_hz, bool vos0_boost) {
     if (vos0_boost) {
-        if (hclk_hz <= 70'000'000)  return 0;
-        if (hclk_hz <= 140'000'000) return 1;
-        if (hclk_hz <= 185'000'000) return 2;
-        if (hclk_hz <= 210'000'000) return 3;
-        return 4;  // up to 240MHz
+        if (hclk_hz <= 70'000'000)
+            return 0;
+        if (hclk_hz <= 140'000'000)
+            return 1;
+        if (hclk_hz <= 185'000'000)
+            return 2;
+        if (hclk_hz <= 210'000'000)
+            return 3;
+        return 4; // up to 240MHz
     }
     // VOS1
-    if (hclk_hz <= 70'000'000)  return 0;
-    if (hclk_hz <= 140'000'000) return 1;
-    return 2;  // up to 200MHz
+    if (hclk_hz <= 70'000'000)
+        return 0;
+    if (hclk_hz <= 140'000'000)
+        return 1;
+    return 2; // up to 200MHz
 }
 
 /// GPIO pin bit mask for 2-bit fields (MODER, OSPEEDR, PUPDR)
@@ -354,7 +366,7 @@ constexpr std::uint32_t gpio_1bit_mask(std::uint8_t pin) {
 
 /// GPIO AF register index: 0 for pins 0-7 (AFRL), 1 for pins 8-15 (AFRH)
 constexpr std::uint8_t gpio_af_reg_index(std::uint8_t pin) {
-    return pin >> 3;  // 0 or 1
+    return pin >> 3; // 0 or 1
 }
 
 /// GPIO AF field shift within AFR register

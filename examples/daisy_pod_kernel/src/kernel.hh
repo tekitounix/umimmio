@@ -21,6 +21,9 @@ void on_audio_buffer_ready(std::int32_t* tx, std::int32_t* rx);
 /// Called from USART1 IRQ for MIDI UART receive
 void handle_usart1_irq();
 
+/// Load application from QSPI (call after init_qspi)
+void* load_app();
+
 /// Start RTOS scheduler (does not return)
 [[noreturn]] void start_rtos();
 

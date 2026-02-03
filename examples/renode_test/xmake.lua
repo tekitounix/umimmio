@@ -18,7 +18,7 @@ target("renode_test")
     add_ldflags("-Wl,--gc-sections")
 
     -- Linker script
-    add_ldflags("-T" .. path.join(os.scriptdir(), "../../port/renode/stm32f4/linker.ld"))
+    add_ldflags("-T" .. path.join(os.scriptdir(), "../../tools/renode/linker.ld"))
     add_ldflags("-nostartfiles", "-nostdlib")
 
     -- Entry point
