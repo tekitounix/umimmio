@@ -153,9 +153,7 @@ class FeedbackCalculator {
 
     /// Set the buffer half-size (nominal fill target in samples).
     /// This is AUDIO_TOTAL_BUF_SIZE / (2 * bytes_per_stereo_sample) in reference terms.
-    void set_buffer_half_size(uint32_t half_size_samples) {
-        buf_half_size_ = half_size_samples;
-    }
+    void set_buffer_half_size(uint32_t half_size_samples) { buf_half_size_ = half_size_samples; }
 
     /// Set the actual device sample rate (when device clock differs from nominal).
     void set_actual_rate(uint32_t actual_rate) {

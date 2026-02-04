@@ -90,17 +90,17 @@ tools/debug/
 └── umi_debug.py           # UMI デバッグユーティリティ
 ```
 
-### umios 内の関連モジュール (umiusb とは独立)
+### umi 内の関連モジュール (umiusb とは独立)
 
 ```
-lib/umios/kernel/modules/
+lib/umi/kernel/modules/
 ├── usb_audio_module.hh    # USB Audio タスクインターフェース (IUsbAudioTask, ISofCallback)
 └── audio_module.hh        # AudioRingBuffer (volatile ベース), IAudioProcessor, AudioStats
 
-lib/umios/kernel/
+lib/umi/kernel/
 └── umi_audio.hh           # AudioEngine テンプレート (DMA/タスク連携)
 
-lib/umios/backend/cm/stm32f4/
+lib/umi/port/mcu/stm32f4/
 ├── usb_midi.hh            # 旧 USB MIDI — umiusb 導入前。デッドコード、削除候補
 └── usb_otg.hh             # 旧 OTG HAL — umiusb 導入前。デッドコード、削除候補
 ```
@@ -123,14 +123,14 @@ tests/test_audio.cc        # AudioEngine テスト (umi_audio.hh 使用、umiusb
 
 | ファイル | 状態 | 備考 |
 |---------|------|------|
-| `lib/umios/backend/cm/stm32f4/usb_midi.hh` | **デッドコード** | umiusb 導入前の旧実装。どこからも include されていない。削除候補 |
-| `lib/umios/backend/cm/stm32f4/usb_otg.hh` | **デッドコード** | 同上。rcc.hh が `enable_usb_otg_fs()` を持つが usb_otg.hh 自体は未使用 |
+| `lib/umi/port/mcu/stm32f4/usb_midi.hh` | **デッドコード** | umiusb 導入前の旧実装。どこからも include されていない。削除候補 |
+| `lib/umi/port/mcu/stm32f4/usb_otg.hh` | **デッドコード** | 同上。rcc.hh が `enable_usb_otg_fs()` を持つが usb_otg.hh 自体は未使用 |
 | `lib/umiusb/include/descriptor_examples.hh` | **参考のみ** | ビルドに含まれない。ディスクリプタ API の使用例 |
-| `lib/umios/kernel/modules/usb_audio_module.hh` | **未使用の可能性** | umiusb とは別の USB Audio タスク設計。stm32f4_kernel では使用していない |
-| `lib/umios/kernel/modules/audio_module.hh` | **未使用の可能性** | 独立した AudioRingBuffer / IAudioProcessor。umiusb の AudioRingBuffer とは別実装 |
-| `lib/umios/kernel/umi_audio.hh` | **テストのみ** | tests/test_audio.cc から使用。stm32f4_kernel では使用していない |
+| `lib/umi/kernel/modules/usb_audio_module.hh` | **未使用の可能性** | umiusb とは別の USB Audio タスク設計。stm32f4_kernel では使用していない |
+| `lib/umi/kernel/modules/audio_module.hh` | **未使用の可能性** | 独立した AudioRingBuffer / IAudioProcessor。umiusb の AudioRingBuffer とは別実装 |
+| `lib/umi/kernel/umi_audio.hh` | **テストのみ** | tests/test_audio.cc から使用。stm32f4_kernel では使用していない |
 
-**注意**: umios modules 内の `AudioRingBuffer` (volatile ベース SPSC) と umiusb の `AudioRingBuffer` (atomic ベース SPSC + cubic 補間 ASRC) は**別の実装**。
+**注意**: umi modules 内の `AudioRingBuffer` (volatile ベース SPSC) と umiusb の `AudioRingBuffer` (atomic ベース SPSC + cubic 補間 ASRC) は**別の実装**。
 
 ## 3. クラス・型一覧
 
@@ -458,5 +458,5 @@ TxFIFO3:   96w @ 224   Audio IN 294B
 - **macOS Full Speed**: Feedback EP の wMaxPacketSize は 3 以下必須 (xHCI babble error 回避)
 - **DWC2 iso IN パリティ**: DSTS.FNSOF の偶奇にパケットパリティを合わせること。不一致時は送信されず EPENA がクリアされない (UAC2_DUPLEX_INVESTIGATION.md 参照)
 - **Implicit feedback**: duplex async 時は明示的 FB EP を省略し Audio IN をフィードバックソースとする (Apple TN2274)
-- **AudioRingBuffer 重複**: umios/kernel/modules/audio_module.hh にも別の AudioRingBuffer がある (volatile ベース)。umiusb 版 (atomic ベース + ASRC) とは別物
+- **AudioRingBuffer 重複**: umi/kernel/modules/audio_module.hh にも別の AudioRingBuffer がある (volatile ベース)。umiusb 版 (atomic ベース + ASRC) とは別物
 - **umiusb テストなし**: tests/ に umiusb 直接のユニットテストは存在しない
