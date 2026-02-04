@@ -53,10 +53,11 @@ add_ldflags("-Wl,-L" .. path.join(os.projectdir(), "lib", "umi", "app"), {force 
 task("flash-synth-h7")
     set_category("action")
     on_run(function ()
-        print("Building H7 synth app...")
-        os.exec("xmake build daisy_pod_synth_h7")
-        print("Flash synth app to QSPI (0x90000000) via STM32CubeProgrammer:")
+        print("[DEPRECATED] Use: xmake flash -t daisy_pod_synth_h7 -a 0x90000000")
+        print("Note: Daisy Pod H7 requires STM32CubeProgrammer for QSPI flash")
         print("  STM32_Programmer_CLI -c port=SWD -el IS25LP064A_DaisySeed.stldr -w <umia> 0x90000000")
+        print("Delegating to unified flash command (pyOCD may not support QSPI)...")
+        os.exec("xmake flash -t daisy_pod_synth_h7 -a 0x90000000")
     end)
-    set_menu {usage = "xmake flash-synth-h7", description = "Build and flash H7 synth app (.umia) to QSPI"}
+    set_menu {usage = "xmake flash-synth-h7", description = "Build and flash H7 synth app (.umia) to QSPI (deprecated, use 'xmake flash -t daisy_pod_synth_h7 -a 0x90000000')"}
 task_end()

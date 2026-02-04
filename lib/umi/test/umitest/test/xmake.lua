@@ -1,5 +1,6 @@
 target("test_umitest")
     set_kind("binary")
+    set_group("tests/umitest")
     set_default(false)
     set_languages("c++23")
     add_files("test_self.cc")
