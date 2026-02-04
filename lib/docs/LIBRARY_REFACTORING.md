@@ -13,9 +13,9 @@
 ### 現状の問題
 
 1. **命名の不統一**: `umidsp::Osc` + `#include <umidsp/osc.hh>` — 「umi」プレフィックスが断片的
-2. **namespace とパスの不一致**: `umios::core::AudioContext` だがパスは `umios/core/`
+2. **namespace とパスの不一致**: `umi::core::AudioContext` だがパスは `umi/core/`
 3. **アーキテクチャの不可視**: 3層モデル（Application/Runtime/Backend）がディレクトリ構造に反映されていない
-4. **拡張時の迷い**: 新機能を `umixxx/` として独立させるか `umios/xxx/` に入れるか判断困難
+4. **拡張時の迷い**: 新機能を `umixxx/` として独立させるか `umi/xxx/` に入れるか判断困難
 
 ### 目標
 
@@ -186,16 +186,16 @@ lib/
 
 | 機能 | 旧namespace | 旧パス | 新namespace | 新パス |
 |------|------------|--------|-------------|--------|
-| AudioContext | `umios::core` | `<umios/core/audio_context.hh>` | `umi::core` | `<umi/core/audio_context.hh>` |
-| EventRouter | `umios::core` | `<umios/core/event_router.hh>` | `umi::runtime` | `<umi/runtime/event_router.hh>` |
-| Shell Service | `umios::kernel` | `<umios/kernel/umi_shell.hh>` | `umi::service::shell` | `<umi/service/shell/shell.hh>` |
-| Scheduler | `umios::kernel` | `<umios/kernel/umi_kernel.hh>` | `umi::kernel` | `<umi/kernel/scheduler.hh>` |
-| Task | `umios::kernel` | `<umios/kernel/coro.hh>` | `umi::coro` | `<umi/coro/task.hh>` |
+| AudioContext | `umi::core` | `<umi/core/audio_context.hh>` | `umi::core` | `<umi/core/audio_context.hh>` |
+| EventRouter | `umi::runtime` | `<umi/runtime/event_router.hh>` | `umi::runtime` | `<umi/runtime/event_router.hh>` |
+| Shell Service | `umi::service::shell` | `<umi/service/shell/shell.hh>` | `umi::service::shell` | `<umi/service/shell/shell.hh>` |
+| Scheduler | `umi::kernel` | `<umi/kernel/scheduler.hh>` | `umi::kernel` | `<umi/kernel/scheduler.hh>` |
+| Task | `umi::coro` | `<umi/coro/task.hh>` | `umi::coro` | `<umi/coro/task.hh>` |
 | Sine | `umidsp` | `<umidsp/osc.hh>` | `umi::dsp` | `<umi/dsp/oscillator/sine.hh>` |
 | UMP | `umidi` | `<umidi/ump.hh>` | `umi::midi` | `<umi/midi/ump.hh>` |
 | Gpio | `umiport` | `<umiport/gpio.hh>` | `umi::port` | `<umi/port/gpio.hh>` |
-| Ed25519 | `umios::crypto` | `<umios/crypto/ed25519.hh>` | `umi::crypto` | `<umi/crypto/ed25519.hh>` |
-| UIController | `umios::core::ui` | `<umios/core/ui/ui_controller.hh>` | `umi::core::ui` | `<umi/core/ui/ui_controller.hh>` |
+| Ed25519 | `umi::crypto` | `<umi/crypto/ed25519.hh>` | `umi::crypto` | `<umi/crypto/ed25519.hh>` |
+| UIController | `umi::core::ui` | `<umi/core/ui/ui_controller.hh>` | `umi::core::ui` | `<umi/core/ui/ui_controller.hh>` |
 | FatFs | `umifs::fat` | `<umifs/fat/ff.hh>` | `umi::fs::fat` | `<umi/fs/fat/ff.hh>` |
 | SLIM | `umifs::slim` | `<umifs/slim/slim.hh>` | `umi::fs::slim` | `<umi/fs/slim/slim.hh>` |
 
@@ -305,11 +305,11 @@ System Service（独立カテゴリ）:
 ### Phase 1: 準備（1日）
 
 1. **重複・未使用コード削除**（STRUCTURE_ANALYSIS.md 参照）
-   - `lib/umios/core/app.hh`（`app/umi_app.hh` と重複）
-   - `lib/umios/kernel/syscall/syscall_numbers.hh`（`core/syscall_nr.hh` と重複）
-   - `lib/umios/kernel/modules/`（`umiusb` と重複・未使用）
-   - `lib/umios/backend/cm/`（空）
-   - `lib/umios/platform/`（READMEのみ）
+   - `lib/umi/core/app.hh`（`app/umi_app.hh` と重複）
+   - `lib/umi/kernel/syscall/syscall_numbers.hh`（`core/syscall_nr.hh` と重複）
+   - `lib/umi/kernel/modules/`（`umiusb` と重複・未使用）
+   - `lib/umi/port/cm/`（空）
+   - `lib/umi/platform/`（READMEのみ）
 
 2. **移行順序の決定**（依存の少ない順）
    - Step 1: `umi/mmio/`, `umi/util/`, `umi/crypto/`（依存なし）
@@ -409,6 +409,6 @@ System Service（独立カテゴリ）:
 
 ## 参考資料
 
-- [lib/umios/docs/STRUCTURE_ANALYSIS.md](../umios/docs/STRUCTURE_ANALYSIS.md) — 現状のコードベース分析
+- [lib/umi/docs/STRUCTURE_ANALYSIS.md](../umi/docs/STRUCTURE_ANALYSIS.md) — 現状のコードベース分析
 - [lib/docs/LIBRARY_STRUCTURE.md](LIBRARY_STRUCTURE.md) — ライブラリ構造規約
 - [docs/umios-architecture/00-overview.md](../../docs/umios-architecture/00-overview.md) — 3層モデル定義

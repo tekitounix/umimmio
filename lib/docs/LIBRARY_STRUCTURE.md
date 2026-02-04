@@ -47,7 +47,7 @@ lib/<libname>/
 
 ## 依存関係
 
-- `umios/core` — AudioContext
+- `umi/core` — AudioContext
 
 ## 主要API
 
