@@ -10,7 +10,7 @@
 namespace umi::irq {
 
 /// Interrupt handler function type
-using Handler = void(*)();
+using Handler = void (*)();
 
 // ============================================================================
 // Backend Interface (must be implemented by platform backend)
@@ -63,7 +63,8 @@ bool in_isr();
 class InterruptGuard {
     int irq_;
     bool was_enabled_;
-public:
+
+  public:
     explicit InterruptGuard(int irq_num);
     ~InterruptGuard();
     InterruptGuard(const InterruptGuard&) = delete;
@@ -73,11 +74,12 @@ public:
 /// RAII guard for global interrupt disable
 class CriticalSection {
     uint32_t saved_state_;
-public:
+
+  public:
     CriticalSection();
     ~CriticalSection();
     CriticalSection(const CriticalSection&) = delete;
     CriticalSection& operator=(const CriticalSection&) = delete;
 };
 
-}  // namespace umi::irq
+} // namespace umi::irq
