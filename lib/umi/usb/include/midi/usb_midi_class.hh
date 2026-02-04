@@ -8,16 +8,16 @@
 #include <cstring>
 #include <span>
 
-#include "midi/midi_types.hh"
-#include "core/descriptor.hh"
 #include "../core/types.hh"
+#include "core/descriptor.hh"
+#include "midi/midi_types.hh"
 
 namespace umiusb {
 
 /// MIDI version for USB MIDI class
 enum class UsbMidiVersion : uint8_t {
-    MIDI_1_0 = 0,  ///< Alt Setting 0: USB MIDI 1.0 (CIN packets)
-    MIDI_2_0 = 1,  ///< Alt Setting 1: USB MIDI 2.0 (UMP native)
+    MIDI_1_0 = 0, ///< Alt Setting 0: USB MIDI 1.0 (CIN packets)
+    MIDI_2_0 = 1, ///< Alt Setting 1: USB MIDI 2.0 (UMP native)
 };
 
 /// Get UMP word count from Message Type (MT)
@@ -32,10 +32,9 @@ static constexpr uint8_t ump_word_count(uint8_t mt) {
 ///
 /// @tparam MidiOut_ MidiPort config for host-to-device (OUT)
 /// @tparam MidiIn_  MidiPort config for device-to-host (IN)
-template<typename MidiOut_ = MidiPort<1, 1>,
-         typename MidiIn_ = MidiPort<1, 1>>
+template <typename MidiOut_ = MidiPort<1, 1>, typename MidiIn_ = MidiPort<1, 1>>
 class UsbMidiClass {
-public:
+  public:
     using MidiOut = MidiOut_;
     using MidiIn = MidiIn_;
 
@@ -53,25 +52,17 @@ public:
 
     // --- Class concept required methods ---
 
-    [[nodiscard]] std::span<const uint8_t> config_descriptor() const {
-        return {descriptor_.data(), descriptor_size_};
-    }
+    [[nodiscard]] std::span<const uint8_t> config_descriptor() const { return {descriptor_.data(), descriptor_size_}; }
 
-    [[nodiscard]] std::span<const uint8_t> bos_descriptor() const {
-        return {};
-    }
+    [[nodiscard]] std::span<const uint8_t> bos_descriptor() const { return {}; }
 
-    bool handle_vendor_request(const SetupPacket& /*setup*/, std::span<uint8_t>& /*response*/) {
-        return false;
-    }
+    bool handle_vendor_request(const SetupPacket& /*setup*/, std::span<uint8_t>& /*response*/) { return false; }
 
-    void on_configured(bool configured) {
-        configured_ = configured;
-    }
+    void on_configured(bool configured) { configured_ = configured; }
 
     bool handle_request(const SetupPacket& setup, std::span<uint8_t>& /*response*/) {
         // MIDI class requests are minimal — only handle if addressed to our interface
-        if (setup.recipient() == 1) {  // Interface recipient
+        if (setup.recipient() == 1) { // Interface recipient
             uint8_t iface = setup.wIndex & 0xFF;
             if (iface == ms_iface_) {
                 // No MIDI class-specific control requests defined in MIDI 1.0
@@ -100,14 +91,14 @@ public:
     void process_ump_stream(const uint8_t* data, uint16_t len) {
         uint16_t pos = 0;
         while (pos + 3 < len) {
-            uint32_t word0 = static_cast<uint32_t>(data[pos])
-                           | (static_cast<uint32_t>(data[pos + 1]) << 8)
-                           | (static_cast<uint32_t>(data[pos + 2]) << 16)
-                           | (static_cast<uint32_t>(data[pos + 3]) << 24);
+            uint32_t word0 = static_cast<uint32_t>(data[pos]) | (static_cast<uint32_t>(data[pos + 1]) << 8) |
+                             (static_cast<uint32_t>(data[pos + 2]) << 16) |
+                             (static_cast<uint32_t>(data[pos + 3]) << 24);
             uint8_t mt = (word0 >> 28) & 0x0F;
             uint8_t words = ump_word_count(mt);
             uint16_t bytes_needed = static_cast<uint16_t>(words * 4);
-            if (pos + bytes_needed > len) break;
+            if (pos + bytes_needed > len)
+                break;
 
             // Store UMP words in ump_rx_buf_ for callback/queue
             if (ump_rx_callback_) {
@@ -120,7 +111,7 @@ public:
 
     // Optional Class concept methods
 
-    template<typename HalT>
+    template <typename HalT>
     void configure_endpoints(HalT& hal) {
         if constexpr (HAS_MIDI_OUT) {
             hal.ep_configure(EndpointConfig{
@@ -140,10 +131,10 @@ public:
         }
     }
 
-    template<typename HalT>
+    template <typename HalT>
     void on_sof(HalT& /*hal*/) {}
 
-    template<typename HalT>
+    template <typename HalT>
     void on_tx_complete(HalT& /*hal*/, uint8_t ep) {
         if constexpr (HAS_MIDI_IN) {
             if (ep == EP_MIDI_IN) {
@@ -154,7 +145,7 @@ public:
 
     // --- Set Interface (Alt Setting) ---
 
-    template<typename HalT>
+    template <typename HalT>
     void set_interface(HalT& /*hal*/, uint8_t interface, uint8_t alt_setting) {
         if (interface == ms_iface_) {
             alt_setting_ = alt_setting;
@@ -182,10 +173,12 @@ public:
 
     /// Send a MIDI message (3 bytes) on a cable.
     /// @return true if packet was queued
-    template<typename HalT>
+    template <typename HalT>
     bool send_midi(HalT& hal, uint8_t cable, const uint8_t* data, uint8_t len) {
-        if constexpr (!HAS_MIDI_IN) return false;
-        if (midi_tx_busy_ || len == 0) return false;
+        if constexpr (!HAS_MIDI_IN)
+            return false;
+        if (midi_tx_busy_ || len == 0)
+            return false;
 
         uint8_t cin = MidiProcessor::status_to_cin(data[0]);
         uint8_t header = static_cast<uint8_t>((cable << 4) | cin);
@@ -207,7 +200,7 @@ public:
 
     /// Number of interfaces consumed by this class
     [[nodiscard]] static constexpr uint8_t interface_count() {
-        return 2;  // AC interface + MS interface
+        return 2; // AC interface + MS interface
     }
 
     // --- Descriptor builder ---
@@ -218,7 +211,8 @@ public:
         std::size_t pos = 0;
 
         auto w = [&](uint8_t b) {
-            if (pos < descriptor_.size()) descriptor_[pos++] = b;
+            if (pos < descriptor_.size())
+                descriptor_[pos++] = b;
         };
 
         auto w16 = [&](uint16_t v) {
@@ -228,34 +222,48 @@ public:
 
         // Configuration descriptor header (placeholder, filled at end)
         std::size_t cfg_offset = pos;
-        for (int i = 0; i < 9; ++i) w(0);
+        for (int i = 0; i < 9; ++i)
+            w(0);
 
         // Audio Control Interface (required as parent for MIDI Streaming)
-        w(9); w(dtype::Interface);
-        w(ac_iface); w(0); w(0);  // iface, alt, num_ep
-        w(0x01); w(0x01); w(0x00); w(0);  // Audio, AudioControl, 0, iInterface
+        w(9);
+        w(dtype::Interface);
+        w(ac_iface);
+        w(0);
+        w(0); // iface, alt, num_ep
+        w(0x01);
+        w(0x01);
+        w(0x00);
+        w(0); // Audio, AudioControl, 0, iInterface
 
         // AC Header (minimal)
-        w(9); w(dtype::CsInterface); w(0x01);  // AC Header subtype
-        w16(0x0100);  // bcdADC 1.0
-        w16(9);  // wTotalLength (header only)
-        w(1);  // bInCollection
-        w(ms_iface);  // baInterfaceNr
+        w(9);
+        w(dtype::CsInterface);
+        w(0x01);     // AC Header subtype
+        w16(0x0100); // bcdADC 1.0
+        w16(9);      // wTotalLength (header only)
+        w(1);        // bInCollection
+        w(ms_iface); // baInterfaceNr
 
         // MIDI Streaming Interface
         uint8_t num_eps = (HAS_MIDI_OUT ? 1 : 0) + (HAS_MIDI_IN ? 1 : 0);
-        w(9); w(dtype::Interface);
-        w(ms_iface); w(0); w(num_eps);
-        w(0x01); w(0x03); w(0x00); w(0);  // Audio, MidiStreaming, 0, iInterface
+        w(9);
+        w(dtype::Interface);
+        w(ms_iface);
+        w(0);
+        w(num_eps);
+        w(0x01);
+        w(0x03);
+        w(0x00);
+        w(0); // Audio, MidiStreaming, 0, iInterface
 
         // MS Header
-        constexpr uint16_t ms_total = 7
-            + (HAS_MIDI_OUT ? (6 + 6) : 0)
-            + (HAS_MIDI_IN ? (6 + 6) : 0)
-            + (HAS_MIDI_OUT ? (9 + 5) : 0)
-            + (HAS_MIDI_IN ? (9 + 5) : 0);
-        w(7); w(dtype::CsInterface); w(0x01);  // MS Header
-        w16(0x0100);  // bcdMSC 1.0
+        constexpr uint16_t ms_total = 7 + (HAS_MIDI_OUT ? (6 + 6) : 0) + (HAS_MIDI_IN ? (6 + 6) : 0) +
+                                      (HAS_MIDI_OUT ? (9 + 5) : 0) + (HAS_MIDI_IN ? (9 + 5) : 0);
+        w(7);
+        w(dtype::CsInterface);
+        w(0x01);     // MS Header
+        w16(0x0100); // bcdMSC 1.0
         w16(ms_total);
 
         uint8_t jack_id = 1;
@@ -266,15 +274,21 @@ public:
         if constexpr (HAS_MIDI_OUT) {
             // Embedded IN Jack
             emb_in_jack = jack_id++;
-            w(6); w(dtype::CsInterface); w(0x02);  // MIDI_IN_JACK
-            w(0x01);  // Embedded
-            w(emb_in_jack); w(0);
+            w(6);
+            w(dtype::CsInterface);
+            w(0x02); // MIDI_IN_JACK
+            w(0x01); // Embedded
+            w(emb_in_jack);
+            w(0);
 
             // External IN Jack
             ext_in_jack = jack_id++;
-            w(6); w(dtype::CsInterface); w(0x02);
-            w(0x02);  // External
-            w(ext_in_jack); w(0);
+            w(6);
+            w(dtype::CsInterface);
+            w(0x02);
+            w(0x02); // External
+            w(ext_in_jack);
+            w(0);
         }
 
         // MIDI IN jacks (device -> host)
@@ -283,85 +297,120 @@ public:
         if constexpr (HAS_MIDI_IN) {
             // Embedded OUT Jack
             emb_out_jack = jack_id++;
-            w(9); w(dtype::CsInterface); w(0x03);  // MIDI_OUT_JACK
-            w(0x01);  // Embedded
+            w(9);
+            w(dtype::CsInterface);
+            w(0x03); // MIDI_OUT_JACK
+            w(0x01); // Embedded
             w(emb_out_jack);
-            w(1);  // bNrInputPins
-            w(ext_in_jack ? ext_in_jack : jack_id);  // Source (External IN)
-            w(1);  // Pin
-            w(0);  // iJack
+            w(1);                                   // bNrInputPins
+            w(ext_in_jack ? ext_in_jack : jack_id); // Source (External IN)
+            w(1);                                   // Pin
+            w(0);                                   // iJack
 
             // External OUT Jack
             ext_out_jack = jack_id++;
-            w(9); w(dtype::CsInterface); w(0x03);
-            w(0x02);  // External
+            w(9);
+            w(dtype::CsInterface);
+            w(0x03);
+            w(0x02); // External
             w(ext_out_jack);
             w(1);
-            w(emb_in_jack ? emb_in_jack : jack_id);  // Source (Embedded IN)
-            w(1); w(0);
+            w(emb_in_jack ? emb_in_jack : jack_id); // Source (Embedded IN)
+            w(1);
+            w(0);
         }
 
         // Endpoints
         if constexpr (HAS_MIDI_OUT) {
             // Bulk OUT
-            w(9); w(dtype::Endpoint);
-            w(EP_MIDI_OUT);  // OUT
-            w(0x02);  // Bulk
+            w(9);
+            w(dtype::Endpoint);
+            w(EP_MIDI_OUT); // OUT
+            w(0x02);        // Bulk
             w16(MidiOut::PACKET_SIZE);
-            w(0); w(0); w(0);  // bInterval, bRefresh, bSynchAddress
+            w(0);
+            w(0);
+            w(0); // bInterval, bRefresh, bSynchAddress
 
             // CS Endpoint
-            w(5); w(dtype::CsEndpoint); w(0x01);  // MS_GENERAL
-            w(1); w(emb_in_jack);  // bNumEmbMIDIJack, baAssocJackID
+            w(5);
+            w(dtype::CsEndpoint);
+            w(0x01); // MS_GENERAL
+            w(1);
+            w(emb_in_jack); // bNumEmbMIDIJack, baAssocJackID
         }
 
         if constexpr (HAS_MIDI_IN) {
             // Bulk IN
-            w(9); w(dtype::Endpoint);
-            w(static_cast<uint8_t>(0x80 | EP_MIDI_IN));  // IN
-            w(0x02);  // Bulk
+            w(9);
+            w(dtype::Endpoint);
+            w(static_cast<uint8_t>(0x80 | EP_MIDI_IN)); // IN
+            w(0x02);                                    // Bulk
             w16(MidiIn::PACKET_SIZE);
-            w(0); w(0); w(0);
+            w(0);
+            w(0);
+            w(0);
 
             // CS Endpoint
-            w(5); w(dtype::CsEndpoint); w(0x01);
-            w(1); w(emb_out_jack);
+            w(5);
+            w(dtype::CsEndpoint);
+            w(0x01);
+            w(1);
+            w(emb_out_jack);
         }
 
         // --- Alt Setting 1: USB MIDI 2.0 (UMP native) ---
         // MIDI Streaming Interface Alt Setting 1
-        w(9); w(dtype::Interface);
-        w(ms_iface); w(1); w(num_eps);  // alt_setting=1
-        w(0x01); w(0x03); w(0x00); w(0);  // Audio, MidiStreaming, 0, iInterface
+        w(9);
+        w(dtype::Interface);
+        w(ms_iface);
+        w(1);
+        w(num_eps); // alt_setting=1
+        w(0x01);
+        w(0x03);
+        w(0x00);
+        w(0); // Audio, MidiStreaming, 0, iInterface
 
         // MS 2.0 Header (class-specific)
-        w(7); w(dtype::CsInterface); w(0x01);  // MS Header
-        w16(0x0200);  // bcdMSC 2.0
-        w16(7);       // wTotalLength (header only, GTB is separate)
+        w(7);
+        w(dtype::CsInterface);
+        w(0x01);     // MS Header
+        w16(0x0200); // bcdMSC 2.0
+        w16(7);      // wTotalLength (header only, GTB is separate)
 
         // Endpoints for Alt Setting 1 (same EPs, same config)
         if constexpr (HAS_MIDI_OUT) {
-            w(9); w(dtype::Endpoint);
+            w(9);
+            w(dtype::Endpoint);
             w(EP_MIDI_OUT);
-            w(0x02);  // Bulk
+            w(0x02); // Bulk
             w16(MidiOut::PACKET_SIZE);
-            w(0); w(0); w(0);
+            w(0);
+            w(0);
+            w(0);
 
             // MS 2.0 CS Endpoint (MS_GENERAL_2_0)
-            w(4); w(dtype::CsEndpoint); w(0x02);  // MS_GENERAL_2_0
-            w(1);  // bNumGrpTrmBlock
+            w(4);
+            w(dtype::CsEndpoint);
+            w(0x02); // MS_GENERAL_2_0
+            w(1);    // bNumGrpTrmBlock
         }
 
         if constexpr (HAS_MIDI_IN) {
-            w(9); w(dtype::Endpoint);
+            w(9);
+            w(dtype::Endpoint);
             w(static_cast<uint8_t>(0x80 | EP_MIDI_IN));
-            w(0x02);  // Bulk
+            w(0x02); // Bulk
             w16(MidiIn::PACKET_SIZE);
-            w(0); w(0); w(0);
+            w(0);
+            w(0);
+            w(0);
 
             // MS 2.0 CS Endpoint
-            w(4); w(dtype::CsEndpoint); w(0x02);  // MS_GENERAL_2_0
-            w(1);  // bNumGrpTrmBlock
+            w(4);
+            w(dtype::CsEndpoint);
+            w(0x02); // MS_GENERAL_2_0
+            w(1);    // bNumGrpTrmBlock
         }
 
         descriptor_size_ = static_cast<uint16_t>(pos);
@@ -371,14 +420,14 @@ public:
         descriptor_[cfg_offset + 1] = dtype::Configuration;
         descriptor_[cfg_offset + 2] = static_cast<uint8_t>(pos & 0xFF);
         descriptor_[cfg_offset + 3] = static_cast<uint8_t>((pos >> 8) & 0xFF);
-        descriptor_[cfg_offset + 4] = 2;  // bNumInterfaces
-        descriptor_[cfg_offset + 5] = 1;  // bConfigurationValue
-        descriptor_[cfg_offset + 6] = 0;  // iConfiguration
-        descriptor_[cfg_offset + 7] = 0xC0;  // bmAttributes (self-powered)
-        descriptor_[cfg_offset + 8] = 50;  // bMaxPower (100mA)
+        descriptor_[cfg_offset + 4] = 2;    // bNumInterfaces
+        descriptor_[cfg_offset + 5] = 1;    // bConfigurationValue
+        descriptor_[cfg_offset + 6] = 0;    // iConfiguration
+        descriptor_[cfg_offset + 7] = 0xC0; // bmAttributes (self-powered)
+        descriptor_[cfg_offset + 8] = 50;   // bMaxPower (100mA)
     }
 
-private:
+  private:
     MidiProcessor midi_processor_;
     bool configured_ = false;
     bool midi_tx_busy_ = false;
@@ -397,4 +446,4 @@ private:
     uint16_t descriptor_size_ = 0;
 };
 
-}  // namespace umiusb
+} // namespace umiusb
