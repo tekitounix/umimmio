@@ -21,7 +21,9 @@ xmake test
 xmake clean
 
 # 6) 情報表示
-xmake show
+xmake info
+
+> 補足: xmake標準の `xmake show` も利用可能です。
 ```
 
 ## コード品質（xmake標準機能）
@@ -71,6 +73,10 @@ xmake flash -t synth_app -a 0x08060000
 
 # オプション
 xmake flash --help              # 全オプションを表示
+
+# ツール状態/接続プローブ確認
+xmake flash.status
+xmake flash.probes
 ```
 
 ### デバッグ
@@ -87,13 +93,10 @@ xmake debugger --help           # オプション一覧
 # Renode対話セッション
 xmake emulator.run
 
-# 自動テスト
+# 自動テスト（Robot Framework）
 xmake emulator.test
 
-# Robot Frameworkテスト
-xmake emulator.robot
-
-# ヘルプ表示
+# ヘルプ表示（--help は未対応）
 xmake emulator
 ```
 
@@ -108,6 +111,9 @@ xmake deploy.webhost
 
 # デプロイしてローカルサーバー起動
 xmake deploy.serve
+
+> 注意: `deploy.webhost` / `deploy.serve` は `--help` 未対応です。
+> Emscripten が無い場合は `webhost_sim.wasm` が生成されず失敗します。
 ```
 
 ## テスト
@@ -136,7 +142,7 @@ xmake test -g "tests/*"
 | 静的解析 | `xmake check clang.tidy` | xmake標準 |
 | デバッグビルド | `xmake f -m debug && xmake` | xmake標準 |
 | テスト | `xmake test` | プロジェクト定義 |
-| プロジェクト情報 | `xmake show` | xmake標準 |
+| プロジェクト情報 | `xmake info` | プロジェクト定義 |
 | フラッシュ | `xmake flash -t <target>` | arm-embedded |
 | GDBデバッガー | `xmake debugger -t <target>` | arm-embedded |
 | エミュレータ | `xmake emulator.*` | arm-embedded |

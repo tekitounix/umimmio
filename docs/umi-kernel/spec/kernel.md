@@ -50,12 +50,12 @@ FPU 使用有無はタスク作成時の `uses_fpu` により決定し、
 退避方式（lazy stacking など）は **MCU/ポート実装依存**である。
 
 ```cpp
-// lib/umios/kernel/port/cm4/context.hh
+// lib/umi/kernel/port/cm4/context.hh
 *(--stack_top) = uses_fpu ? exc_return::THREAD_PSP_EXTENDED
                           : exc_return::THREAD_PSP_BASIC;
 ```
 
-FPU の詳細動作はポート実装に従う（例: [lib/umios/kernel/port/cm4/context.hh](lib/umios/kernel/port/cm4/context.hh)）。
+FPU の詳細動作はポート実装に従う（例: [lib/umi/kernel/port/cm4/context.hh](lib/umi/kernel/port/cm4/context.hh)）。
 
 ---
 
@@ -66,7 +66,7 @@ FPU の詳細動作はポート実装に従う（例: [lib/umios/kernel/port/cm4
 
 **実装抜粋（O(1) ビットマップ選択）**
 ```cpp
-// lib/umios/kernel/umi_kernel.hh
+// lib/umi/kernel/umi_kernel.hh
 auto bitmap = ready_bitmap_.load(std::memory_order_acquire);
 if (bitmap == 0) {
     return std::nullopt;
@@ -76,7 +76,7 @@ auto highest_prio = static_cast<std::size_t>(__builtin_ctz(bitmap));
 
 **実装抜粋（wait_block の原子性）**
 ```cpp
-// lib/umios/kernel/umi_kernel.hh
+// lib/umi/kernel/umi_kernel.hh
 std::uint32_t wait_block(TaskId id, std::uint32_t mask) {
 	{
 		MaskedCritical<HW> guard;
@@ -104,7 +104,7 @@ std::uint32_t wait_block(TaskId id, std::uint32_t mask) {
 
 **実装抜粋（クリティカルセクション）**
 ```cpp
-// lib/umios/kernel/umi_kernel.hh
+// lib/umi/kernel/umi_kernel.hh
 template <class HW>
 class MaskedCritical {
 public:
@@ -124,7 +124,7 @@ public:
 
 **実装抜粋（イベントフラグ定義）**
 ```cpp
-// lib/umios/kernel/umi_kernel.hh
+// lib/umi/kernel/umi_kernel.hh
 namespace KernelEvent {
     constexpr std::uint32_t AudioReady = 1 << 0;
     constexpr std::uint32_t MidiReady  = 1 << 1;
@@ -134,7 +134,7 @@ namespace KernelEvent {
 
 **実装抜粋（SPSC キュー）**
 ```cpp
-// lib/umios/kernel/umi_kernel.hh
+// lib/umi/kernel/umi_kernel.hh
 template <typename T, std::size_t Capacity>
 class SpscQueue {
 public:

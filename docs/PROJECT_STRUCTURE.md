@@ -32,10 +32,10 @@ lib/umi/
 └── xmake.lua                    # 全ライブラリのインクルードパスを提供するメタパッケージ
 ```
 
-### lib/umios/ — OSコア・カーネル
+### lib/umi/ — OSコア・カーネル
 
 ```
-lib/umios/
+lib/umi/
 ├── core/                        # === 基本型・インターフェース ===
 │   ├── audio_context.hh         # AudioContext構造体（process()に渡されるI/Oバッファ・イベント・タイミング情報）
 │   ├── processor.hh             # ProcessorLike concept, PortDescriptor, ParamDescriptor

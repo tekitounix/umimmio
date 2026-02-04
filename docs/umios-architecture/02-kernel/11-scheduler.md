@@ -140,7 +140,7 @@ enum class FpuPolicy : uint8_t {
 自動決定は `consteval` で実現される。カーネル側で `TaskFpuDecl` を宣言すると、各タスクの `FpuPolicy` がコンパイル時に確定する:
 
 ```cpp
-#include <umios/kernel/fpu_policy.hh>
+#include <umi/kernel/fpu_policy.hh>
 
 static constexpr umi::TaskFpuDecl fpu_decl {
     .audio   = true,

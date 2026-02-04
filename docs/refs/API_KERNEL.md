@@ -5,7 +5,7 @@
 組込み環境でのカーネル直接操作。アプリケーションは通常 syscall 経由でアクセス。
 
 ```cpp
-#include <umios/kernel/umi_kernel.hh>
+#include <umi/kernel/umi_kernel.hh>
 ```
 
 ---
@@ -13,7 +13,7 @@
 ## Syscall ABI ✓
 
 ```cpp
-// lib/umios/app/syscall.hh
+// lib/umi/app/syscall.hh
 
 namespace umi::syscall::nr {
     // Process control
@@ -71,7 +71,7 @@ inline int32_t call(uint32_t nr, uint32_t a0 = 0, uint32_t a1 = 0,
 ## 動的IRQ登録
 
 ```cpp
-#include <umios/backend/cm/irq.hh>
+#include <common/irq.hh>
 
 // IRQハンドラをラムダで登録
 umi::irq::init();

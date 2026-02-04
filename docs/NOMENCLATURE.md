@@ -93,21 +93,21 @@
 | 用語 | 定義 | 該当ファイル/ディレクトリ |
 |------|------|-------------------------|
 | **UMI Project** | プロジェクト全体の総称。OS、ライブラリ、ツール群すべてを含む | `/` (ルート) |
-| **UMI-OS Specification** | syscall ABI、メモリレイアウト、バイナリ形式等の**仕様定義** | `docs/specs/`, `lib/umios/app/syscall.hh` (定義部分) |
-| **UMI-OS Kernel** | 仕様を実装したカーネル本体。アプリをホストする**ファームウェア全体** | `lib/umios/kernel/`, `examples/stm32f4_kernel/` |
-| **UMI HAL** | MCU固有のハードウェアドライバ群 | `lib/umios/backend/` |
+| **UMI-OS Specification** | syscall ABI、メモリレイアウト、バイナリ形式等の**仕様定義** | `docs/specs/`, `lib/umi/app/syscall.hh` (定義部分) |
+| **UMI-OS Kernel** | 仕様を実装したカーネル本体。アプリをホストする**ファームウェア全体** | `lib/umi/kernel/`, `examples/stm32f4_kernel/` |
+| **UMI HAL** | MCU固有のハードウェアドライバ群 | `lib/umi/port/` |
 | **UMI Libraries** | OS非依存の再利用可能ライブラリ | `lib/umidsp/`, `lib/umidi/`, `lib/umiusb/` |
-| **UMI App SDK** | アプリケーション開発者向けAPI・ツール | `lib/umios/app/`, `lib/umi/tools/build/make_umia.py` |
+| **UMI App SDK** | アプリケーション開発者向けAPI・ツール | `lib/umi/app/`, `lib/umi/tools/build/make_umia.py` |
 
 ### カーネル内部コンポーネント
 
 | 用語 | 定義 | 該当ファイル |
 |------|------|-------------|
-| **RTOS Core** | タスクスケジューリング機構。4優先度プリエンプティブスケジューラ、コンテキストスイッチ | `lib/umios/kernel/scheduler.hh`, `lib/umios/kernel/task.hh` |
-| **Syscall Handler** | SVC例外ハンドラ。アプリからのsyscallをディスパッチ | `lib/umios/kernel/syscall_handler.hh` |
-| **App Loader** | `.umia`バイナリのロード、署名検証、MPU設定 | `lib/umios/kernel/loader.cc` |
-| **Device Drivers** | ハードウェアデバイスドライバ群 | `lib/umiusb/`, `lib/umios/backend/` |
-| **Shell** | 管理用CLIインターフェース | `lib/umios/kernel/shell_commands.hh` |
+| **RTOS Core** | タスクスケジューリング機構。4優先度プリエンプティブスケジューラ、コンテキストスイッチ | `lib/umi/kernel/scheduler.hh`, `lib/umi/kernel/task.hh` |
+| **Syscall Handler** | SVC例外ハンドラ。アプリからのsyscallをディスパッチ | `lib/umi/kernel/syscall_handler.hh` |
+| **App Loader** | `.umia`バイナリのロード、署名検証、MPU設定 | `lib/umi/service/loader/loader.cc` |
+| **Device Drivers** | ハードウェアデバイスドライバ群 | `lib/umiusb/`, `lib/umi/port/` |
+| **Shell** | 管理用CLIインターフェース | `lib/umi/service/shell/shell_commands.hh` |
 
 ### RTOS Core 詳細
 
@@ -136,10 +136,10 @@
 
 ```
 lib/
-├── umios/                    # UMI-OS (Kernel + App SDK)
+├── umi/                      # UMI-OS (Kernel + App SDK)
 │   ├── kernel/               # UMI-OS Kernel実装
 │   ├── app/                  # UMI App SDK
-│   └── backend/              # UMI HAL
+│   └── port/                 # UMI HAL
 ├── umidsp/                   # UMI Libraries - DSP
 ├── umidi/                    # UMI Libraries - MIDI
 ├── umiusb/                   # UMI Libraries - USB
