@@ -1,10 +1,10 @@
 #pragma once
-#include <cstdint>
-#include <cstddef>
 #include <array>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
-#include <atomic>
 #include <type_traits>
 
 // =====================================================================
@@ -27,47 +27,47 @@ using usec = std::uint64_t;
 
 /// Task priority levels (lower value = higher priority)
 enum class Priority : std::uint8_t {
-    REALTIME = 0,  ///< Audio processing, DMA callbacks - highest
-    SERVER   = 1,  ///< Drivers, I/O handlers
-    USER     = 2,  ///< Application tasks - round-robin among same priority
-    IDLE     = 3,  ///< Background, sleep management - lowest
+    REALTIME = 0, ///< Audio processing, DMA callbacks - highest
+    SERVER = 1,   ///< Drivers, I/O handlers
+    USER = 2,     ///< Application tasks - round-robin among same priority
+    IDLE = 3,     ///< Background, sleep management - lowest
 };
 
 /// Core affinity
 enum class Core : std::uint8_t {
-    ANY = 0xFF,  ///< Can run on any core
+    ANY = 0xFF, ///< Can run on any core
 };
 
 /// Task identifier (opaque handle)
 struct TaskId {
-    std::uint16_t value {0xFFFF};
+    std::uint16_t value{0xFFFF};
     constexpr bool valid() const { return value != 0xFFFF; }
 };
 
 /// Task configuration for create_task()
 struct TaskConfig {
-    void (*entry)(void*) {nullptr};  ///< Task entry point
-    void* arg {nullptr};             ///< Argument passed to entry
-    Priority prio {Priority::IDLE};  ///< Task priority
-    std::uint8_t core_affinity {static_cast<std::uint8_t>(Core::ANY)};
-    bool uses_fpu {true};            ///< Whether this task uses FPU (default: safe)
-    const char* name {"<unnamed>"};  ///< Task name for debugging/shell
+    void (*entry)(void*){nullptr}; ///< Task entry point
+    void* arg{nullptr};            ///< Argument passed to entry
+    Priority prio{Priority::IDLE}; ///< Task priority
+    std::uint8_t core_affinity{static_cast<std::uint8_t>(Core::ANY)};
+    bool uses_fpu{true};           ///< Whether this task uses FPU (default: safe)
+    const char* name{"<unnamed>"}; ///< Task name for debugging/shell
 };
 
 /// Event bits for wait() syscall
-/// Must match lib/umios/app/syscall.hh event::*
+/// Must match lib/umi/app/syscall.hh event::*
 namespace KernelEvent {
-    constexpr std::uint32_t audio    = 1 << 0;
-    constexpr std::uint32_t midi     = 1 << 1;
-    constexpr std::uint32_t vsync    = 1 << 2;
-    constexpr std::uint32_t timer    = 1 << 3;
-    constexpr std::uint32_t control  = 1 << 4;
-    constexpr std::uint32_t shutdown = 1u << 31;
+constexpr std::uint32_t audio = 1 << 0;
+constexpr std::uint32_t midi = 1 << 1;
+constexpr std::uint32_t vsync = 1 << 2;
+constexpr std::uint32_t timer = 1 << 3;
+constexpr std::uint32_t control = 1 << 4;
+constexpr std::uint32_t shutdown = 1u << 31;
 
-    // Legacy aliases (will be removed)
-    constexpr std::uint32_t AudioReady = audio;
-    constexpr std::uint32_t MidiReady  = midi;
-}
+// Legacy aliases (will be removed)
+constexpr std::uint32_t AudioReady = audio;
+constexpr std::uint32_t MidiReady = midi;
+} // namespace KernelEvent
 
 /// Crash dump information passed to kernel panic handler
 struct CrashDump {
@@ -127,7 +127,7 @@ struct Hw {
 /// RAII critical section guard
 template <class HW>
 class MaskedCritical {
-public:
+  public:
     MaskedCritical() { HW::enter_critical(); }
     ~MaskedCritical() { HW::exit_critical(); }
     MaskedCritical(const MaskedCritical&) = delete;
@@ -141,7 +141,7 @@ class SpscQueue {
     static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be power of 2");
     static_assert(std::is_trivially_copyable_v<T>, "T must be trivially copyable");
 
-public:
+  public:
     constexpr SpscQueue() = default;
 
     SpscQueue(const SpscQueue&) = delete;
@@ -193,7 +193,8 @@ public:
         std::size_t count = 0;
         while (count < dest.size()) {
             auto item = try_pop();
-            if (!item) break;
+            if (!item)
+                break;
             dest[count++] = *item;
         }
         return count;
@@ -206,54 +207,58 @@ public:
     }
 
     bool empty_approx() const {
-        return read_pos_.load(std::memory_order_relaxed) ==
-               write_pos_.load(std::memory_order_relaxed);
+        return read_pos_.load(std::memory_order_relaxed) == write_pos_.load(std::memory_order_relaxed);
     }
 
     static constexpr std::size_t capacity() { return Capacity; }
 
-private:
+  private:
     static constexpr std::size_t mask() { return Capacity - 1; }
 
-    std::array<T, Capacity> buffer_ {};
+    std::array<T, Capacity> buffer_{};
 
     // Cache line separation to avoid false sharing
-    alignas(64) std::atomic<std::size_t> write_pos_ {0};
-    alignas(64) std::atomic<std::size_t> read_pos_ {0};
+    alignas(64) std::atomic<std::size_t> write_pos_{0};
+    alignas(64) std::atomic<std::size_t> read_pos_{0};
 };
 
 /// Task notification flags (lightweight event system).
 template <std::size_t MaxTasks>
 struct Notification {
-    std::array<std::atomic<std::uint32_t>, MaxTasks> flags {};
-    std::array<std::uint32_t, MaxTasks> wait_mask {};
+    std::array<std::atomic<std::uint32_t>, MaxTasks> flags{};
+    std::array<std::uint32_t, MaxTasks> wait_mask{};
 
     void notify(TaskId id, std::uint32_t bits) {
-        if (!id.valid() || id.value >= MaxTasks) return;
+        if (!id.valid() || id.value >= MaxTasks)
+            return;
         flags[id.value].fetch_or(bits, std::memory_order_release);
     }
 
     std::uint32_t take(TaskId id, std::uint32_t mask) {
-        if (!id.valid() || id.value >= MaxTasks) return 0;
+        if (!id.valid() || id.value >= MaxTasks)
+            return 0;
         std::uint32_t old = flags[id.value].load(std::memory_order_acquire);
         std::uint32_t v = old & mask;
         while (v != 0 && !flags[id.value].compare_exchange_weak(
-            old, old & ~mask, std::memory_order_acq_rel, std::memory_order_acquire)) {
+                             old, old & ~mask, std::memory_order_acq_rel, std::memory_order_acquire)) {
             v = old & mask;
         }
         return v;
     }
 
     void set_wait_mask(TaskId id, std::uint32_t mask) {
-        if (id.valid() && id.value < MaxTasks) wait_mask[id.value] = mask;
+        if (id.valid() && id.value < MaxTasks)
+            wait_mask[id.value] = mask;
     }
 
     void clear_wait_mask(TaskId id) {
-        if (id.valid() && id.value < MaxTasks) wait_mask[id.value] = 0;
+        if (id.valid() && id.value < MaxTasks)
+            wait_mask[id.value] = 0;
     }
 
     bool should_wake(TaskId id) const {
-        if (!id.valid() || id.value >= MaxTasks) return false;
+        if (!id.valid() || id.value >= MaxTasks)
+            return false;
         return (flags[id.value].load(std::memory_order_acquire) & wait_mask[id.value]) != 0;
     }
 };
@@ -265,7 +270,7 @@ struct Notification {
 /// High-resolution cycle counter stopwatch.
 template <class HW>
 class Stopwatch {
-public:
+  public:
     void start() { start_cycles_ = HW::cycle_count(); }
 
     std::uint32_t stop() {
@@ -276,56 +281,53 @@ public:
 
     std::uint32_t elapsed_cycles() const { return elapsed_cycles_; }
 
-    usec elapsed_usecs() const {
-        return elapsed_cycles_ / HW::cycles_per_usec();
-    }
+    usec elapsed_usecs() const { return elapsed_cycles_ / HW::cycles_per_usec(); }
 
-private:
-    std::uint32_t start_cycles_ {0};
-    std::uint32_t elapsed_cycles_ {0};
+  private:
+    std::uint32_t start_cycles_{0};
+    std::uint32_t elapsed_cycles_{0};
 };
 
 /// CPU load monitor with moving average.
 template <class HW, std::size_t AvgWindow = 8>
 class LoadMonitor {
-public:
+  public:
     void begin() { watch_.start(); }
 
     void end(std::uint32_t budget_cycles) {
         std::uint32_t used = watch_.stop();
 
         std::uint32_t load = (budget_cycles > 0) ? (used * 10000 / budget_cycles) : 0;
-        if (load > 10000) load = 10000;
+        if (load > 10000)
+            load = 10000;
 
         instant_load_ = load;
-        if (load > peak_load_) peak_load_ = load;
+        if (load > peak_load_)
+            peak_load_ = load;
 
         avg_sum_ -= avg_buffer_[avg_idx_];
         avg_buffer_[avg_idx_] = load;
         avg_sum_ += load;
         avg_idx_ = (avg_idx_ + 1) % AvgWindow;
-        if (avg_count_ < AvgWindow) ++avg_count_;
+        if (avg_count_ < AvgWindow)
+            ++avg_count_;
     }
 
     std::uint32_t instant() const { return instant_load_; }
-    std::uint32_t average() const {
-        return (avg_count_ > 0) ? (avg_sum_ / avg_count_) : 0;
-    }
+    std::uint32_t average() const { return (avg_count_ > 0) ? (avg_sum_ / avg_count_) : 0; }
     std::uint32_t peak() const { return peak_load_; }
     void reset_peak() { peak_load_ = 0; }
 
-    static float to_percent(std::uint32_t load) {
-        return static_cast<float>(load) / 100.0f;
-    }
+    static float to_percent(std::uint32_t load) { return static_cast<float>(load) / 100.0f; }
 
-private:
-    Stopwatch<HW> watch_ {};
-    std::uint32_t instant_load_ {0};
-    std::uint32_t peak_load_ {0};
-    std::array<std::uint32_t, AvgWindow> avg_buffer_ {};
-    std::uint32_t avg_sum_ {0};
-    std::size_t avg_idx_ {0};
-    std::size_t avg_count_ {0};
+  private:
+    Stopwatch<HW> watch_{};
+    std::uint32_t instant_load_{0};
+    std::uint32_t peak_load_{0};
+    std::array<std::uint32_t, AvgWindow> avg_buffer_{};
+    std::uint32_t avg_sum_{0};
+    std::size_t avg_idx_{0};
+    std::size_t avg_count_{0};
 };
 
 // =====================================================================
@@ -333,24 +335,25 @@ private:
 // =====================================================================
 
 struct TimerCallback {
-    void (*fn)(void*) {nullptr};
-    void* ctx {nullptr};
+    void (*fn)(void*){nullptr};
+    void* ctx{nullptr};
 };
 
 /// Delta-encoded timer queue for efficient tickless operation.
 template <std::size_t MaxTimers>
 class TimerQueue {
-public:
+  public:
     struct Node {
-        usec delta {0};
-        TimerCallback cb {};
-        bool used {false};
-        std::optional<std::uint8_t> next {};
+        usec delta{0};
+        TimerCallback cb{};
+        bool used{false};
+        std::optional<std::uint8_t> next{};
     };
 
     bool schedule(usec now, usec target, TimerCallback cb) {
         auto free_idx = find_free();
-        if (!free_idx.has_value()) return false;
+        if (!free_idx.has_value())
+            return false;
         nodes[*free_idx].used = true;
         nodes[*free_idx].cb = cb;
         usec rel = (target > now) ? (target - now) : 0;
@@ -359,18 +362,21 @@ public:
     }
 
     std::optional<usec> next_expiry(usec now) const {
-        if (!head.has_value()) return std::nullopt;
+        if (!head.has_value())
+            return std::nullopt;
         return now + nodes[*head].delta;
     }
 
     void dispatch_due([[maybe_unused]] usec now) {
         while (head.has_value()) {
             auto idx = *head;
-            if (nodes[idx].delta > 0) break;
+            if (nodes[idx].delta > 0)
+                break;
             auto cb = nodes[idx].cb;
             head = nodes[idx].next;
             nodes[idx] = {};
-            if (cb.fn) cb.fn(cb.ctx);
+            if (cb.fn)
+                cb.fn(cb.ctx);
         }
     }
 
@@ -389,13 +395,14 @@ public:
         }
     }
 
-private:
-    std::optional<std::uint8_t> head {};
-    std::array<Node, MaxTimers> nodes {};
+  private:
+    std::optional<std::uint8_t> head{};
+    std::array<Node, MaxTimers> nodes{};
 
     std::optional<std::uint8_t> find_free() {
         for (std::uint8_t i = 0; i < nodes.size(); ++i) {
-            if (!nodes[i].used) return i;
+            if (!nodes[i].used)
+                return i;
         }
         return std::nullopt;
     }
@@ -434,16 +441,16 @@ private:
 
 template <std::size_t MaxTasks, std::size_t MaxTimers, class HW, std::size_t MaxCores = 2>
 class Kernel {
-public:
+  public:
     static constexpr std::size_t max_cores = MaxCores;
     static constexpr std::size_t num_priorities = 4;
 
     enum class State : std::uint8_t { UNUSED, READY, RUNNING, BLOCKED };
 
     struct Tcb {
-        TaskConfig cfg {};
-        State state {State::UNUSED};
-        std::uint8_t next {0xFF};
+        TaskConfig cfg{};
+        State state{State::UNUSED};
+        std::uint8_t next{0xFF};
     };
 
     Kernel() = default;
@@ -455,7 +462,8 @@ public:
     TaskId create_task(const TaskConfig& cfg) {
         MaskedCritical<HW> guard;
         auto id = allocate_tcb();
-        if (!id.valid()) return {};
+        if (!id.valid())
+            return {};
         auto& t = tasks[id.value];
         t.cfg = cfg;
         t.state = State::READY;
@@ -466,17 +474,21 @@ public:
 
     void resume_task(TaskId id) {
         MaskedCritical<HW> guard;
-        if (!valid_task(id)) return;
+        if (!valid_task(id))
+            return;
         auto s = tasks[id.value].state;
-        if (s == State::READY || s == State::RUNNING) return;
+        if (s == State::READY || s == State::RUNNING)
+            return;
         set_ready_with_bitmap(id);
         schedule();
     }
 
     void suspend_task(TaskId id) {
         MaskedCritical<HW> guard;
-        if (!valid_task(id)) return;
-        if (tasks[id.value].state == State::BLOCKED) return;
+        if (!valid_task(id))
+            return;
+        if (tasks[id.value].state == State::BLOCKED)
+            return;
         set_blocked_with_bitmap(id);
         auto cur = current_task();
         if (cur.has_value() && cur->value == id.value) {
@@ -486,7 +498,8 @@ public:
 
     bool delete_task(TaskId id) {
         MaskedCritical<HW> guard;
-        if (!valid_task(id)) return false;
+        if (!valid_task(id))
+            return false;
 
         auto cur = current_task();
         if (cur.has_value() && cur->value == id.value) {
@@ -508,9 +521,7 @@ public:
         return true;
     }
 
-    void yield() {
-        schedule();
-    }
+    void yield() { schedule(); }
 
     // -----------------------------------------------------------------
     // Task Notification
@@ -519,15 +530,14 @@ public:
     /// Signal a task (set notification bits) without scheduling.
     /// Lock-free, safe to call from any ISR including those above BASEPRI.
     /// Caller must trigger PendSV or call resolve_pending() to wake the task.
-    void signal(TaskId id, std::uint32_t bits) {
-        notifications.notify(id, bits);
-    }
+    void signal(TaskId id, std::uint32_t bits) { notifications.notify(id, bits); }
 
     /// Resolve pending signals: wake blocked tasks whose wait_mask is satisfied.
     /// Must be called under MaskedCritical (or from PendSV/SysTick context).
     void resolve_pending() {
         for (std::uint16_t i = 0; i < tasks.size(); ++i) {
-            if (tasks[i].state != State::BLOCKED) continue;
+            if (tasks[i].state != State::BLOCKED)
+                continue;
             TaskId id{i};
             if (notifications.should_wake(id)) {
                 tasks[i].state = State::READY;
@@ -543,8 +553,10 @@ public:
     void notify(TaskId id, std::uint32_t bits) {
         notifications.notify(id, bits);
 
-        if (!valid_task(id)) return;
-        if (tasks[id.value].state != State::BLOCKED) return;
+        if (!valid_task(id))
+            return;
+        if (tasks[id.value].state != State::BLOCKED)
+            return;
 
         MaskedCritical<HW> guard;
         if (tasks[id.value].state == State::BLOCKED) {
@@ -558,9 +570,7 @@ public:
     }
 
     /// Non-blocking wait: take flags immediately.
-    std::uint32_t wait(TaskId id, std::uint32_t mask) {
-        return notifications.take(id, mask);
-    }
+    std::uint32_t wait(TaskId id, std::uint32_t mask) { return notifications.take(id, mask); }
 
     /// Blocking wait: atomically consume flags or block until notified.
     /// Fixed: take+block in single critical section prevents starvation.
@@ -607,33 +617,43 @@ public:
     // -----------------------------------------------------------------
 
     std::optional<TaskId> current_task(std::uint8_t core = 0xFF) const {
-        if (core == 0xFF) core = HW::current_core();
-        if (core >= MaxCores) return std::nullopt;
+        if (core == 0xFF)
+            core = HW::current_core();
+        if (core >= MaxCores)
+            return std::nullopt;
         return current_per_core[core];
     }
 
     const char* get_task_name(TaskId id) const {
-        if (!valid_task(id)) return nullptr;
+        if (!valid_task(id))
+            return nullptr;
         return tasks[id.value].cfg.name;
     }
 
     Priority get_task_priority(TaskId id) const {
-        if (!valid_task(id)) return Priority::IDLE;
+        if (!valid_task(id))
+            return Priority::IDLE;
         return tasks[id.value].cfg.prio;
     }
 
     const char* get_task_state_str(TaskId id) const {
-        if (!id.valid() || id.value >= tasks.size()) return "Invalid";
+        if (!id.valid() || id.value >= tasks.size())
+            return "Invalid";
         switch (tasks[id.value].state) {
-            case State::UNUSED:  return "Unused";
-            case State::READY:   return "Ready";
-            case State::RUNNING: return "Running";
-            case State::BLOCKED: return "Blocked";
-            default:             return "Unknown";
+        case State::UNUSED:
+            return "Unused";
+        case State::READY:
+            return "Ready";
+        case State::RUNNING:
+            return "Running";
+        case State::BLOCKED:
+            return "Blocked";
+        default:
+            return "Unknown";
         }
     }
 
-    template<typename Fn>
+    template <typename Fn>
     void for_each_task(Fn&& fn) const {
         for (std::uint16_t i = 0; i < tasks.size(); ++i) {
             if (tasks[i].state != State::UNUSED) {
@@ -684,8 +704,7 @@ public:
         auto& t = tasks[task_idx];
 
         // Core affinity check
-        if (t.cfg.core_affinity != static_cast<std::uint8_t>(Core::ANY) &&
-            t.cfg.core_affinity != self_core) {
+        if (t.cfg.core_affinity != static_cast<std::uint8_t>(Core::ANY) && t.cfg.core_affinity != self_core) {
             std::uint8_t cur = task_idx;
             while (cur != 0xFF) {
                 auto& task = tasks[cur];
@@ -696,7 +715,8 @@ public:
                 cur = task.next;
             }
             for (std::size_t prio = highest_prio + 1; prio < num_priorities; ++prio) {
-                if ((bitmap & (1u << prio)) == 0) continue;
+                if ((bitmap & (1u << prio)) == 0)
+                    continue;
                 auto& q = priority_queues_[prio];
                 cur = q.head;
                 while (cur != 0xFF) {
@@ -724,9 +744,10 @@ public:
 
         for (std::uint16_t i = 0; i < tasks.size(); ++i) {
             auto& t = tasks[i];
-            if (t.state != State::READY && t.state != State::RUNNING) continue;
-            if (t.cfg.core_affinity != static_cast<std::uint8_t>(Core::ANY) &&
-                t.cfg.core_affinity != self_core) continue;
+            if (t.state != State::READY && t.state != State::RUNNING)
+                continue;
+            if (t.cfg.core_affinity != static_cast<std::uint8_t>(Core::ANY) && t.cfg.core_affinity != self_core)
+                continue;
 
             if (!best.has_value() || t.cfg.prio < best_prio) {
                 best_prio = t.cfg.prio;
@@ -734,7 +755,8 @@ public:
             }
         }
 
-        if (!best.has_value()) return std::nullopt;
+        if (!best.has_value())
+            return std::nullopt;
         return best->value;
     }
 
@@ -742,7 +764,8 @@ public:
         auto self_core = HW::current_core();
         auto& cur_id = current_per_core[self_core];
 
-        if (cur_id.has_value() && cur_id->value == next_idx) return;
+        if (cur_id.has_value() && cur_id->value == next_idx)
+            return;
 
         auto& next = tasks[next_idx];
 
@@ -753,27 +776,26 @@ public:
         cur_id = TaskId{next_idx};
     }
 
-private:
+  private:
     // Per-priority ready queue for O(1) scheduler
     struct PriorityQueue {
-        std::uint8_t head {0xFF};
-        std::uint8_t tail {0xFF};
-        std::uint8_t count {0};
+        std::uint8_t head{0xFF};
+        std::uint8_t tail{0xFF};
+        std::uint8_t count{0};
     };
 
-    usec time_us {0};
-    std::uint16_t last_user_idx {0};
-    std::array<Tcb, MaxTasks> tasks {};
-    Notification<MaxTasks> notifications {};
-    TimerQueue<MaxTimers> timers {};
-    std::array<std::optional<TaskId>, MaxCores> current_per_core {};
+    usec time_us{0};
+    std::uint16_t last_user_idx{0};
+    std::array<Tcb, MaxTasks> tasks{};
+    Notification<MaxTasks> notifications{};
+    TimerQueue<MaxTimers> timers{};
+    std::array<std::optional<TaskId>, MaxCores> current_per_core{};
 
-    std::atomic<std::uint8_t> ready_bitmap_ {0};
-    std::array<PriorityQueue, num_priorities> priority_queues_ {};
+    std::atomic<std::uint8_t> ready_bitmap_{0};
+    std::array<PriorityQueue, num_priorities> priority_queues_{};
 
     bool valid_task(TaskId id) const {
-        return id.valid() && id.value < tasks.size() &&
-               tasks[id.value].state != State::UNUSED;
+        return id.valid() && id.value < tasks.size() && tasks[id.value].state != State::UNUSED;
     }
 
     TaskId allocate_tcb() {
@@ -838,17 +860,21 @@ private:
     }
 
     void set_ready_with_bitmap(TaskId id) {
-        if (!valid_task(id)) return;
+        if (!valid_task(id))
+            return;
         auto& t = tasks[id.value];
-        if (t.state == State::READY) return;
+        if (t.state == State::READY)
+            return;
         t.state = State::READY;
         bitmap_add_ready(id, t.cfg.prio);
     }
 
     void set_blocked_with_bitmap(TaskId id) {
-        if (!valid_task(id)) return;
+        if (!valid_task(id))
+            return;
         auto& t = tasks[id.value];
-        if (t.state == State::BLOCKED) return;
+        if (t.state == State::BLOCKED)
+            return;
         Priority prio = t.cfg.prio;
         if (t.state == State::READY || t.state == State::RUNNING) {
             bitmap_remove_ready(id, prio);
