@@ -28,7 +28,7 @@ target("umi.shell")
     set_kind("headeronly")
     set_group("umi")
 
-    add_includedirs(path.join(lib_dir, "umi/shell"), {public = true})
+    add_includedirs(path.join(lib_dir, "umi/shell/include"), {public = true})
 target_end()
 
 -- =====================================================================
@@ -91,7 +91,7 @@ target("umi.dsp")
     set_group("umi")
 
     -- Include only the public header root
-    add_includedirs(path.join(lib_dir, "umi/dsp"), {public = true})
+    add_includedirs(path.join(lib_dir, "umi/dsp/include"), {public = true})
 target_end()
 
 -- =====================================================================
@@ -102,7 +102,7 @@ target("umi.midi")
     set_kind("headeronly")
     set_group("umi")
 
-    add_includedirs(path.join(lib_dir, "umi/midi"), {public = true})
+    add_includedirs(path.join(lib_dir, "umi/midi/include"), {public = true})
 target_end()
 
 -- =====================================================================
@@ -113,7 +113,7 @@ target("umi.boot")
     set_kind("headeronly")
     set_group("umi")
 
-    add_includedirs(path.join(lib_dir, "umi/boot"), {public = true})
+    add_includedirs(path.join(lib_dir, "umi/boot/include"), {public = true})
 target_end()
 
 -- =====================================================================
@@ -125,7 +125,7 @@ target("umi.synth")
     set_group("umi")
     add_deps("umi.dsp")
 
-    add_includedirs(path.join(lib_dir, "umi/synth"), {public = true})
+    add_includedirs(path.join(lib_dir, "umi/synth/include"), {public = true})
 target_end()
 
 -- =====================================================================
@@ -137,7 +137,7 @@ target("umi.usb")
     set_group("umi")
     add_deps("umi.dsp")  -- ASRC components
 
-    add_includedirs(path.join(lib_dir, "umi/usb"), {public = true})
+    add_includedirs(path.join(lib_dir, "umi/usb/include"), {public = true})
 target_end()
 
 target("umi.mmio")

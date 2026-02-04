@@ -13,7 +13,7 @@
 #include <span>
 #include <umios/app/syscall.hh>
 #include <umios/core/audio_context.hh>
-#include <umios/core/event_router.hh>
+#include <umios/runtime/event_router.hh>
 #include <umios/kernel/fpu_policy.hh>
 #include <umios/kernel/umi_kernel.hh>
 
@@ -25,11 +25,11 @@
 #include <audio/audio_interface.hh>
 #include <hal/stm32_otg.hh>
 #include <protocol/standard_io.hh>
-#include <umios/kernel/shell_commands.hh>
+#include <umios/service/shell/shell_commands.hh>
 
 // AppConfig triple-buffer support
-#include <umios/core/triple_buffer.hh>
-#include <umios/core/param_mapping.hh>
+#include <umios/util/triple_buffer.hh>
+#include <umios/runtime/param_mapping.hh>
 
 namespace umi::kernel {
 

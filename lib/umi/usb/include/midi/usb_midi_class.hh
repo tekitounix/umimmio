@@ -10,7 +10,7 @@
 
 #include "midi/midi_types.hh"
 #include "core/descriptor.hh"
-#include "core/types.hh"
+#include "../core/types.hh"
 
 namespace umiusb {
 

@@ -11,7 +11,7 @@
 #include <tuple>
 #include <type_traits>
 
-#include "core/types.hh"
+#include "../core/types.hh"
 
 namespace umiusb {
 
