@@ -1161,9 +1161,9 @@ private:
     float g_c1_ = C1 / dt_;
     float g_c2_ = C2 / dt_;
     float den_ = 0.0f;
-    float inv_den_ = 0.0f;
-    float k_ = 0.0f;
-    float j22_linear_ = 0.0f;
+    [[maybe_unused]] float inv_den_ = 0.0f;
+    [[maybe_unused]] float k_ = 0.0f;
+    [[maybe_unused]] float j22_linear_ = 0.0f;
 };
 
 // =============================================================================
@@ -1286,9 +1286,9 @@ private:
     float inv_j11_ = 0.0f;
     float schur_j11_factor_ = 0.0f;
     float schur_f1_factor_ = 0.0f;
-    float inv_den_ = 0.0f;
-    float k_ = 0.0f;
-    float j22_linear_ = 0.0f;
+    [[maybe_unused]] float inv_den_ = 0.0f;
+    [[maybe_unused]] float k_ = 0.0f;
+    [[maybe_unused]] float j22_linear_ = 0.0f;
 };
 
 // =============================================================================
@@ -3847,7 +3847,7 @@ private:
 // ============================================================================
 // WDF-based TB-303 WaveShaper implementation using chowdsp_wdf
 // ============================================================================
-#include "../third_party/chowdsp_wdf/include/chowdsp_wdf/chowdsp_wdf.h"
+#include <chowdsp_wdf/chowdsp_wdf.h>
 
 namespace wdf_tb303 {
 
