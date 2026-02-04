@@ -64,14 +64,9 @@ add_ldflags("-Wl,-L" .. path.join(os.projectdir(), "lib", "umi", "app"), {force 
 task("flash-synth-app")
     set_category("action")
     on_run(function ()
-        print("Building synth app...")
-        os.exec("xmake build synth_app")
-        local umia = path.join(os.projectdir(), "build", "synth_app", "release", "synth_app.umia")
-        if not os.isfile(umia) then
-            raise(".umia not found: " .. umia)
-        end
-        print("Flashing synth app to APP_FLASH via pyOCD...")
-        os.execv("pyocd", {"flash", "-t", "stm32f407vg", "-a", "0x08060000", "--format", "bin", umia})
+        print("[DEPRECATED] Use: xmake flash -t synth_app -a 0x08060000")
+        print("Delegating to unified flash command...")
+        os.exec("xmake flash -t synth_app -a 0x08060000")
     end)
-    set_menu {usage = "xmake flash-synth-app", description = "Build and flash synth app (.umia) to APP_FLASH"}
+    set_menu {usage = "xmake flash-synth-app", description = "Build and flash synth app (.umia) to APP_FLASH (deprecated, use 'xmake flash -t synth_app -a 0x08060000')"}
 task_end()

@@ -49,19 +49,9 @@ target("stm32f4_kernel")
 task("flash-kernel")
     set_category("action")
     on_run(function ()
-        import("core.project.project")
-        local target = project.target("stm32f4_kernel")
-        if not target then
-            raise("target stm32f4_kernel not found")
-        end
-        print("Building STM32F4 kernel...")
-        os.exec("xmake build " .. target:name())
-        local binfile = path.join(target:targetdir(), target:name() .. ".bin")
-        if not os.isfile(binfile) then
-            raise("kernel binary not found: " .. binfile)
-        end
-        print("Flashing kernel via pyOCD...")
-        os.execv("pyocd", {"flash", "-t", "stm32f407vg", binfile})
+        print("[DEPRECATED] Use: xmake flash -t stm32f4_kernel")
+        print("Delegating to unified flash command...")
+        os.exec("xmake flash -t stm32f4_kernel")
     end)
-    set_menu {usage = "xmake flash-kernel", description = "Build and flash STM32F4 kernel"}
+    set_menu {usage = "xmake flash-kernel", description = "Build and flash STM32F4 kernel (deprecated, use 'xmake flash -t stm32f4_kernel')"}
 task_end()

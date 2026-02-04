@@ -95,6 +95,7 @@ end
 -- =====================================================================
 
 includes("lib/umi")
+includes("lib/umi/bench")
 includes("lib/umi/test")
 includes("lib/umi/ref")
 includes("lib/umi/fs")
@@ -121,6 +122,7 @@ target_end()
 -- DSP test (using umitest framework)
 target("test_dsp")
     add_rules("host.test")
+    set_group("tests/dsp")
     set_default(true)
     add_deps("umi.all", "umitest")
     add_files("lib/umi/dsp/test/test_dsp.cc")

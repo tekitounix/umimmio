@@ -57,31 +57,20 @@ target_end()
 task("flash-h7-kernel")
     set_category("action")
     on_run(function ()
-        print("Building daisy_pod_kernel...")
-        os.exec("xmake build daisy_pod_kernel")
-        local hexfile = path.join(os.projectdir(), "build", "daisy_pod_kernel", "debug", "daisy_pod_kernel.hex")
-        if not os.isfile(hexfile) then
-            raise(".hex not found: " .. hexfile)
-        end
-        print("Flashing kernel to STM32H750 internal flash...")
-        os.execv("pyocd", {"flash", "-t", "stm32h750xx", hexfile})
+        print("[DEPRECATED] Use: xmake flash -t daisy_pod_kernel")
+        print("Delegating to unified flash command...")
+        os.exec("xmake flash -t daisy_pod_kernel")
     end)
-    set_menu {usage = "xmake flash-h7-kernel", description = "Build and flash H7 kernel via pyOCD"}
+    set_menu {usage = "xmake flash-h7-kernel", description = "Build and flash H7 kernel via pyOCD (deprecated, use 'xmake flash -t daisy_pod_kernel')"}
 task_end()
 
 -- Flash synth app to QSPI (0x90000000) via pyOCD
 task("flash-h7-app")
     set_category("action")
     on_run(function ()
-        print("Building daisy_pod_synth_h7...")
-        os.exec("xmake build daisy_pod_synth_h7")
-        local binfile = path.join(os.projectdir(), "build", "daisy_pod_synth_h7", "debug", "daisy_pod_synth_h7.bin")
-        if not os.isfile(binfile) then
-            raise(".bin not found: " .. binfile)
-        end
-        print("Flashing app to QSPI flash at 0x90000000...")
-        -- Note: requires pyOCD QSPI flash algorithm pack for W25Q64JV
-        os.execv("pyocd", {"flash", "-t", "stm32h750xx", "-a", "0x90000000", "--format", "bin", binfile})
+        print("[DEPRECATED] Use: xmake flash -t daisy_pod_synth_h7 -a 0x90000000")
+        print("Delegating to unified flash command...")
+        os.exec("xmake flash -t daisy_pod_synth_h7 -a 0x90000000")
     end)
-    set_menu {usage = "xmake flash-h7-app", description = "Build and flash H7 synth app to QSPI via pyOCD"}
+    set_menu {usage = "xmake flash-h7-app", description = "Build and flash H7 synth app to QSPI via pyOCD (deprecated, use 'xmake flash -t daisy_pod_synth_h7 -a 0x90000000')"}
 task_end()
