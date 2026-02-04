@@ -8,8 +8,8 @@
 #endif
 
 #include <common/vector_table.hh>
-#include <umifs/fat/ff.hh>
-#include <umifs/fat/ff_diskio.hh>
+#include <umi/fs/fat/ff.hh>
+#include <umi/fs/fat/ff_diskio.hh>
 #include <cstring>
 
 static constexpr uint32_t BLK_SZ = 512;

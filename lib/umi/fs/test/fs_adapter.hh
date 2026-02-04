@@ -135,8 +135,8 @@ struct LfsRefAdapter {
 // ============================================================================
 
 #ifdef FS_ADAPTER_FAT
-#include <umifs/fat/ff.hh>
-#include <umifs/fat/ff_diskio.hh>
+#include <umi/fs/fat/ff.hh>
+#include <umi/fs/fat/ff_diskio.hh>
 
 struct FatRamDev {
     uint8_t* storage = nullptr;
@@ -333,8 +333,8 @@ struct FatRefAdapter {
 // ============================================================================
 
 #ifdef FS_ADAPTER_SLIM
-#include <umifs/slim/slim.hh>
-#include <umifs/slim/slim_config.hh>
+#include <umi/fs/slim/slim.hh>
+#include <umi/fs/slim/slim_config.hh>
 
 namespace slim_detail {
     inline uint8_t* g_storage = nullptr;

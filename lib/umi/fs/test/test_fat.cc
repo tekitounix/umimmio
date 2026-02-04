@@ -4,8 +4,8 @@
 
 #include <cstdio>
 #include <cstring>
-#include <umifs/fat/ff.hh>
-#include <umifs/fat/ff_diskio.hh>
+#include <umi/fs/fat/ff.hh>
+#include <umi/fs/fat/ff_diskio.hh>
 #include <umitest.hh>
 
 using namespace umi::fs;

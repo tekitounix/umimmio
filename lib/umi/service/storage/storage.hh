@@ -9,10 +9,10 @@
 #include "../core/syscall_nr.hh"
 #include "../core/fs_types.hh"
 
-#include <umifs/slim/slim.hh>
-#include <umifs/slim/slim_config.hh>
-#include <umifs/fat/ff.hh>
-#include <umifs/fat/ff_types.hh>
+#include <umi/fs/slim/slim.hh>
+#include <umi/fs/slim/slim_config.hh>
+#include <umi/fs/fat/ff.hh>
+#include <umi/fs/fat/ff_types.hh>
 
 #include <cstddef>
 #include <cstdint>

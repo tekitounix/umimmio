@@ -8,8 +8,8 @@
 #endif
 
 #include <common/vector_table.hh>
-#include <umifs/slim/slim.hh>
-#include <umifs/slim/slim_config.hh>
+#include <umi/fs/slim/slim.hh>
+#include <umi/fs/slim/slim_config.hh>
 #include <cstring>
 
 static constexpr uint32_t BLK_SZ = 256;
