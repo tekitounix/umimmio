@@ -139,7 +139,7 @@ int main() {
 
 ### コルーチン対応アプリケーション ✓
 
-**状態:** 実装済み (`lib/umios/kernel/coro.hh`)
+**状態:** 実装済み (`lib/umi/kernel/coro.hh`)
 
 ```cpp
 // main.cc
@@ -495,12 +495,11 @@ void process(AudioContext& ctx) {
 
 ```
 lib/
-├── umi/               # アプリケーションSDK
-├── umios/             # カーネル・アプリランタイム
+├── umi/               # カーネル・アプリランタイム
 │   ├── kernel/        # カーネル実装
 │   ├── app/           # アプリSDK
 │   ├── crypto/        # Ed25519署名検証
-│   └── backend/       # HAL抽象化
+│   └── port/          # HAL抽象化
 ├── umidsp/            # DSPモジュール（Pure DSP）
 ├── umiusb/            # USB Audio/MIDI
 └── umimidi/           # MIDI処理

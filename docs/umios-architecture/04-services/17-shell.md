@@ -281,8 +281,8 @@ Tasks:    4 (Ready: 1, Blocked: 3)
 
 | ファイル | 内容 |
 |---------|------|
-| `lib/umios/kernel/umi_shell.hh` | Shell テンプレート（入力処理、行バッファ） |
-| `lib/umios/kernel/shell_commands.hh` | ShellCommands テンプレート（全コマンド実装） |
+| `lib/umi/kernel/umi_shell.hh` | Shell テンプレート（入力処理、行バッファ） |
+| `lib/umi/kernel/shell_commands.hh` | ShellCommands テンプレート（全コマンド実装） |
 
 ---
 

@@ -176,7 +176,7 @@ xmake webhost-serve
 | [DESIGN_DECISIONS.md](DESIGN_DECISIONS.md) | 設計判断の根拠（ADR集） | カーネル開発者 |
 | [STM32F4_IMPLEMENTATION.md](STM32F4_IMPLEMENTATION.md) | STM32F4実装詳細（起動フロー、ISR、DMA） | カーネル移植者 |
 | [CONTEXT_API.md](CONTEXT_API.md) | AudioContext/Processor/Controller API | アプリ開発者 |
-| [LIBRARY_CONTENTS.md](LIBRARY_CONTENTS.md) | lib/umios/ 分類と依存関係 | コントリビューター |
+| [LIBRARY_CONTENTS.md](LIBRARY_CONTENTS.md) | lib/umi/ 分類と依存関係 | コントリビューター |
 
 ---
 

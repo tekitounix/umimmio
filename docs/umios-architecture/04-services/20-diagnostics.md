@@ -250,8 +250,8 @@ GDB で直接参照可能なグローバル変数:
 
 | ファイル | 内容 |
 |---------|------|
-| `lib/umios/kernel/metrics.hh` | KernelMetrics、DWT ヘルパー、RAII 計測 |
-| `lib/umios/kernel/fault_handler.hh` | FaultLog、FaultLogEntry、LED パターン |
+| `lib/umi/kernel/metrics.hh` | KernelMetrics、DWT ヘルパー、RAII 計測 |
+| `lib/umi/kernel/fault_handler.hh` | FaultLog、FaultLogEntry、LED パターン |
 
 ---
 

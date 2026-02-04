@@ -318,7 +318,7 @@ extern "C" void _start() {
 
 ```cpp
 #include <umi_app.hh>
-#include <umios/app/syscall.hh>
+#include <umi/app/syscall.hh>
 
 // ProcessorLike concept (継承不要)
 struct MySynth {

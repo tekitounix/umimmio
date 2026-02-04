@@ -496,7 +496,7 @@ int main() {
 Processor は `HasParams` concept により、パラメータの正式な定義（名前、値域、デフォルト値、カーブ）を公開できる:
 
 ```cpp
-// lib/umios/core/processor.hh に既存
+// lib/umi/core/processor.hh に既存
 struct ParamDescriptor {
     param_id_t id = 0;
     std::string_view name;
