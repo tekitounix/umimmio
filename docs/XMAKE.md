@@ -227,7 +227,6 @@ xmake project -k vsxmake
 |----------|------|--------|
 | `xmake test` | プロジェクトテストを実行 | 非対話型 |
 | `xmake fs-check` | FSテスト、Renodeベンチマーク、ARMサイズ比較 | **対話型**※ |
-| `xmake info` | プロジェクト情報を表示 | ❌無効 |
 
 ※`fs-check`はRenodeテストを含むため対話型
 
@@ -251,7 +250,7 @@ xmake project -k vsxmake
 |------|-----|-----------|
 | **非対話型（バッチ実行可能）** | 30+ | build, clean, test, check, format, pack, project, flash.probes, flash.status, debugger.cleanup |
 | **対話型（ユーザー入力/常駐）** | 9 | run, debugger, emulator.run, emulator.test, serve, serve.rtt, deploy.serve, watch |
-| **無効/未対応** | 1 | info |
+| **無効/未対応** | 0 | - |
 
 ### 非対話型コマンド実行確認結果
 
@@ -280,7 +279,7 @@ xmake project -k vsxmake
 
 | コマンド | 結果 | 備考 |
 |----------|------|------|
-| `xmake check clang.tidy` | ⚠️ | clang-armツールチェーンのmultilib設定エラー（プロジェクトの問題ではない） |
+| `xmake check clang.tidy` | ⚠️ | clang-arm 21.1.1 の multilib.yaml に `IncludeDirs` キーが含まれているが、clang-tidy が認識できない（Arm Toolchain のバグ） |
 
 #### ❌ 対話型のためスキップ（9コマンド）
 
@@ -295,12 +294,6 @@ xmake project -k vsxmake
 | `xmake serve.rtt` | WebSocket + HTTPサーバー常駐 |
 | `xmake fs-check` | Renodeテストを含む |
 | `xmake watch` | ファイル監視常駐 |
-
-#### ❌ 無効（1コマンド）
-
-| コマンド | 理由 |
-|----------|------|
-| `xmake info` | このxmakeでは無効化されている |
 
 ### 実行統計
 
