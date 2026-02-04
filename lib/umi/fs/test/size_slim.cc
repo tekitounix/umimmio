@@ -2,15 +2,15 @@
 // Minimal binary to measure slimfs code size on ARM.
 
 #ifdef __clang__
-#pragma GCC diagnostic ignored "-Wshorten-64-to-32"
-#pragma GCC diagnostic ignored "-Wreturn-type-c-linkage"
-#pragma GCC diagnostic ignored "-Wsection"
+    #pragma GCC diagnostic ignored "-Wshorten-64-to-32"
+    #pragma GCC diagnostic ignored "-Wreturn-type-c-linkage"
+    #pragma GCC diagnostic ignored "-Wsection"
 #endif
 
 #include <common/vector_table.hh>
+#include <cstring>
 #include <umi/fs/slim/slim.hh>
 #include <umi/fs/slim/slim_config.hh>
-#include <cstring>
 
 static constexpr uint32_t BLK_SZ = 256;
 static constexpr uint32_t BLK_CNT = 64;
@@ -29,7 +29,9 @@ static int s_erase(const umi::fs::SlimConfig*, uint32_t b) {
     std::memset(&storage[b * BLK_SZ], 0xFF, BLK_SZ);
     return 0;
 }
-static int s_sync(const umi::fs::SlimConfig*) { return 0; }
+static int s_sync(const umi::fs::SlimConfig*) {
+    return 0;
+}
 
 extern "C" [[noreturn]] void _start() {
     using namespace umi::fs;
@@ -76,5 +78,7 @@ extern "C" [[noreturn]] void _start() {
     (void)fs.fs_size();
     (void)fs.unmount();
 
-    while (true) { __asm volatile("wfi"); }
+    while (true) {
+        __asm volatile("wfi");
+    }
 }

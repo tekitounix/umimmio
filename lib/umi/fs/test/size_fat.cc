@@ -2,15 +2,15 @@
 // Minimal binary to measure FATfs (cleanroom) code size on ARM.
 
 #ifdef __clang__
-#pragma GCC diagnostic ignored "-Wshorten-64-to-32"
-#pragma GCC diagnostic ignored "-Wreturn-type-c-linkage"
-#pragma GCC diagnostic ignored "-Wsection"
+    #pragma GCC diagnostic ignored "-Wshorten-64-to-32"
+    #pragma GCC diagnostic ignored "-Wreturn-type-c-linkage"
+    #pragma GCC diagnostic ignored "-Wsection"
 #endif
 
 #include <common/vector_table.hh>
+#include <cstring>
 #include <umi/fs/fat/ff.hh>
 #include <umi/fs/fat/ff_diskio.hh>
-#include <cstring>
 
 static constexpr uint32_t BLK_SZ = 512;
 static constexpr uint32_t BLK_CNT = 128;
@@ -41,19 +41,36 @@ extern "C" [[noreturn]] void _start() {
     // Format a simple FAT12 image
     std::memset(storage, 0, sizeof(storage));
     uint8_t* bs = storage;
-    bs[0] = 0xEB; bs[1] = 0x3C; bs[2] = 0x90;
+    bs[0] = 0xEB;
+    bs[1] = 0x3C;
+    bs[2] = 0x90;
     std::memcpy(&bs[3], "MSDOS5.0", 8);
-    bs[11] = 0x00; bs[12] = 0x02;
-    bs[13] = 1; bs[14] = 1; bs[15] = 0; bs[16] = 2;
-    bs[17] = 0x40; bs[18] = 0x00;
-    bs[19] = 128; bs[20] = 0; bs[21] = 0xF8;
-    bs[22] = 1; bs[23] = 0; bs[24] = 0x3F; bs[25] = 0;
-    bs[26] = 0xFF; bs[27] = 0; bs[38] = 0x29;
+    bs[11] = 0x00;
+    bs[12] = 0x02;
+    bs[13] = 1;
+    bs[14] = 1;
+    bs[15] = 0;
+    bs[16] = 2;
+    bs[17] = 0x40;
+    bs[18] = 0x00;
+    bs[19] = 128;
+    bs[20] = 0;
+    bs[21] = 0xF8;
+    bs[22] = 1;
+    bs[23] = 0;
+    bs[24] = 0x3F;
+    bs[25] = 0;
+    bs[26] = 0xFF;
+    bs[27] = 0;
+    bs[38] = 0x29;
     std::memcpy(&bs[43], "NO NAME    ", 11);
     std::memcpy(&bs[54], "FAT12   ", 8);
-    bs[510] = 0x55; bs[511] = 0xAA;
+    bs[510] = 0x55;
+    bs[511] = 0xAA;
     uint8_t* fat1 = &storage[512];
-    fat1[0] = 0xF8; fat1[1] = 0xFF; fat1[2] = 0xFF;
+    fat1[0] = 0xF8;
+    fat1[1] = 0xFF;
+    fat1[2] = 0xFF;
     std::memcpy(&storage[512 * 2], fat1, 3);
 
     auto dio = make_diskio(dev);
@@ -92,5 +109,7 @@ extern "C" [[noreturn]] void _start() {
     fs.getfree("", &nclst, &vp);
     fs.unmount("");
 
-    while (true) { __asm volatile("wfi"); }
+    while (true) {
+        __asm volatile("wfi");
+    }
 }
