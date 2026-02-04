@@ -9,16 +9,19 @@
  * Run:   xmake run bench_waveshaper (via Renode)
  */
 
-#include <cstdint>
-#include <cmath>
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 
 // ============================================================================
 // Baremetal stubs for operator delete (required by chowdsp_wdf virtual dtors)
 // ============================================================================
 #ifdef __arm__
 extern "C" {
-void __cxa_pure_virtual() { while(1); }
+void __cxa_pure_virtual() {
+    while (1)
+        ;
+}
 }
 void operator delete(void*, unsigned int) noexcept {}
 void operator delete(void*) noexcept {}
@@ -44,31 +47,38 @@ int main();
 }
 
 // Vector Table
-__attribute__((section(".isr_vector"), used))
-const void* const g_vector_table[] = {
+__attribute__((section(".isr_vector"), used)) const void* const g_vector_table[] = {
     reinterpret_cast<const void*>(&_estack),
     reinterpret_cast<const void*>(Reset_Handler),
-    reinterpret_cast<const void*>(Default_Handler),  // NMI
-    reinterpret_cast<const void*>(Default_Handler),  // HardFault
-    reinterpret_cast<const void*>(Default_Handler),  // MemManage
-    reinterpret_cast<const void*>(Default_Handler),  // BusFault
-    reinterpret_cast<const void*>(Default_Handler),  // UsageFault
-    nullptr, nullptr, nullptr, nullptr,
-    reinterpret_cast<const void*>(Default_Handler),  // SVC
-    nullptr, nullptr,
-    reinterpret_cast<const void*>(Default_Handler),  // PendSV
-    reinterpret_cast<const void*>(Default_Handler),  // SysTick
+    reinterpret_cast<const void*>(Default_Handler), // NMI
+    reinterpret_cast<const void*>(Default_Handler), // HardFault
+    reinterpret_cast<const void*>(Default_Handler), // MemManage
+    reinterpret_cast<const void*>(Default_Handler), // BusFault
+    reinterpret_cast<const void*>(Default_Handler), // UsageFault
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    reinterpret_cast<const void*>(Default_Handler), // SVC
+    nullptr,
+    nullptr,
+    reinterpret_cast<const void*>(Default_Handler), // PendSV
+    reinterpret_cast<const void*>(Default_Handler), // SysTick
 };
 
 extern "C" __attribute__((noreturn)) void Reset_Handler() {
     // Copy .data
     uint32_t* src = &_sidata;
     uint32_t* dst = &_sdata;
-    while (dst < &_edata) { *dst++ = *src++; }
+    while (dst < &_edata) {
+        *dst++ = *src++;
+    }
 
     // Zero .bss
     dst = &_sbss;
-    while (dst < &_ebss) { *dst++ = 0; }
+    while (dst < &_ebss) {
+        *dst++ = 0;
+    }
 
     // Enable FPU (Cortex-M4F)
     volatile uint32_t& CPACR = *reinterpret_cast<volatile uint32_t*>(0xE000ED88);
@@ -78,14 +88,20 @@ extern "C" __attribute__((noreturn)) void Reset_Handler() {
     // Call global constructors
     extern void (*__init_array_start[])();
     extern void (*__init_array_end[])();
-    for (auto fn = __init_array_start; fn < __init_array_end; ++fn) { (*fn)(); }
+    for (auto fn = __init_array_start; fn < __init_array_end; ++fn) {
+        (*fn)();
+    }
 
     main();
-    while (true) { asm volatile("wfi"); }
+    while (true) {
+        asm volatile("wfi");
+    }
 }
 
 extern "C" void Default_Handler() {
-    while (true) { asm volatile("bkpt #0"); }
+    while (true) {
+        asm volatile("bkpt #0");
+    }
 }
 
 // Provide _start as alias
@@ -98,25 +114,28 @@ constexpr uint32_t RCC_APB1ENR = 0x40023840UL;
 
 inline void init() {
     auto* rcc = reinterpret_cast<volatile uint32_t*>(RCC_APB1ENR);
-    *rcc |= (1 << 17);  // Enable USART2 clock
+    *rcc |= (1 << 17); // Enable USART2 clock
 
     auto* cr1 = reinterpret_cast<volatile uint32_t*>(USART2_BASE + 0x0C);
     auto* brr = reinterpret_cast<volatile uint32_t*>(USART2_BASE + 0x08);
     *cr1 = 0;
-    *brr = 0x0683;       // 115200 baud @ 16MHz
-    *cr1 = (1 << 13) | (1 << 3);  // UE | TE
+    *brr = 0x0683;               // 115200 baud @ 16MHz
+    *cr1 = (1 << 13) | (1 << 3); // UE | TE
 }
 
 inline void putc(char c) {
     auto* sr = reinterpret_cast<volatile uint32_t*>(USART2_BASE + 0x00);
     auto* dr = reinterpret_cast<volatile uint32_t*>(USART2_BASE + 0x04);
-    while (!(*sr & (1 << 7))) {}  // Wait TXE
+    while (!(*sr & (1 << 7))) {
+    } // Wait TXE
     *dr = static_cast<uint32_t>(c);
 }
 
 inline void puts(const char* s) {
     while (*s) {
-        if (*s == '\n') { putc('\r'); }
+        if (*s == '\n') {
+            putc('\r');
+        }
         putc(*s++);
     }
 }
@@ -124,15 +143,24 @@ inline void puts(const char* s) {
 inline void print_uint(uint32_t v) {
     char buf[12];
     int i = 0;
-    if (v == 0) { buf[i++] = '0'; }
-    else {
-        while (v > 0) { buf[i++] = '0' + (v % 10); v /= 10; }
+    if (v == 0) {
+        buf[i++] = '0';
+    } else {
+        while (v > 0) {
+            buf[i++] = '0' + (v % 10);
+            v /= 10;
+        }
     }
-    while (i > 0) { putc(buf[--i]); }
+    while (i > 0) {
+        putc(buf[--i]);
+    }
 }
 
 inline void print_float(float v, int decimals = 1) {
-    if (v < 0) { putc('-'); v = -v; }
+    if (v < 0) {
+        putc('-');
+        v = -v;
+    }
     auto int_part = static_cast<uint32_t>(v);
     print_uint(int_part);
     putc('.');
@@ -154,22 +182,28 @@ inline void print_float(float v, int decimals = 1) {
 namespace dwt {
 
 #ifdef __arm__
-inline volatile uint32_t* const DWT_CTRL   = reinterpret_cast<volatile uint32_t*>(0xE0001000);
+inline volatile uint32_t* const DWT_CTRL = reinterpret_cast<volatile uint32_t*>(0xE0001000);
 inline volatile uint32_t* const DWT_CYCCNT = reinterpret_cast<volatile uint32_t*>(0xE0001004);
-inline volatile uint32_t* const SCB_DEMCR  = reinterpret_cast<volatile uint32_t*>(0xE000EDFC);
+inline volatile uint32_t* const SCB_DEMCR = reinterpret_cast<volatile uint32_t*>(0xE000EDFC);
 
 inline void enable() {
-    *SCB_DEMCR |= 0x01000000;  // Enable DWT
+    *SCB_DEMCR |= 0x01000000; // Enable DWT
     *DWT_CYCCNT = 0;
-    *DWT_CTRL |= 1;            // Enable cycle counter
+    *DWT_CTRL |= 1; // Enable cycle counter
 }
 
-inline uint32_t cycles() { return *DWT_CYCCNT; }
-inline void reset() { *DWT_CYCCNT = 0; }
+inline uint32_t cycles() {
+    return *DWT_CYCCNT;
+}
+inline void reset() {
+    *DWT_CYCCNT = 0;
+}
 #else
 // Host fallback (no cycle counter)
 inline void enable() {}
-inline uint32_t cycles() { return 0; }
+inline uint32_t cycles() {
+    return 0;
+}
 inline void reset() {}
 #endif
 
@@ -208,9 +242,9 @@ constexpr float G5 = 1.0f / R5;
 // diode_iv用のexp_crit定数（事前計算）
 // V_CRIT = V_T * 40 での値
 // exp(40) ≈ 2.35e17
-constexpr float EXP_CRIT = 2.35385266837019985e17f;  // exp(40)
-constexpr float G_CRIT = I_S * V_T_INV * EXP_CRIT;   // Is/Vt * exp(V_crit/Vt)
-constexpr float I_CRIT = I_S * (EXP_CRIT - 1.0f);    // Is * (exp(V_crit/Vt) - 1)
+constexpr float EXP_CRIT = 2.35385266837019985e17f; // exp(40)
+constexpr float G_CRIT = I_S * V_T_INV * EXP_CRIT;  // Is/Vt * exp(V_crit/Vt)
+constexpr float I_CRIT = I_S * (EXP_CRIT - 1.0f);   // Is * (exp(V_crit/Vt) - 1)
 
 // =============================================================================
 // 高速exp近似 (Schraudolph改良版)
@@ -218,7 +252,10 @@ constexpr float I_CRIT = I_S * (EXP_CRIT - 1.0f);    // Is * (exp(V_crit/Vt) - 1
 inline float fast_exp(float x) {
     x = std::clamp(x, -87.0f, 88.0f);
 
-    union { float f; int32_t i; } u;
+    union {
+        float f;
+        int32_t i;
+    } u;
     constexpr float LOG2E = 1.4426950408889634f;
     constexpr float SHIFT = (1 << 23) * 127.0f;
     constexpr float SCALE = (1 << 23) * LOG2E;
@@ -270,7 +307,7 @@ inline float mo_exp_pade44_ranged(float x) noexcept {
 
     float n_f = std::floor(x * LOG2E + 0.5f);
     int n = static_cast<int>(n_f);
-    float r = x - n_f * LN2;  // |r| < ln(2)/2 ≈ 0.347
+    float r = x - n_f * LN2; // |r| < ln(2)/2 ≈ 0.347
 
     // Padé [4,4] for exp(r)
     const auto num = 1680.0f + r * (840.0f + r * (180.0f + r * (20.0f + r)));
@@ -278,7 +315,10 @@ inline float mo_exp_pade44_ranged(float x) noexcept {
     float exp_r = num / den;
 
     // Multiply by 2^n using bit manipulation
-    union { float f; int32_t i; } u;
+    union {
+        float f;
+        int32_t i;
+    } u;
     u.i = (127 + n) << 23;
     return u.f * exp_r;
 }
@@ -293,7 +333,7 @@ inline float pade_exp(float x) {
 
     float n_f = std::floor(x * LOG2E + 0.5f);
     int n = static_cast<int>(n_f);
-    float r = x - n_f * LN2;  // |r| < ln(2)/2
+    float r = x - n_f * LN2; // |r| < ln(2)/2
 
     // パデ [2,2]: exp(r) ≈ (12 + 6r + r²) / (12 - 6r + r²)
     float r2 = r * r;
@@ -302,7 +342,10 @@ inline float pade_exp(float x) {
     float exp_r = num / den;
 
     // 2^n をビット操作で計算
-    union { float f; int32_t i; } u;
+    union {
+        float f;
+        int32_t i;
+    } u;
     u.i = (127 + n) << 23;
 
     return u.f * exp_r;
@@ -312,7 +355,7 @@ inline float pade_exp(float x) {
 // LUT + 線形補間
 // =============================================================================
 class ExpLUT {
-public:
+  public:
     static constexpr int LUT_SIZE = 1024;
     static constexpr float X_MIN = -10.0f;
     static constexpr float X_MAX = 50.0f;
@@ -330,8 +373,10 @@ public:
     }
 
     inline float operator()(float x) const {
-        if (x <= X_MIN) return lut_[0];
-        if (x >= X_MAX) return lut_[LUT_SIZE - 1];
+        if (x <= X_MIN)
+            return lut_[0];
+        if (x >= X_MAX)
+            return lut_[LUT_SIZE - 1];
 
         float idx_f = (x - X_MIN) * SCALE;
         int idx = static_cast<int>(idx_f);
@@ -464,21 +509,20 @@ inline float fast_tanh(float x) noexcept {
 // - exp 1回
 // =============================================================================
 class WaveShaperFast {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         // コンデンサの離散化係数
-        g_c1_ = dt_ / C1;  // Forward Euler: dV = dt/C * I
+        g_c1_ = dt_ / C1; // Forward Euler: dV = dt/C * I
         g_c2_ = dt_ / C2;
     }
 
     void reset() {
         v_c1_ = 0.0f;
-        v_c2_ = 8.0f;  // 初期バイアス
+        v_c2_ = 8.0f; // 初期バイアス
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         // C1後の電圧 (入力カップリング)
         const float v_cap = v_in - v_c1_;
 
@@ -497,7 +541,7 @@ public:
         const float v_be_clamped = std::clamp(v_be, -1.0f, 0.8f);
         const float exp_vbe = fast_exp(v_be_clamped * V_T_INV);
         float i_b = I_S * (exp_vbe - 1.0f);
-        i_b = std::clamp(i_b, -1e-6f, 1e-3f);  // 電流リミット
+        i_b = std::clamp(i_b, -1e-6f, 1e-3f); // 電流リミット
 
         // コレクタ電流 = β × Ib (Forward-Active)
         float i_c_ideal = BETA_F * i_b;
@@ -508,7 +552,7 @@ public:
         const float v_ce = std::max(v_c_est - v_e, 0.01f);
 
         // 飽和領域でのソフトクリップ
-        const float sat_factor = fast_tanh(v_ce * 10.0f);  // Vce_sat ≈ 0.1V
+        const float sat_factor = fast_tanh(v_ce * 10.0f); // Vce_sat ≈ 0.1V
         const float i_c = i_c_ideal * sat_factor;
 
         // エミッタ電流
@@ -529,7 +573,7 @@ public:
         return V_COLL - R5 * i_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f;
     float v_c2_ = 8.0f;
     float dt_ = 1.0f / 48000.0f;
@@ -541,7 +585,7 @@ private:
 // WaveShaperSchur (Schur補行列法)
 // =============================================================================
 class WaveShaperSchur {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -561,8 +605,7 @@ public:
         v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -629,8 +672,7 @@ public:
         float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
 
         // ダンピング
-        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
-                                 std::abs(dv_e), std::abs(dv_c)});
+        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
         float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
         v_cap += damp * dv_cap;
@@ -648,7 +690,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -663,7 +705,7 @@ private:
 // WaveShaperPade: パデ近似 [4,4] + range reduction + Schur縮約
 // =============================================================================
 class WaveShaperPade {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -683,8 +725,7 @@ public:
         v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -743,8 +784,7 @@ public:
         float dv_c = (-f4 - j42 * dv_b - j43 * dv_e) * inv_j44;
         float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
 
-        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
-                                 std::abs(dv_e), std::abs(dv_c)});
+        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
         float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
         v_cap += damp * dv_cap;
@@ -761,7 +801,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -776,7 +816,7 @@ private:
 // WaveShaperLUT: LUT + 線形補間 + Schur縮約
 // =============================================================================
 class WaveShaperLUT {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -796,8 +836,7 @@ public:
         v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -856,8 +895,7 @@ public:
         float dv_c = (-f4 - j42 * dv_b - j43 * dv_e) * inv_j44;
         float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
 
-        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
-                                 std::abs(dv_e), std::abs(dv_c)});
+        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
         float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
         v_cap += damp * dv_cap;
@@ -874,7 +912,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -891,7 +929,7 @@ private:
 // これにより4x4→3x3への縮約と除算削減が可能
 // =============================================================================
 class WaveShaperSchurFast {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -915,8 +953,7 @@ public:
         v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -991,8 +1028,7 @@ public:
         const float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
 
         // ダンピング
-        const float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
-                                       std::abs(dv_e), std::abs(dv_c)});
+        const float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
         const float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
         v_cap += damp * dv_cap;
@@ -1009,7 +1045,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -1027,7 +1063,7 @@ private:
 // f1が線形なのでv_capをv_bの関数として消去し、3x3システムを直接解く
 // =============================================================================
 class WaveShaper3Var {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -1037,7 +1073,7 @@ public:
         // v_cap = (g_c1*(v_in - v_c1_prev) + G3*v_b) / (g_c1 + G3)
         den_ = g_c1_ + G3;
         inv_den_ = 1.0f / den_;
-        k_ = G3 * inv_den_;  // dv_cap/dv_b
+        k_ = G3 * inv_den_; // dv_cap/dv_b
 
         // f2の定数部分: df2/dv_b の線形部分 = -G2 + G3*(k - 1)
         j22_linear_ = -G2 + G3 * (k_ - 1.0f);
@@ -1051,8 +1087,7 @@ public:
         v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -1111,7 +1146,7 @@ public:
         // 行2更新 (j33, j34, f3)
         const float j33_p = j33 - m32 * j23;
         const float j34_p = j34 - m32 * j24;
-        const float f3_p = f3 + m32 * f2;  // -f3 - m32*(-f2) = -f3 + m32*f2
+        const float f3_p = f3 + m32 * f2; // -f3 - m32*(-f2) = -f3 + m32*f2
 
         // 行3更新 (j43, j44, f4)
         const float j43_p = j43 - m42 * j23;
@@ -1133,8 +1168,10 @@ public:
 
         // ダンピング
         float max_dv = std::abs(dv_b);
-        if (std::abs(dv_e) > max_dv) max_dv = std::abs(dv_e);
-        if (std::abs(dv_c) > max_dv) max_dv = std::abs(dv_c);
+        if (std::abs(dv_e) > max_dv)
+            max_dv = std::abs(dv_e);
+        if (std::abs(dv_c) > max_dv)
+            max_dv = std::abs(dv_c);
         const float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
         v_b += damp * dv_b;
@@ -1154,7 +1191,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -1170,7 +1207,7 @@ private:
 // WaveShaper3Var2Iter: 3変数Newton - 2回反復版
 // =============================================================================
 class WaveShaper3Var2Iter {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -1190,8 +1227,7 @@ public:
         v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -1257,9 +1293,12 @@ public:
             const float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
 
             float max_dv = std::abs(dv_b);
-            if (std::abs(dv_e) > max_dv) max_dv = std::abs(dv_e);
-            if (std::abs(dv_c) > max_dv) max_dv = std::abs(dv_c);
-            if (std::abs(dv_cap) > max_dv) max_dv = std::abs(dv_cap);
+            if (std::abs(dv_e) > max_dv)
+                max_dv = std::abs(dv_e);
+            if (std::abs(dv_c) > max_dv)
+                max_dv = std::abs(dv_c);
+            if (std::abs(dv_cap) > max_dv)
+                max_dv = std::abs(dv_cap);
             const float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
             v_cap += damp * dv_cap;
@@ -1277,7 +1316,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -1295,7 +1334,7 @@ private:
 // WaveShaperSchur2Iter: Schur補行列 - 2回反復版
 // =============================================================================
 class WaveShaperSchur2Iter {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -1315,8 +1354,7 @@ public:
         v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -1368,7 +1406,8 @@ public:
             float f3_pp = f3 + j34_inv_j44 * f4;
 
             float det = j22_pp * j33_pp - j23_pp * j32_pp;
-            if (std::abs(det) < 1e-15f) continue;
+            if (std::abs(det) < 1e-15f)
+                continue;
 
             float inv_det = 1.0f / det;
             float neg_f2 = -f2_pp;
@@ -1378,8 +1417,7 @@ public:
             float dv_c = (-f4 - j42 * dv_b - j43 * dv_e) * inv_j44;
             float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
 
-            float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
-                                     std::abs(dv_e), std::abs(dv_c)});
+            float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
             float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
             v_cap += damp * dv_cap;
@@ -1397,7 +1435,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -1413,7 +1451,7 @@ private:
 // diode_ivを使用、1回Newton反復
 // =============================================================================
 class WaveShaper3VarOpt {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -1435,8 +1473,7 @@ public:
         v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -1500,8 +1537,10 @@ public:
 
         // ダンピング
         float max_dv = std::abs(dv_b);
-        if (std::abs(dv_e) > max_dv) max_dv = std::abs(dv_e);
-        if (std::abs(dv_c) > max_dv) max_dv = std::abs(dv_c);
+        if (std::abs(dv_e) > max_dv)
+            max_dv = std::abs(dv_e);
+        if (std::abs(dv_c) > max_dv)
+            max_dv = std::abs(dv_c);
         const float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
         v_b += damp * dv_b;
@@ -1521,7 +1560,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -1537,7 +1576,7 @@ private:
 // 前回の変化率を使って次の状態を予測し、Newton収束を高速化
 // =============================================================================
 class WaveShaperPredict {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -1560,8 +1599,7 @@ public:
         dv_c_prev_ = 0.0f;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -1631,8 +1669,7 @@ public:
         float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
 
         // ダンピング
-        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
-                                 std::abs(dv_e), std::abs(dv_c)});
+        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
         float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
         v_cap += damp * dv_cap;
@@ -1654,7 +1691,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dv_b_prev_ = 0.0f, dv_e_prev_ = 0.0f, dv_c_prev_ = 0.0f;
@@ -1672,43 +1709,41 @@ private:
 // Newton法不要、12 FLOPs/サンプル
 // =============================================================================
 class WaveShaperGeometric {
-public:
+  public:
     void setSampleRate(float /* sampleRate */) {
         // サンプルレート依存パラメータなし（48kHz想定で固定）
     }
 
     void reset() {
-        theta_ = 1.8f;  // Vbe=0.65V → θ (実用スケーリング)
-        phi_   = 0.0f;
+        theta_ = 1.8f; // Vbe=0.65V → θ (実用スケーリング)
+        phi_ = 0.0f;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         // STEP 1: 入力→双曲角変換 (3 FLOPs)
-        const float env = std::abs(v_in) * 0.3f + 7.8f;  // エミッタ包絡線モデル
-        const float v_be = v_in - env + 0.65f;           // Vbe推定
-        const float d_theta = v_be * 0.035f;             // 双曲角変化量
+        const float env = std::abs(v_in) * 0.3f + 7.8f; // エミッタ包絡線モデル
+        const float v_be = v_in - env + 0.65f;          // Vbe推定
+        const float d_theta = v_be * 0.035f;            // 双曲角変化量
 
         // STEP 2: トーラス状態更新 (4 FLOPs)
-        constexpr float COS_PHI = 0.9998f;  // C1効果: τ=0.91ms → 48kHz減衰
-        constexpr float SIN_PHI = 0.02f;    // 周波数依存位相シフト
+        constexpr float COS_PHI = 0.9998f; // C1効果: τ=0.91ms → 48kHz減衰
+        constexpr float SIN_PHI = 0.02f;   // 周波数依存位相シフト
         const float theta_new = COS_PHI * theta_ - SIN_PHI * phi_ + d_theta;
         phi_ = SIN_PHI * theta_ + COS_PHI * phi_;
         theta_ = theta_new;
 
         // STEP 3: 出力生成 (5 FLOPs) - sinh(x)の[3/2] Pade近似
         const float t2 = theta_ * theta_;
-        const float sinh_approx = theta_ * (1.0f + t2 * 0.1666667f)
-                                / (1.0f - t2 * 0.05f);
+        const float sinh_approx = theta_ * (1.0f + t2 * 0.1666667f) / (1.0f - t2 * 0.05f);
 
         // 物理制約付き出力
         float v_out = 5.33f - 0.42f * sinh_approx * (1.0f + 0.15f * COS_PHI);
         return std::clamp(v_out, 0.25f, 11.85f);
     }
 
-private:
+  private:
     float theta_ = 1.8f;
-    float phi_   = 0.0f;
+    float phi_ = 0.0f;
 };
 
 // =============================================================================
@@ -1721,7 +1756,7 @@ inline float pad_exp(float x) {
     constexpr float LN2 = 0.6931471805599453f;
 
     float k = std::floor(x * LOG2E + 0.5f);
-    float r = x - k * LN2;  // |r| < ln(2)/2 ≈ 0.347
+    float r = x - k * LN2; // |r| < ln(2)/2 ≈ 0.347
 
     // Padé [4,4] 近似 for e^r
     // e^r ≈ (1 + r/2 + r²/9 + r³/72 + r⁴/1008) / (1 - r/2 + r²/9 - r³/72 + r⁴/1008)
@@ -1732,7 +1767,10 @@ inline float pad_exp(float x) {
     float exp_r = num / den;
 
     // 2^k をビット操作で計算
-    union { float f; int32_t i; } u;
+    union {
+        float f;
+        int32_t i;
+    } u;
     int32_t ki = static_cast<int32_t>(k);
     // 127はfloatの指数バイアス、23はマンティッサビット数
     u.i = (ki + 127) << 23;
@@ -1749,7 +1787,7 @@ inline float pad_exp(float x) {
 // 3. Cramer公式で解析的に逆行列を計算
 // =============================================================================
 class WaveShaperOptimized {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -1769,8 +1807,7 @@ public:
         v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -1835,15 +1872,12 @@ public:
         const float neg_f3 = -f3;
         const float neg_f4 = -f4;
 
-        const float dv_b = (neg_f2 * m1
-                         + j23 * (neg_f3 * j44 - neg_f4 * j43)
-                         + j24 * (neg_f4 * j33 - neg_f3 * j34)) * inv_det;
-        const float dv_e = (j22 * (neg_f3 * j44 - neg_f4 * j43)
-                         - neg_f2 * m2
-                         + j24 * (neg_f4 * j32 - neg_f3 * j42)) * inv_det;
-        const float dv_c = (j22 * (neg_f4 * j33 - neg_f3 * j34)
-                         - j23 * (neg_f4 * j32 - neg_f3 * j42)
-                         + neg_f2 * m3) * inv_det;
+        const float dv_b =
+            (neg_f2 * m1 + j23 * (neg_f3 * j44 - neg_f4 * j43) + j24 * (neg_f4 * j33 - neg_f3 * j34)) * inv_det;
+        const float dv_e =
+            (j22 * (neg_f3 * j44 - neg_f4 * j43) - neg_f2 * m2 + j24 * (neg_f4 * j32 - neg_f3 * j42)) * inv_det;
+        const float dv_c =
+            (j22 * (neg_f4 * j33 - neg_f3 * j34) - j23 * (neg_f4 * j32 - neg_f3 * j42) + neg_f2 * m3) * inv_det;
 
         // ダンピング
         const float max_dv = std::max({std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
@@ -1865,7 +1899,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     // pad_expを使用したダイオード評価
     inline void diode_iv_pad(float v, float& i, float& g) {
         if (v > V_CRIT) {
@@ -1897,7 +1931,7 @@ private:
 // EB接合のみ、コレクタ電圧を直接計算
 // =============================================================================
 class WaveShaperMinimal {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -1909,8 +1943,7 @@ public:
         v_c2_ = 8.0f;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         // 入力カップリング後の電圧
         const float v_cap = v_in - v_c1_;
 
@@ -1961,7 +1994,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f;
     float v_c2_ = 8.0f;
     float dt_ = 1.0f / 48000.0f;
@@ -1977,29 +2010,35 @@ private:
 
 // 高速log2近似 (IEEE754ビット操作)
 inline float log2f_approx(float x) {
-    union { float f; int32_t i; } u;
+    union {
+        float f;
+        int32_t i;
+    } u;
     u.f = x;
     float y = static_cast<float>(u.i);
-    y *= 1.1920928955078125e-7f;  // 1/(1<<23)
+    y *= 1.1920928955078125e-7f; // 1/(1<<23)
     return y - 126.94269504f;
 }
 
 // 高速ln近似
 inline float logf_approx(float x) {
-    return 0.6931471805599453f * log2f_approx(x);  // ln(2) * log2(x)
+    return 0.6931471805599453f * log2f_approx(x); // ln(2) * log2(x)
 }
 
 // 高速pow2近似
 inline float pow2f_approx(float x) {
     float f = x + 126.94269504f;
-    union { float f; int32_t i; } u;
-    u.i = static_cast<int32_t>(f * 8388608.0f);  // 1<<23
+    union {
+        float f;
+        int32_t i;
+    } u;
+    u.i = static_cast<int32_t>(f * 8388608.0f); // 1<<23
     return u.f;
 }
 
 // 高速exp近似 (Wright Omega用)
 inline float expf_approx(float x) {
-    return pow2f_approx(1.4426950408889634f * x);  // pow2(x/ln(2))
+    return pow2f_approx(1.4426950408889634f * x); // pow2(x/ln(2))
 }
 
 // Wright Omega関数 omega3 (DAFx2019)
@@ -2012,7 +2051,7 @@ inline float omega3(float x) {
     } else if (x < 8.0f) {
         // 中間領域: 4次多項式近似
         // 係数: [-1.314e-3, 0.04776, 0.3632, 0.6314]
-        float y = x + 1.0f;  // シフト
+        float y = x + 1.0f; // シフト
         return 0.6314f + y * (0.3632f + y * (0.04776f + y * (-0.001314f)));
     } else {
         // 大きいx: ω(x) ≈ x - ln(x)
@@ -2075,19 +2114,17 @@ inline float omega_fast(float x) {
 inline float omega_fast2(float x) {
     if (x < -2.5f) {
         return expf_approx(x);
-    }
-    else if (x < 5.0f) {
+    } else if (x < 5.0f) {
         // 広域有理関数近似 [-2.5, 5]
         // ω(0) = W(1) ≈ 0.5671
         // ω(1) = W(e) ≈ 1.0
         // ω(-1) = W(1/e) ≈ 0.2785
-        float t = x + 2.5f;  // t ∈ [0, 7.5]
+        float t = x + 2.5f; // t ∈ [0, 7.5]
         // 5次/3次有理関数
         float num = 0.0821f + t * (0.1978f + t * (0.1336f + t * (0.0291f + t * 0.00187f)));
         float den = 1.0f + t * (-0.0543f + t * 0.00738f);
         return num / den;
-    }
-    else {
+    } else {
         float lnx = logf_approx(x);
         return x - lnx + lnx / x;
     }
@@ -2190,8 +2227,8 @@ inline void diode_iv_omega3(float v, float& i, float& g) {
 // I = Vt/R * ω(x) - Is
 // =============================================================================
 struct DiodeLambertW {
-    float vt_div_r;   // Vt / R
-    float is_r_div_vt_ln;  // ln(Is * R / Vt)
+    float vt_div_r;       // Vt / R
+    float is_r_div_vt_ln; // ln(Is * R / Vt)
     float is;
     float vt_inv;
 
@@ -2225,8 +2262,8 @@ struct DiodeLambertW {
 // 事前計算したテーブルからの補間でexp計算を高速化
 // =============================================================================
 constexpr int kExpTableSize = 256;
-constexpr float kExpTableMin = -10.0f;  // v/Vt の最小値
-constexpr float kExpTableMax = 45.0f;   // v/Vt の最大値
+constexpr float kExpTableMin = -10.0f; // v/Vt の最小値
+constexpr float kExpTableMax = 45.0f;  // v/Vt の最大値
 constexpr float kExpTableRange = kExpTableMax - kExpTableMin;
 constexpr float kExpTableScale = (kExpTableSize - 1) / kExpTableRange;
 
@@ -2280,7 +2317,7 @@ inline void diode_iv_table(float v, float& i, float& g) {
 // WaveShaperSchurTable: Meijerテーブルルックアップ版
 // =============================================================================
 class WaveShaperSchurTable {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -2294,12 +2331,14 @@ public:
     }
 
     void reset() {
-        v_c1_ = 0.0f; v_c2_ = 8.0f;
-        v_b_ = 8.0f; v_e_ = 8.0f; v_c_ = V_COLL;
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
         float v_cap = v_in - v_c1_prev;
@@ -2368,7 +2407,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -2383,7 +2422,7 @@ private:
 // WaveShaperSchurUltra: BCダイオード遅延評価 (exp 2→1回)
 // =============================================================================
 class WaveShaperSchurUltra {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -2395,13 +2434,16 @@ public:
     }
 
     void reset() {
-        v_c1_ = 0.0f; v_c2_ = 8.0f;
-        v_b_ = 8.0f; v_e_ = 8.0f; v_c_ = V_COLL;
-        i_cr_ = -I_S; g_cr_ = 1e-12f;
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
+        i_cr_ = -I_S;
+        g_cr_ = 1e-12f;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
         float v_cap = v_in - v_c1_prev;
@@ -2477,7 +2519,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -2493,7 +2535,7 @@ private:
 // WaveShaperSchur with mo_exp (pow2-based)
 // =============================================================================
 class WaveShaperSchurMo {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -2505,12 +2547,14 @@ public:
     }
 
     void reset() {
-        v_c1_ = 0.0f; v_c2_ = 8.0f;
-        v_b_ = 8.0f; v_e_ = 8.0f; v_c_ = V_COLL;
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
         float v_cap = v_in - v_c1_prev;
@@ -2521,7 +2565,7 @@ public:
         float v_eb = v_e - v_b;
         float v_cb = v_c - v_b;
         float i_ef, g_ef, i_cr, g_cr;
-        diode_iv_mo(v_eb, i_ef, g_ef);  // mo_exp版
+        diode_iv_mo(v_eb, i_ef, g_ef); // mo_exp版
         diode_iv_mo(v_cb, i_cr, g_cr);
 
         float i_e = i_ef - ALPHA_R * i_cr;
@@ -2579,7 +2623,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -2595,7 +2639,7 @@ private:
 // Newton反復なしの Wright Omega でダイオード電流を計算
 // =============================================================================
 class WaveShaperSchurLambertW {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -2607,12 +2651,14 @@ public:
     }
 
     void reset() {
-        v_c1_ = 0.0f; v_c2_ = 8.0f;
-        v_b_ = 8.0f; v_e_ = 8.0f; v_c_ = V_COLL;
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
         float v_cap = v_in - v_c1_prev;
@@ -2623,7 +2669,7 @@ public:
         float v_eb = v_e - v_b;
         float v_cb = v_c - v_b;
         float i_ef, g_ef, i_cr, g_cr;
-        diode_iv_lambertw(v_eb, i_ef, g_ef);  // omega_fast2版
+        diode_iv_lambertw(v_eb, i_ef, g_ef); // omega_fast2版
         diode_iv_lambertw(v_cb, i_cr, g_cr);
 
         float i_e = i_ef - ALPHA_R * i_cr;
@@ -2681,7 +2727,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -2697,7 +2743,7 @@ private:
 // omega_fast2と比較して、Newton-Raphson補正を省略
 // =============================================================================
 class WaveShaperSchurOmega3 {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -2709,12 +2755,14 @@ public:
     }
 
     void reset() {
-        v_c1_ = 0.0f; v_c2_ = 8.0f;
-        v_b_ = 8.0f; v_e_ = 8.0f; v_c_ = V_COLL;
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
         float v_cap = v_in - v_c1_prev;
@@ -2725,7 +2773,7 @@ public:
         float v_eb = v_e - v_b;
         float v_cb = v_c - v_b;
         float i_ef, g_ef, i_cr, g_cr;
-        diode_iv_omega3(v_eb, i_ef, g_ef);  // omega3のみ
+        diode_iv_omega3(v_eb, i_ef, g_ef); // omega3のみ
         diode_iv_omega3(v_cb, i_cr, g_cr);
 
         float i_e = i_ef - ALPHA_R * i_cr;
@@ -2783,7 +2831,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -2809,7 +2857,7 @@ private:
  * 精度: Newton 1回相当（RMS 〜70mV vs ref）
  */
 class WaveShaperDecoupled {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -2830,8 +2878,7 @@ public:
         g_cr_prev_ = 1e-12f;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
         float v_cap = v_in - v_c1_prev;
@@ -2919,7 +2966,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float g_ef_prev_ = 1e-12f;
@@ -2942,8 +2989,8 @@ private:
  * OFF→ONの遷移直後は高精度モードを1サンプル維持し、安定性を確保。
  */
 class WaveShaperHybridAdaptive {
-public:
-    static constexpr float VEB_THRESHOLD = 0.3f;  // BJT ON/OFF判定閾値
+  public:
+    static constexpr float VEB_THRESHOLD = 0.3f; // BJT ON/OFF判定閾値
 
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
@@ -2966,8 +3013,7 @@ public:
         bjt_on_ = false;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
         float v_cap = v_in - v_c1_prev;
@@ -3069,7 +3115,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -3090,7 +3136,10 @@ inline float schraudolph_exp(float x) {
     // Schraudolph (1999): IEEE754ビット操作による高速exp
     // 精度: 約2-4%誤差、速度: 標準expの約1/10
     x = std::clamp(x, -87.0f, 88.0f);
-    union { float f; int32_t i; } u;
+    union {
+        float f;
+        int32_t i;
+    } u;
     // 12102203.0f = (1 << 23) / ln(2)
     // 1064866805 = 127 << 23 - 調整項
     u.i = static_cast<int32_t>(12102203.0f * x + 1064866805.0f);
@@ -3117,7 +3166,7 @@ inline void diode_iv_schraudolph(float v, float& i, float& g) {
  * 最速のexp近似を使用
  */
 class WaveShaperSchraudolph {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -3129,12 +3178,14 @@ public:
     }
 
     void reset() {
-        v_c1_ = 0.0f; v_c2_ = 8.0f;
-        v_b_ = 8.0f; v_e_ = 8.0f; v_c_ = V_COLL;
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -3194,8 +3245,7 @@ public:
             float dv_c = (-f4 - j42 * dv_b - j43 * dv_e) * inv_j44;
             float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
 
-            float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
-                                     std::abs(dv_e), std::abs(dv_c)});
+            float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
             float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
             v_cap += damp * dv_cap;
@@ -3213,7 +3263,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -3233,9 +3283,9 @@ inline void diode_iv_tanh(float v, float& i, float& g) {
     // tanh()ベースのダイオードモデル
     // I = Is * (tanh((V - Vd) / (2*Vt)) + 1) / 2 * scale
     // これは exp() より滑らかで計算が速い
-    constexpr float VD = 0.5f;     // ダイオード順電圧
-    constexpr float SCALE = 2e-3f; // 最大電流スケール
-    constexpr float VT2 = 2.0f * V_T;  // 2 * 熱電圧
+    constexpr float VD = 0.5f;        // ダイオード順電圧
+    constexpr float SCALE = 2e-3f;    // 最大電流スケール
+    constexpr float VT2 = 2.0f * V_T; // 2 * 熱電圧
     constexpr float VT2_INV = 1.0f / VT2;
 
     float x = (v - VD) * VT2_INV;
@@ -3255,10 +3305,10 @@ inline void diode_iv_tanh(float v, float& i, float& g) {
 inline void diode_iv_pwl(float v, float& i, float& g) {
     // 3セグメントPWL: OFF / 遷移 / ON
     // G_OFFを大きくして数値安定性を向上
-    constexpr float V_ON = 0.6f;    // ダイオードON電圧
-    constexpr float V_KNEE = 0.4f;  // 遷移開始電圧
-    constexpr float G_ON = 0.04f;   // ON時コンダクタンス (1/25Ω)
-    constexpr float G_OFF = 1e-6f;  // OFF時コンダクタンス (数値安定性)
+    constexpr float V_ON = 0.6f;   // ダイオードON電圧
+    constexpr float V_KNEE = 0.4f; // 遷移開始電圧
+    constexpr float G_ON = 0.04f;  // ON時コンダクタンス (1/25Ω)
+    constexpr float G_OFF = 1e-6f; // OFF時コンダクタンス (数値安定性)
 
     if (v < V_KNEE) {
         // OFF領域
@@ -3285,7 +3335,7 @@ inline void diode_iv_pwl(float v, float& i, float& g) {
  * exp()を完全に排除
  */
 class WaveShaperPWL {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -3297,12 +3347,14 @@ public:
     }
 
     void reset() {
-        v_c1_ = 0.0f; v_c2_ = 8.0f;
-        v_b_ = 8.0f; v_e_ = 8.0f; v_c_ = V_COLL;
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -3375,7 +3427,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -3394,7 +3446,7 @@ private:
  * exp()の代わりにtanh()を使用し、滑らかな特性を維持
  */
 class WaveShaperTanh {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -3406,12 +3458,14 @@ public:
     }
 
     void reset() {
-        v_c1_ = 0.0f; v_c2_ = 8.0f;
-        v_b_ = 8.0f; v_e_ = 8.0f; v_c_ = V_COLL;
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -3471,8 +3525,7 @@ public:
             float dv_c = (-f4 - j42 * dv_b - j43 * dv_e) * inv_j44;
             float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
 
-            float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
-                                     std::abs(dv_e), std::abs(dv_c)});
+            float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
             float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
             v_cap += damp * dv_cap;
@@ -3490,7 +3543,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -3513,10 +3566,10 @@ private:
  * 暗黙的ソルバー (Backward Euler) で数値安定性を確保
  */
 class WaveShaperVCCS {
-public:
-    static constexpr float VBE_ON = 0.55f;     // ダイオードON電圧
-    static constexpr float IC_MAX = 1.5e-3f;   // 最大コレクタ電流
-    static constexpr float GM = 0.02f;         // 相互コンダクタンス
+  public:
+    static constexpr float VBE_ON = 0.55f;   // ダイオードON電圧
+    static constexpr float IC_MAX = 1.5e-3f; // 最大コレクタ電流
+    static constexpr float GM = 0.02f;       // 相互コンダクタンス
 
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
@@ -3530,8 +3583,7 @@ public:
         v_b_ = 8.0f;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         // === 暗黙的ソルバー (Newton 2回) ===
         float v_cap = v_in - v_c1_;
         float v_b = v_b_;
@@ -3549,7 +3601,7 @@ public:
             // tanh()ソフトサチュレーション
             float x = GM * v_drive / IC_MAX;
             float th = fast_tanh(x);
-            float i_c = IC_MAX * (th + 1.0f) * 0.5f;  // 0 to IC_MAX
+            float i_c = IC_MAX * (th + 1.0f) * 0.5f; // 0 to IC_MAX
 
             // コンダクタンス g = dIc/dVbe
             float sech2 = 1.0f - th * th;
@@ -3567,7 +3619,7 @@ public:
             float g_b_total = G2 + G3 + g_m / BETA_F;
             float dv_b = f_b / g_b_total;
 
-            float g_e_total = G4 + g_c2_ + (1.0f + 1.0f/BETA_F) * g_m;
+            float g_e_total = G4 + g_c2_ + (1.0f + 1.0f / BETA_F) * g_m;
             float dv_e = f_e / g_e_total;
 
             float g_cap_total = g_c1_ + G3;
@@ -3593,7 +3645,7 @@ public:
         return std::clamp(v_c, 0.0f, V_CC);
     }
 
-private:
+  private:
     float v_c1_ = 0.0f;
     float v_c2_ = 8.0f;
     float v_b_ = 8.0f;
@@ -3612,7 +3664,7 @@ private:
  * 電流は現在の電圧で正確に計算
  */
 class WaveShaperOneIter {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -3624,14 +3676,16 @@ public:
     }
 
     void reset() {
-        v_c1_ = 0.0f; v_c2_ = 8.0f;
-        v_b_ = 8.0f; v_e_ = 8.0f; v_c_ = V_COLL;
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
         g_ef_prev_ = 1e-12f;
         g_cr_prev_ = 1e-12f;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -3694,8 +3748,7 @@ public:
         float dv_c = (-f4 - j42 * dv_b - j43 * dv_e) * inv_j44;
         float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
 
-        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
-                                 std::abs(dv_e), std::abs(dv_c)});
+        float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
         float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
         v_cap += damp * dv_cap;
@@ -3715,7 +3768,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -3735,7 +3788,7 @@ private:
  * WaveShaperTwoIter - 2回Newton反復 (最適化版)
  */
 class WaveShaperTwoIter {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         dt_ = 1.0f / sampleRate;
         g_c1_ = C1 / dt_;
@@ -3747,12 +3800,14 @@ public:
     }
 
     void reset() {
-        v_c1_ = 0.0f; v_c2_ = 8.0f;
-        v_b_ = 8.0f; v_e_ = 8.0f; v_c_ = V_COLL;
+        v_c1_ = 0.0f;
+        v_c2_ = 8.0f;
+        v_b_ = 8.0f;
+        v_e_ = 8.0f;
+        v_c_ = V_COLL;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         const float v_c1_prev = v_c1_;
         const float v_c2_prev = v_c2_;
 
@@ -3812,8 +3867,7 @@ public:
             float dv_c = (-f4 - j42 * dv_b - j43 * dv_e) * inv_j44;
             float dv_cap = (-f1 - G3 * dv_b) * inv_j11_;
 
-            float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b),
-                                     std::abs(dv_e), std::abs(dv_c)});
+            float max_dv = std::max({std::abs(dv_cap), std::abs(dv_b), std::abs(dv_e), std::abs(dv_c)});
             float damp = (max_dv > 0.5f) ? 0.5f / max_dv : 1.0f;
 
             v_cap += damp * dv_cap;
@@ -3831,7 +3885,7 @@ public:
         return v_c;
     }
 
-private:
+  private:
     float v_c1_ = 0.0f, v_c2_ = 8.0f;
     float v_b_ = 8.0f, v_e_ = 8.0f, v_c_ = V_COLL;
     float dt_ = 1.0f / 48000.0f;
@@ -3871,17 +3925,12 @@ using namespace chowdsp::wdft;
  *   コレクタ = Vcoll - R5 * Ic
  */
 class WaveShaperWDF {
-public:
-    void setSampleRate(float sampleRate) {
-        C1_.prepare(sampleRate);
-    }
+  public:
+    void setSampleRate(float sampleRate) { C1_.prepare(sampleRate); }
 
-    void reset() {
-        C1_.reset();
-    }
+    void reset() { C1_.reset(); }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         // 入力電圧設定
         Vs_.setVoltage(v_in);
 
@@ -3896,7 +3945,7 @@ public:
         // ベース電圧推定: R2/R3分圧
         constexpr float R2 = 100e3f;
         constexpr float R3 = 10e3f;
-        float v_b = (v_c1 * (1.0f/R3) + V_CC * (1.0f/R2)) / ((1.0f/R2) + (1.0f/R3));
+        float v_b = (v_c1 * (1.0f / R3) + V_CC * (1.0f / R2)) / ((1.0f / R2) + (1.0f / R3));
 
         // エミッタ電圧: 簡略化してV_CC * R4/(R4+Rbias) 付近
         // Forward-Active: Ve ≈ Vb - Vbe_on (0.6V)
@@ -3916,7 +3965,7 @@ public:
         return std::clamp(v_c, 0.0f, V_CC);
     }
 
-private:
+  private:
     static constexpr float V_CC = 12.0f;
     static constexpr float V_COLL = 5.33f;
     static constexpr float R5 = 10e3f;
@@ -3927,17 +3976,17 @@ private:
 
     // WDF要素: 入力側
     // Vs (1Ω) -- R3 (10kΩ) 直列
-    ResistiveVoltageSourceT<float> Vs_ { 1.0f };
-    ResistorT<float> R3_ { 10e3f };
-    WDFSeriesT<float, ResistiveVoltageSourceT<float>, ResistorT<float>> S1_ { Vs_, R3_ };
+    ResistiveVoltageSourceT<float> Vs_{1.0f};
+    ResistorT<float> R3_{10e3f};
+    WDFSeriesT<float, ResistiveVoltageSourceT<float>, ResistorT<float>> S1_{Vs_, R3_};
 
     // C1 (10nF) を S1 と並列
-    CapacitorT<float> C1_ { 10e-9f };
-    WDFParallelT<float, decltype(S1_), CapacitorT<float>> P1_ { S1_, C1_ };
+    CapacitorT<float> C1_{10e-9f};
+    WDFParallelT<float, decltype(S1_), CapacitorT<float>> P1_{S1_, C1_};
 
     // ダイオードペア (BE接合モデル) をルートとして接続
     // DiodeQuality::Good を使用 (omega4ベース)
-    DiodePairT<float, decltype(P1_), DiodeQuality::Good> dp_ { P1_, 1e-13f, 0.025865f, 1.0f };
+    DiodePairT<float, decltype(P1_), DiodeQuality::Good> dp_{P1_, 1e-13f, 0.025865f, 1.0f};
 };
 
 /**
@@ -3945,7 +3994,7 @@ private:
  * R-type adaptorを使用してBJTの3ポート非線形性を正確にモデル化
  */
 class WaveShaperWDFFull {
-public:
+  public:
     void setSampleRate(float sampleRate) {
         C1_.prepare(sampleRate);
         C2_.prepare(sampleRate);
@@ -3957,8 +4006,7 @@ public:
         v_e_ = 8.0f;
     }
 
-    __attribute__((noinline))
-    float process(float v_in) {
+    __attribute__((noinline)) float process(float v_in) {
         // 入力電圧設定
         Vs_.setVoltage(v_in);
         Vs_emit_.setVoltage(V_CC);
@@ -3975,7 +4023,7 @@ public:
         // 入力波動変数からベース電圧を推定
         // v = (a + b) / 2 ≈ a/2 (初期推定)
         float v_b_est = a_in * 0.5f;
-        float v_e = v_e_;  // 前サンプルのエミッタ電圧
+        float v_e = v_e_; // 前サンプルのエミッタ電圧
 
         // BE接合電圧
         float v_be = v_b_est - v_e;
@@ -4005,7 +4053,7 @@ public:
         return std::clamp(v_c, 0.0f, V_CC);
     }
 
-private:
+  private:
     // Lambert W ダイオード電流計算
     static void diode_lambertw_iv(float v, float R, float& i, float& g) {
         constexpr float Is = 1e-13f;
@@ -4035,18 +4083,18 @@ private:
     float v_e_ = 8.0f;
 
     // 入力側WDF: Vs -- R3 -- C1
-    ResistiveVoltageSourceT<float> Vs_ { 1.0f };
-    ResistorT<float> R3_ { 10e3f };
-    WDFSeriesT<float, ResistiveVoltageSourceT<float>, ResistorT<float>> S_vs_r3_ { Vs_, R3_ };
-    CapacitorT<float> C1_ { 10e-9f };
-    WDFSeriesT<float, decltype(S_vs_r3_), CapacitorT<float>> S1_ { S_vs_r3_, C1_ };
+    ResistiveVoltageSourceT<float> Vs_{1.0f};
+    ResistorT<float> R3_{10e3f};
+    WDFSeriesT<float, ResistiveVoltageSourceT<float>, ResistorT<float>> S_vs_r3_{Vs_, R3_};
+    CapacitorT<float> C1_{10e-9f};
+    WDFSeriesT<float, decltype(S_vs_r3_), CapacitorT<float>> S1_{S_vs_r3_, C1_};
 
     // エミッタ側WDF: Vs_emit -- (R4 || C2)
-    ResistiveVoltageSourceT<float> Vs_emit_ { 1.0f };
-    ResistorT<float> R4_ { 22e3f };
-    CapacitorT<float> C2_ { 1e-6f };
-    WDFParallelT<float, ResistorT<float>, CapacitorT<float>> P_rc_ { R4_, C2_ };
-    WDFSeriesT<float, ResistiveVoltageSourceT<float>, decltype(P_rc_)> S_emit_ { Vs_emit_, P_rc_ };
+    ResistiveVoltageSourceT<float> Vs_emit_{1.0f};
+    ResistorT<float> R4_{22e3f};
+    CapacitorT<float> C2_{1e-6f};
+    WDFParallelT<float, ResistorT<float>, CapacitorT<float>> P_rc_{R4_, C2_};
+    WDFSeriesT<float, ResistiveVoltageSourceT<float>, decltype(P_rc_)> S_emit_{Vs_emit_, P_rc_};
 };
 
 } // namespace wdf_tb303
@@ -4058,84 +4106,81 @@ namespace dsp {
 namespace oscillator {
 
 class SquareShaper {
- public:
-  void reset() { Ve = 0.0f; }
+  public:
+    void reset() { Ve = 0.0f; }
 
-  struct Param {
-    float dt = 1.0f / 48'000.0f;
-    float shape = 0.5f;
-  };
+    struct Param {
+        float dt = 1.0f / 48'000.0f;
+        float shape = 0.5f;
+    };
 
-  void prepare(Param&& p) {
-    const float Ce = 0.1e-6f + (p.shape * 0.9e-6f);
-    g = p.dt / Ce;
-  }
-
-  struct IO {
-    float in = 0;
-    float out = 0;
-  };
-
-  __attribute__((noinline))
-  IO process(IO&& io) {
-    float Veb = Ve - io.in;
-    float Ib = std::min(Is * (fast_exp(Veb * divVt) - 1.0f), Ib_max);
-    float Ic_ideal = beta * Ib;
-    float Ic_lin = Ve * divRc;
-    float Ic_sat = Ic_lin * fast_tanh(Ve * divVce_sat);
-    const float den_part = 0.1f * std::max(Ic_sat, 1e-6f);
-    const float Ic = (Ic_sat * Ic_ideal) / (std::abs(Ic_ideal) + den_part);
-    float Ie = Ib + Ic;
-    float Icharge = (Vcc - Ve) * divRe;
-    Ve += g * (Icharge - Ie);
-    io.out = Rc * Ic;
-    return io;
-  }
-
- private:
-  static float fast_exp(float x) {
-    float y = x * 1.442695041f;
-    int32_t i = static_cast<int32_t>(y + (y < 0.0f ? -0.5f : 0.5f));
-    float f = y - static_cast<float>(i);
-    if (f < 0.0f) {
-      f += 1.0f;
-      i -= 1;
+    void prepare(Param&& p) {
+        const float Ce = 0.1e-6f + (p.shape * 0.9e-6f);
+        g = p.dt / Ce;
     }
-    union {
-      float f;
-      int32_t i;
-    } conv;
-    i += 127;
-    i = std::clamp(i, 0, 254);
-    conv.i = i << 23;
-    float p = 1.0f + f * (0.6931471806f + f * (0.2402265069f + f * (0.0551041086f + f * 0.0095158916f)));
-    return conv.f * p;
-  }
 
-  static constexpr float fast_tanh(float x) noexcept {
-    return x / (std::abs(x) + 0.1f);
-  }
+    struct IO {
+        float in = 0;
+        float out = 0;
+    };
 
-  static constexpr float Re = 22e3f;
-  static constexpr float Rc = 10e3f;
-  static constexpr float divRc = 1.0f / Rc;
-  static constexpr float divRe = 1.0f / Re;
-  static constexpr float Vcc = 6.67f;
-  static constexpr float Is = 55.9e-15f;
-  static constexpr float NF = 1.01201f;
-  static constexpr float Vt = 0.02585f * NF;
-  static constexpr float divVt = 1.0f / Vt;
-  static constexpr float beta = 205.0f;
-  static constexpr float Ib_max = 66.7e-06f;
-  static constexpr float Vce_sat = 0.1f;
-  static constexpr float divVce_sat = 1.0f / Vce_sat;
+    __attribute__((noinline)) IO process(IO&& io) {
+        float Veb = Ve - io.in;
+        float Ib = std::min(Is * (fast_exp(Veb * divVt) - 1.0f), Ib_max);
+        float Ic_ideal = beta * Ib;
+        float Ic_lin = Ve * divRc;
+        float Ic_sat = Ic_lin * fast_tanh(Ve * divVce_sat);
+        const float den_part = 0.1f * std::max(Ic_sat, 1e-6f);
+        const float Ic = (Ic_sat * Ic_ideal) / (std::abs(Ic_ideal) + den_part);
+        float Ie = Ib + Ic;
+        float Icharge = (Vcc - Ve) * divRe;
+        Ve += g * (Icharge - Ie);
+        io.out = Rc * Ic;
+        return io;
+    }
 
-  float Ve = 0.0f;
-  float g = 0.0f;
+  private:
+    static float fast_exp(float x) {
+        float y = x * 1.442695041f;
+        int32_t i = static_cast<int32_t>(y + (y < 0.0f ? -0.5f : 0.5f));
+        float f = y - static_cast<float>(i);
+        if (f < 0.0f) {
+            f += 1.0f;
+            i -= 1;
+        }
+        union {
+            float f;
+            int32_t i;
+        } conv;
+        i += 127;
+        i = std::clamp(i, 0, 254);
+        conv.i = i << 23;
+        float p = 1.0f + f * (0.6931471806f + f * (0.2402265069f + f * (0.0551041086f + f * 0.0095158916f)));
+        return conv.f * p;
+    }
+
+    static constexpr float fast_tanh(float x) noexcept { return x / (std::abs(x) + 0.1f); }
+
+    static constexpr float Re = 22e3f;
+    static constexpr float Rc = 10e3f;
+    static constexpr float divRc = 1.0f / Rc;
+    static constexpr float divRe = 1.0f / Re;
+    static constexpr float Vcc = 6.67f;
+    static constexpr float Is = 55.9e-15f;
+    static constexpr float NF = 1.01201f;
+    static constexpr float Vt = 0.02585f * NF;
+    static constexpr float divVt = 1.0f / Vt;
+    static constexpr float beta = 205.0f;
+    static constexpr float Ib_max = 66.7e-06f;
+    static constexpr float Vce_sat = 0.1f;
+    static constexpr float divVce_sat = 1.0f / Vce_sat;
+
+    float Ve = 0.0f;
+    float g = 0.0f;
 };
 
-}  // namespace oscillator
-}  // namespace dsp
+} // namespace oscillator
+} // namespace dsp
 
 // ============================================================================
 // Benchmark
@@ -4170,7 +4215,8 @@ int main() {
         float out = ws.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     // Reset for actual measurement
@@ -4184,8 +4230,9 @@ int main() {
         float out = ws.process(v_in);
         sink = out;
         // Simulate sawtooth input (40Hz @ 48kHz)
-        v_in -= 0.00542f;  // 6.5V / 1200samples
-        if (v_in < 5.5f) v_in = 12.0f;
+        v_in -= 0.00542f; // 6.5V / 1200samples
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     uint32_t end = dwt::cycles();
@@ -4219,7 +4266,8 @@ int main() {
         auto io = sq.process({v_in, 0.0f});
         sink = io.out;
         v_in -= 0.05f;
-        if (v_in < 0.0f) v_in = 8.0f;
+        if (v_in < 0.0f)
+            v_in = 8.0f;
     }
 
     // Reset for actual measurement
@@ -4234,7 +4282,8 @@ int main() {
         sink = io.out;
         // Simulate input variation
         v_in -= 0.0067f;
-        if (v_in < 0.0f) v_in = 8.0f;
+        if (v_in < 0.0f)
+            v_in = 8.0f;
     }
 
     end = dwt::cycles();
@@ -4265,7 +4314,8 @@ int main() {
         float out = ws_mo.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     // Reset for actual measurement
@@ -4279,7 +4329,8 @@ int main() {
         float out = ws_mo.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4310,7 +4361,8 @@ int main() {
         float out = ws_fast.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     // Reset for actual measurement
@@ -4324,7 +4376,8 @@ int main() {
         float out = ws_fast.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4354,7 +4407,8 @@ int main() {
         float out = ws_ultra.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_ultra.reset();
@@ -4367,7 +4421,8 @@ int main() {
         float out = ws_ultra.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4397,7 +4452,8 @@ int main() {
         float out = ws_table.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_table.reset();
@@ -4410,7 +4466,8 @@ int main() {
         float out = ws_table.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4440,7 +4497,8 @@ int main() {
         float out = ws_wdf.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_wdf.reset();
@@ -4453,7 +4511,8 @@ int main() {
         float out = ws_wdf.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4483,7 +4542,8 @@ int main() {
         float out = ws_wdf_full.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_wdf_full.reset();
@@ -4496,7 +4556,8 @@ int main() {
         float out = ws_wdf_full.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4526,7 +4587,8 @@ int main() {
         float out = ws_lambertw.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_lambertw.reset();
@@ -4539,7 +4601,8 @@ int main() {
         float out = ws_lambertw.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4569,7 +4632,8 @@ int main() {
         float out = ws_omega3.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_omega3.reset();
@@ -4582,7 +4646,8 @@ int main() {
         float out = ws_omega3.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4612,7 +4677,8 @@ int main() {
         float out = ws_decoupled.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_decoupled.reset();
@@ -4625,7 +4691,8 @@ int main() {
         float out = ws_decoupled.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4655,7 +4722,8 @@ int main() {
         float out = ws_hybrid.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_hybrid.reset();
@@ -4668,7 +4736,8 @@ int main() {
         float out = ws_hybrid.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4702,7 +4771,8 @@ int main() {
         float out = ws_pade.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_pade.reset();
@@ -4715,7 +4785,8 @@ int main() {
         float out = ws_pade.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4745,7 +4816,8 @@ int main() {
         float out = ws_lut.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_lut.reset();
@@ -4758,7 +4830,8 @@ int main() {
         float out = ws_lut.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4788,7 +4861,8 @@ int main() {
         float out = ws_fast2.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_fast2.reset();
@@ -4801,7 +4875,8 @@ int main() {
         float out = ws_fast2.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4831,7 +4906,8 @@ int main() {
         float out = ws_predict.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_predict.reset();
@@ -4844,7 +4920,8 @@ int main() {
         float out = ws_predict.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4874,7 +4951,8 @@ int main() {
         float out = ws_geo.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_geo.reset();
@@ -4887,7 +4965,8 @@ int main() {
         float out = ws_geo.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4917,7 +4996,8 @@ int main() {
         float out = ws_opt.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_opt.reset();
@@ -4930,7 +5010,8 @@ int main() {
         float out = ws_opt.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -4960,7 +5041,8 @@ int main() {
         float out = ws_minimal.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_minimal.reset();
@@ -4973,7 +5055,8 @@ int main() {
         float out = ws_minimal.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -5003,7 +5086,8 @@ int main() {
         float out = ws_schraud.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_schraud.reset();
@@ -5016,7 +5100,8 @@ int main() {
         float out = ws_schraud.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -5046,7 +5131,8 @@ int main() {
         float out = ws_pwl.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_pwl.reset();
@@ -5059,7 +5145,8 @@ int main() {
         float out = ws_pwl.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -5089,7 +5176,8 @@ int main() {
         float out = ws_tanh.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_tanh.reset();
@@ -5102,7 +5190,8 @@ int main() {
         float out = ws_tanh.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -5132,7 +5221,8 @@ int main() {
         float out = ws_vccs.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_vccs.reset();
@@ -5145,7 +5235,8 @@ int main() {
         float out = ws_vccs.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -5175,7 +5266,8 @@ int main() {
         float out = ws_oneiter.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_oneiter.reset();
@@ -5188,7 +5280,8 @@ int main() {
         float out = ws_oneiter.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -5218,7 +5311,8 @@ int main() {
         float out = ws_twoiter.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_twoiter.reset();
@@ -5231,7 +5325,8 @@ int main() {
         float out = ws_twoiter.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -5261,7 +5356,8 @@ int main() {
         float out = ws_3var.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_3var.reset();
@@ -5274,7 +5370,8 @@ int main() {
         float out = ws_3var.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -5304,7 +5401,8 @@ int main() {
         float out = ws_3varopt.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_3varopt.reset();
@@ -5317,7 +5415,8 @@ int main() {
         float out = ws_3varopt.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -5347,7 +5446,8 @@ int main() {
         float out = ws_3var2.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_3var2.reset();
@@ -5360,7 +5460,8 @@ int main() {
         float out = ws_3var2.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -5390,7 +5491,8 @@ int main() {
         float out = ws_schur2.process(v_in);
         sink = out;
         v_in -= 0.01f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     ws_schur2.reset();
@@ -5403,7 +5505,8 @@ int main() {
         float out = ws_schur2.process(v_in);
         sink = out;
         v_in -= 0.00542f;
-        if (v_in < 5.5f) v_in = 12.0f;
+        if (v_in < 5.5f)
+            v_in = 12.0f;
     }
 
     end = dwt::cycles();
@@ -5531,7 +5634,8 @@ int main() {
     for (int i = 0; i < ITERATIONS; ++i) {
         sum_exp += tb303::fast_exp(x_test);
         x_test += 0.001f;
-        if (x_test > 10.0f) x_test = -10.0f;
+        if (x_test > 10.0f)
+            x_test = -10.0f;
     }
     end = dwt::cycles();
     sink = sum_exp;
@@ -5548,7 +5652,8 @@ int main() {
     for (int i = 0; i < ITERATIONS; ++i) {
         sum_tanh += tb303::fast_tanh(x_test);
         x_test += 0.001f;
-        if (x_test > 3.0f) x_test = -3.0f;
+        if (x_test > 3.0f)
+            x_test = -3.0f;
     }
     end = dwt::cycles();
     sink = sum_tanh;
@@ -5565,7 +5670,8 @@ int main() {
     for (int i = 0; i < ITERATIONS; ++i) {
         sum_omega += tb303::omega4(x_test);
         x_test += 0.001f;
-        if (x_test > 10.0f) x_test = -10.0f;
+        if (x_test > 10.0f)
+            x_test = -10.0f;
     }
     end = dwt::cycles();
     sink = sum_omega;
@@ -5576,7 +5682,7 @@ int main() {
 
     // DiodeLambertW.current benchmark
     tb303::DiodeLambertW diode_lw;
-    diode_lw.init(tb303::I_S, tb303::V_T, 1000.0f);  // 1kΩ直列抵抗
+    diode_lw.init(tb303::I_S, tb303::V_T, 1000.0f); // 1kΩ直列抵抗
     float v_test = 0.3f;
     float sum_diode = 0.0f;
     dwt::reset();
@@ -5584,7 +5690,8 @@ int main() {
     for (int i = 0; i < ITERATIONS; ++i) {
         sum_diode += diode_lw.current(v_test);
         v_test += 0.0001f;
-        if (v_test > 1.0f) v_test = -0.5f;
+        if (v_test > 1.0f)
+            v_test = -0.5f;
     }
     end = dwt::cycles();
     sink = sum_diode;
@@ -5603,7 +5710,8 @@ int main() {
         tb303::diode_iv(v_test, i_out, g_out);
         sum_diode_iv += i_out + g_out;
         v_test += 0.0001f;
-        if (v_test > 1.0f) v_test = -0.5f;
+        if (v_test > 1.0f)
+            v_test = -0.5f;
     }
     end = dwt::cycles();
     sink = sum_diode_iv;
@@ -5620,7 +5728,8 @@ int main() {
     for (int i = 0; i < ITERATIONS; ++i) {
         sum_omega_fast += tb303::omega_fast(x_test);
         x_test += 0.001f;
-        if (x_test > 10.0f) x_test = -10.0f;
+        if (x_test > 10.0f)
+            x_test = -10.0f;
     }
     end = dwt::cycles();
     sink = sum_omega_fast;
@@ -5637,7 +5746,8 @@ int main() {
     for (int i = 0; i < ITERATIONS; ++i) {
         sum_omega_fast2 += tb303::omega_fast2(x_test);
         x_test += 0.001f;
-        if (x_test > 10.0f) x_test = -10.0f;
+        if (x_test > 10.0f)
+            x_test = -10.0f;
     }
     end = dwt::cycles();
     sink = sum_omega_fast2;
@@ -5654,7 +5764,8 @@ int main() {
     for (int i = 0; i < ITERATIONS; ++i) {
         sum_omega3 += tb303::omega3(x_test);
         x_test += 0.001f;
-        if (x_test > 10.0f) x_test = -10.0f;
+        if (x_test > 10.0f)
+            x_test = -10.0f;
     }
     end = dwt::cycles();
     sink = sum_omega3;
@@ -5670,7 +5781,7 @@ int main() {
     uart::puts("Samples: 1200 (1 cycle @ 40Hz)\n\n");
 
     {
-        constexpr int ACC_SAMPLES = 1200;  // 40Hz @ 48kHz = 1200 samples/cycle
+        constexpr int ACC_SAMPLES = 1200; // 40Hz @ 48kHz = 1200 samples/cycle
 
         // 全実装を同時に処理して比較
         tb303::WaveShaperSchur acc_ref;
@@ -5688,20 +5799,34 @@ int main() {
         tb303::WaveShaperPade acc_pade;
         tb303::WaveShaperLUT acc_lut;
 
-        acc_ref.setSampleRate(SAMPLE_RATE); acc_ref.reset();
-        acc_lw.setSampleRate(SAMPLE_RATE); acc_lw.reset();
-        acc_o3.setSampleRate(SAMPLE_RATE); acc_o3.reset();
-        acc_dec.setSampleRate(SAMPLE_RATE); acc_dec.reset();
-        acc_hybrid.setSampleRate(SAMPLE_RATE); acc_hybrid.reset();
-        acc_fast.setSampleRate(SAMPLE_RATE); acc_fast.reset();
-        acc_schrau.setSampleRate(SAMPLE_RATE); acc_schrau.reset();
-        acc_pwl.setSampleRate(SAMPLE_RATE); acc_pwl.reset();
-        acc_tanh.setSampleRate(SAMPLE_RATE); acc_tanh.reset();
-        acc_vccs.setSampleRate(SAMPLE_RATE); acc_vccs.reset();
-        acc_one.setSampleRate(SAMPLE_RATE); acc_one.reset();
-        acc_two.setSampleRate(SAMPLE_RATE); acc_two.reset();
-        acc_pade.setSampleRate(SAMPLE_RATE); acc_pade.reset();
-        acc_lut.setSampleRate(SAMPLE_RATE); acc_lut.reset();
+        acc_ref.setSampleRate(SAMPLE_RATE);
+        acc_ref.reset();
+        acc_lw.setSampleRate(SAMPLE_RATE);
+        acc_lw.reset();
+        acc_o3.setSampleRate(SAMPLE_RATE);
+        acc_o3.reset();
+        acc_dec.setSampleRate(SAMPLE_RATE);
+        acc_dec.reset();
+        acc_hybrid.setSampleRate(SAMPLE_RATE);
+        acc_hybrid.reset();
+        acc_fast.setSampleRate(SAMPLE_RATE);
+        acc_fast.reset();
+        acc_schrau.setSampleRate(SAMPLE_RATE);
+        acc_schrau.reset();
+        acc_pwl.setSampleRate(SAMPLE_RATE);
+        acc_pwl.reset();
+        acc_tanh.setSampleRate(SAMPLE_RATE);
+        acc_tanh.reset();
+        acc_vccs.setSampleRate(SAMPLE_RATE);
+        acc_vccs.reset();
+        acc_one.setSampleRate(SAMPLE_RATE);
+        acc_one.reset();
+        acc_two.setSampleRate(SAMPLE_RATE);
+        acc_two.reset();
+        acc_pade.setSampleRate(SAMPLE_RATE);
+        acc_pade.reset();
+        acc_lut.setSampleRate(SAMPLE_RATE);
+        acc_lut.reset();
 
         tb303::WaveShaperSchurFast acc_fast2;
         tb303::WaveShaperPredict acc_predict;
@@ -5712,15 +5837,24 @@ int main() {
         tb303::WaveShaperOptimized acc_opt;
         tb303::WaveShaper3Var2Iter acc_3var2;
         tb303::WaveShaperSchur2Iter acc_schur2;
-        acc_fast2.setSampleRate(SAMPLE_RATE); acc_fast2.reset();
-        acc_predict.setSampleRate(SAMPLE_RATE); acc_predict.reset();
-        acc_minimal.setSampleRate(SAMPLE_RATE); acc_minimal.reset();
-        acc_3var.setSampleRate(SAMPLE_RATE); acc_3var.reset();
-        acc_3varopt.setSampleRate(SAMPLE_RATE); acc_3varopt.reset();
-        acc_geo.setSampleRate(SAMPLE_RATE); acc_geo.reset();
-        acc_opt.setSampleRate(SAMPLE_RATE); acc_opt.reset();
-        acc_3var2.setSampleRate(SAMPLE_RATE); acc_3var2.reset();
-        acc_schur2.setSampleRate(SAMPLE_RATE); acc_schur2.reset();
+        acc_fast2.setSampleRate(SAMPLE_RATE);
+        acc_fast2.reset();
+        acc_predict.setSampleRate(SAMPLE_RATE);
+        acc_predict.reset();
+        acc_minimal.setSampleRate(SAMPLE_RATE);
+        acc_minimal.reset();
+        acc_3var.setSampleRate(SAMPLE_RATE);
+        acc_3var.reset();
+        acc_3varopt.setSampleRate(SAMPLE_RATE);
+        acc_3varopt.reset();
+        acc_geo.setSampleRate(SAMPLE_RATE);
+        acc_geo.reset();
+        acc_opt.setSampleRate(SAMPLE_RATE);
+        acc_opt.reset();
+        acc_3var2.setSampleRate(SAMPLE_RATE);
+        acc_3var2.reset();
+        acc_schur2.setSampleRate(SAMPLE_RATE);
+        acc_schur2.reset();
 
         float sum_sq_lw = 0.0f, max_lw = 0.0f;
         float sum_sq_o3 = 0.0f, max_o3 = 0.0f;
@@ -5817,31 +5951,54 @@ int main() {
             sum_sq_3var2 += err_3var2 * err_3var2;
             sum_sq_schur2 += err_schur2 * err_schur2;
 
-            if (std::abs(err_lw) > max_lw) max_lw = std::abs(err_lw);
-            if (std::abs(err_o3) > max_o3) max_o3 = std::abs(err_o3);
-            if (std::abs(err_dec) > max_dec) max_dec = std::abs(err_dec);
-            if (std::abs(err_hybrid) > max_hybrid) max_hybrid = std::abs(err_hybrid);
-            if (std::abs(err_fast) > max_fast) max_fast = std::abs(err_fast);
-            if (std::abs(err_schrau) > max_schrau) max_schrau = std::abs(err_schrau);
-            if (std::abs(err_pwl) > max_pwl) max_pwl = std::abs(err_pwl);
-            if (std::abs(err_tanh) > max_tanh) max_tanh = std::abs(err_tanh);
-            if (std::abs(err_vccs) > max_vccs) max_vccs = std::abs(err_vccs);
-            if (std::abs(err_one) > max_one) max_one = std::abs(err_one);
-            if (std::abs(err_two) > max_two) max_two = std::abs(err_two);
-            if (std::abs(err_pade) > max_pade) max_pade = std::abs(err_pade);
-            if (std::abs(err_lut) > max_lut) max_lut = std::abs(err_lut);
-            if (std::abs(err_fast2) > max_fast2) max_fast2 = std::abs(err_fast2);
-            if (std::abs(err_predict) > max_predict) max_predict = std::abs(err_predict);
-            if (std::abs(err_minimal) > max_minimal) max_minimal = std::abs(err_minimal);
-            if (std::abs(err_3var) > max_3var) max_3var = std::abs(err_3var);
-            if (std::abs(err_3varopt) > max_3varopt) max_3varopt = std::abs(err_3varopt);
-            if (std::abs(err_geo) > max_geo) max_geo = std::abs(err_geo);
-            if (std::abs(err_opt) > max_opt) max_opt = std::abs(err_opt);
-            if (std::abs(err_3var2) > max_3var2) max_3var2 = std::abs(err_3var2);
-            if (std::abs(err_schur2) > max_schur2) max_schur2 = std::abs(err_schur2);
+            if (std::abs(err_lw) > max_lw)
+                max_lw = std::abs(err_lw);
+            if (std::abs(err_o3) > max_o3)
+                max_o3 = std::abs(err_o3);
+            if (std::abs(err_dec) > max_dec)
+                max_dec = std::abs(err_dec);
+            if (std::abs(err_hybrid) > max_hybrid)
+                max_hybrid = std::abs(err_hybrid);
+            if (std::abs(err_fast) > max_fast)
+                max_fast = std::abs(err_fast);
+            if (std::abs(err_schrau) > max_schrau)
+                max_schrau = std::abs(err_schrau);
+            if (std::abs(err_pwl) > max_pwl)
+                max_pwl = std::abs(err_pwl);
+            if (std::abs(err_tanh) > max_tanh)
+                max_tanh = std::abs(err_tanh);
+            if (std::abs(err_vccs) > max_vccs)
+                max_vccs = std::abs(err_vccs);
+            if (std::abs(err_one) > max_one)
+                max_one = std::abs(err_one);
+            if (std::abs(err_two) > max_two)
+                max_two = std::abs(err_two);
+            if (std::abs(err_pade) > max_pade)
+                max_pade = std::abs(err_pade);
+            if (std::abs(err_lut) > max_lut)
+                max_lut = std::abs(err_lut);
+            if (std::abs(err_fast2) > max_fast2)
+                max_fast2 = std::abs(err_fast2);
+            if (std::abs(err_predict) > max_predict)
+                max_predict = std::abs(err_predict);
+            if (std::abs(err_minimal) > max_minimal)
+                max_minimal = std::abs(err_minimal);
+            if (std::abs(err_3var) > max_3var)
+                max_3var = std::abs(err_3var);
+            if (std::abs(err_3varopt) > max_3varopt)
+                max_3varopt = std::abs(err_3varopt);
+            if (std::abs(err_geo) > max_geo)
+                max_geo = std::abs(err_geo);
+            if (std::abs(err_opt) > max_opt)
+                max_opt = std::abs(err_opt);
+            if (std::abs(err_3var2) > max_3var2)
+                max_3var2 = std::abs(err_3var2);
+            if (std::abs(err_schur2) > max_schur2)
+                max_schur2 = std::abs(err_schur2);
 
             acc_v_in -= 0.00542f;
-            if (acc_v_in < 5.5f) acc_v_in = 12.0f;
+            if (acc_v_in < 5.5f)
+                acc_v_in = 12.0f;
         }
 
         auto print_result = [](const char* name, float sum_sq, float max_err) {

@@ -7,20 +7,18 @@
 // =============================================================================
 
 #ifdef __clang__
-#pragma GCC diagnostic ignored "-Wshorten-64-to-32"
-#pragma GCC diagnostic ignored "-Wreturn-type-c-linkage"
-#pragma GCC diagnostic ignored "-Wsection"
+    #pragma GCC diagnostic ignored "-Wshorten-64-to-32"
+    #pragma GCC diagnostic ignored "-Wreturn-type-c-linkage"
+    #pragma GCC diagnostic ignored "-Wsection"
 #endif
 
 #include <common/vector_table.hh>
-
+#include <cstdint>
+#include <cstring>
 #include <umi/fs/fat/ff.hh>
 #include <umi/fs/fat/ff_diskio.hh>
 #include <umi/fs/slim/slim.hh>
 #include <umi/fs/slim/slim_config.hh>
-
-#include <cstdint>
-#include <cstring>
 
 // =============================================================================
 // UART output (provided by syscalls.cc)
@@ -31,26 +29,53 @@ extern "C" int _write(int, const void*, int);
 namespace {
 
 void print(const char* s) {
-    while (*s) { _write(1, s, 1); ++s; }
+    while (*s) {
+        _write(1, s, 1);
+        ++s;
+    }
 }
 
-void println(const char* s) { print(s); print("\r\n"); }
+void println(const char* s) {
+    print(s);
+    print("\r\n");
+}
 
 void print_uint32(uint32_t val) {
-    if (val == 0) { print("0"); return; }
+    if (val == 0) {
+        print("0");
+        return;
+    }
     char buf[12];
     int i = 0;
-    while (val > 0) { buf[i++] = '0' + (val % 10); val /= 10; }
-    while (i > 0) { char c[2] = {buf[--i], 0}; print(c); }
+    while (val > 0) {
+        buf[i++] = '0' + (val % 10);
+        val /= 10;
+    }
+    while (i > 0) {
+        char c[2] = {buf[--i], 0};
+        print(c);
+    }
 }
 
 void print_int(int val) {
-    if (val < 0) { print("-"); val = -val; }
-    if (val == 0) { print("0"); return; }
+    if (val < 0) {
+        print("-");
+        val = -val;
+    }
+    if (val == 0) {
+        print("0");
+        return;
+    }
     char buf[12];
     int i = 0;
-    while (val > 0) { buf[i++] = '0' + (val % 10); val /= 10; }
-    while (i > 0) { char c[2] = {buf[--i], 0}; print(c); }
+    while (val > 0) {
+        buf[i++] = '0' + (val % 10);
+        val /= 10;
+    }
+    while (i > 0) {
+        char c[2] = {buf[--i], 0};
+        print(c);
+    }
 }
 
 } // namespace
@@ -69,7 +94,9 @@ static void dwt_init() {
     *DWT_CTRL_REG |= 1u;
 }
 
-static uint32_t dwt_get() { return *DWT_CYCCNT_REG; }
+static uint32_t dwt_get() {
+    return *DWT_CYCCNT_REG;
+}
 
 // =============================================================================
 // Benchmark parameters — must match renode_fs_test_ref.cc
@@ -136,22 +163,44 @@ static FatRamDev fat_dev;
 static void format_fat12() {
     std::memset(shared_storage, 0, sizeof(shared_storage));
     uint8_t* bs = shared_storage;
-    bs[0] = 0xEB; bs[1] = 0x3C; bs[2] = 0x90;
+    bs[0] = 0xEB;
+    bs[1] = 0x3C;
+    bs[2] = 0x90;
     std::memcpy(&bs[3], "MSDOS5.0", 8);
-    bs[11] = 0x00; bs[12] = 0x02;
-    bs[13] = 1; bs[14] = 1; bs[15] = 0; bs[16] = 2;
-    bs[17] = 0x40; bs[18] = 0x00;
-    bs[19] = 128; bs[20] = 0; bs[21] = 0xF8;
-    bs[22] = 1; bs[23] = 0; bs[24] = 0x3F; bs[25] = 0;
-    bs[26] = 0xFF; bs[27] = 0; bs[38] = 0x29;
-    bs[39] = 0x12; bs[40] = 0x34; bs[41] = 0x56; bs[42] = 0x78;
+    bs[11] = 0x00;
+    bs[12] = 0x02;
+    bs[13] = 1;
+    bs[14] = 1;
+    bs[15] = 0;
+    bs[16] = 2;
+    bs[17] = 0x40;
+    bs[18] = 0x00;
+    bs[19] = 128;
+    bs[20] = 0;
+    bs[21] = 0xF8;
+    bs[22] = 1;
+    bs[23] = 0;
+    bs[24] = 0x3F;
+    bs[25] = 0;
+    bs[26] = 0xFF;
+    bs[27] = 0;
+    bs[38] = 0x29;
+    bs[39] = 0x12;
+    bs[40] = 0x34;
+    bs[41] = 0x56;
+    bs[42] = 0x78;
     std::memcpy(&bs[43], "NO NAME    ", 11);
     std::memcpy(&bs[54], "FAT12   ", 8);
-    bs[510] = 0x55; bs[511] = 0xAA;
+    bs[510] = 0x55;
+    bs[511] = 0xAA;
     uint8_t* fat1 = &shared_storage[512];
-    fat1[0] = 0xF8; fat1[1] = 0xFF; fat1[2] = 0xFF;
+    fat1[0] = 0xF8;
+    fat1[1] = 0xFF;
+    fat1[2] = 0xFF;
     uint8_t* fat2 = &shared_storage[512 * 2];
-    fat2[0] = 0xF8; fat2[1] = 0xFF; fat2[2] = 0xFF;
+    fat2[0] = 0xF8;
+    fat2[1] = 0xFF;
+    fat2[2] = 0xFF;
 }
 
 static void bench_fat() {
@@ -167,12 +216,14 @@ static void bench_fat() {
     total = 0;
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         format_fat12();
-        FatFs fs{}; fs.set_diskio(&diskio);
+        FatFs fs{};
+        fs.set_diskio(&diskio);
         FatFsVolume vol{};
         t0 = dwt_get();
         fs.mount(&vol, "", 1);
         t1 = dwt_get();
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         fs.unmount("");
     }
     report("fat(cr)", "format+mount", total, BENCH_ITERATIONS);
@@ -181,14 +232,21 @@ static void bench_fat() {
     total = 0;
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         format_fat12();
-        FatFs fs{}; fs.set_diskio(&diskio);
-        FatFsVolume vol{}; fs.mount(&vol, "", 1);
-        FatFile fp{}; fs.open(&fp, "B.DAT", FA_WRITE | FA_CREATE_ALWAYS);
+        FatFs fs{};
+        fs.set_diskio(&diskio);
+        FatFsVolume vol{};
+        fs.mount(&vol, "", 1);
+        FatFile fp{};
+        fs.open(&fp, "B.DAT", FA_WRITE | FA_CREATE_ALWAYS);
         t0 = dwt_get();
-        for (int c = 0; c < 2; c++) { uint32_t bw; fs.write(&fp, data, BLK_SZ, &bw); }
+        for (int c = 0; c < 2; c++) {
+            uint32_t bw;
+            fs.write(&fp, data, BLK_SZ, &bw);
+        }
         t1 = dwt_get();
         fs.close(&fp);
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         fs.unmount("");
     }
     report("fat(cr)", "write 1KB", total, BENCH_ITERATIONS);
@@ -197,14 +255,21 @@ static void bench_fat() {
     total = 0;
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         format_fat12();
-        FatFs fs{}; fs.set_diskio(&diskio);
-        FatFsVolume vol{}; fs.mount(&vol, "", 1);
-        FatFile fp{}; fs.open(&fp, "B.DAT", FA_WRITE | FA_CREATE_ALWAYS);
+        FatFs fs{};
+        fs.set_diskio(&diskio);
+        FatFsVolume vol{};
+        fs.mount(&vol, "", 1);
+        FatFile fp{};
+        fs.open(&fp, "B.DAT", FA_WRITE | FA_CREATE_ALWAYS);
         t0 = dwt_get();
-        for (int c = 0; c < 8; c++) { uint32_t bw; fs.write(&fp, data, BLK_SZ, &bw); }
+        for (int c = 0; c < 8; c++) {
+            uint32_t bw;
+            fs.write(&fp, data, BLK_SZ, &bw);
+        }
         t1 = dwt_get();
         fs.close(&fp);
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         fs.unmount("");
     }
     report("fat(cr)", "write 4KB", total, BENCH_ITERATIONS);
@@ -213,18 +278,28 @@ static void bench_fat() {
     total = 0;
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         format_fat12();
-        FatFs fs{}; fs.set_diskio(&diskio);
-        FatFsVolume vol{}; fs.mount(&vol, "", 1);
-        FatFile fp{}; fs.open(&fp, "B.DAT", FA_WRITE | FA_CREATE_ALWAYS);
-        for (int c = 0; c < 2; c++) { uint32_t bw; fs.write(&fp, data, BLK_SZ, &bw); }
+        FatFs fs{};
+        fs.set_diskio(&diskio);
+        FatFsVolume vol{};
+        fs.mount(&vol, "", 1);
+        FatFile fp{};
+        fs.open(&fp, "B.DAT", FA_WRITE | FA_CREATE_ALWAYS);
+        for (int c = 0; c < 2; c++) {
+            uint32_t bw;
+            fs.write(&fp, data, BLK_SZ, &bw);
+        }
         fs.close(&fp);
         fs.open(&fp, "B.DAT", FA_READ);
         char rd[BLK_SZ];
         t0 = dwt_get();
-        for (int c = 0; c < 2; c++) { uint32_t br; fs.read(&fp, rd, BLK_SZ, &br); }
+        for (int c = 0; c < 2; c++) {
+            uint32_t br;
+            fs.read(&fp, rd, BLK_SZ, &br);
+        }
         t1 = dwt_get();
         fs.close(&fp);
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         fs.unmount("");
     }
     report("fat(cr)", "read 1KB", total, BENCH_ITERATIONS);
@@ -233,18 +308,28 @@ static void bench_fat() {
     total = 0;
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         format_fat12();
-        FatFs fs{}; fs.set_diskio(&diskio);
-        FatFsVolume vol{}; fs.mount(&vol, "", 1);
-        FatFile fp{}; fs.open(&fp, "B.DAT", FA_WRITE | FA_CREATE_ALWAYS);
-        for (int c = 0; c < 8; c++) { uint32_t bw; fs.write(&fp, data, BLK_SZ, &bw); }
+        FatFs fs{};
+        fs.set_diskio(&diskio);
+        FatFsVolume vol{};
+        fs.mount(&vol, "", 1);
+        FatFile fp{};
+        fs.open(&fp, "B.DAT", FA_WRITE | FA_CREATE_ALWAYS);
+        for (int c = 0; c < 8; c++) {
+            uint32_t bw;
+            fs.write(&fp, data, BLK_SZ, &bw);
+        }
         fs.close(&fp);
         fs.open(&fp, "B.DAT", FA_READ);
         char rd[BLK_SZ];
         t0 = dwt_get();
-        for (int c = 0; c < 8; c++) { uint32_t br; fs.read(&fp, rd, BLK_SZ, &br); }
+        for (int c = 0; c < 8; c++) {
+            uint32_t br;
+            fs.read(&fp, rd, BLK_SZ, &br);
+        }
         t1 = dwt_get();
         fs.close(&fp);
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         fs.unmount("");
     }
     report("fat(cr)", "read 4KB", total, BENCH_ITERATIONS);
@@ -253,15 +338,20 @@ static void bench_fat() {
     total = 0;
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         format_fat12();
-        FatFs fs{}; fs.set_diskio(&diskio);
-        FatFsVolume vol{}; fs.mount(&vol, "", 1);
+        FatFs fs{};
+        fs.set_diskio(&diskio);
+        FatFsVolume vol{};
+        fs.mount(&vol, "", 1);
         const char* dirs[] = {"D0", "D1", "D2", "D3", "D4"};
         t0 = dwt_get();
-        for (int d = 0; d < N_DIRS; d++) fs.mkdir(dirs[d]);
+        for (int d = 0; d < N_DIRS; d++)
+            fs.mkdir(dirs[d]);
         FatFileInfo fno{};
-        for (int d = 0; d < N_DIRS; d++) fs.stat(dirs[d], &fno);
+        for (int d = 0; d < N_DIRS; d++)
+            fs.stat(dirs[d], &fno);
         t1 = dwt_get();
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         fs.unmount("");
     }
     report("fat(cr)", "mkdir+stat x5", total, BENCH_ITERATIONS);
@@ -270,17 +360,24 @@ static void bench_fat() {
     total = 0;
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         format_fat12();
-        FatFs fs{}; fs.set_diskio(&diskio);
-        FatFsVolume vol{}; fs.mount(&vol, "", 1);
-        const char* files[] = {"F0","F1","F2","F3","F4","F5","F6","F7","F8","F9"};
+        FatFs fs{};
+        fs.set_diskio(&diskio);
+        FatFsVolume vol{};
+        fs.mount(&vol, "", 1);
+        const char* files[] = {"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"};
         t0 = dwt_get();
         for (int f = 0; f < N_FILES; f++) {
-            FatFile fp{}; fs.open(&fp, files[f], FA_WRITE | FA_CREATE_ALWAYS);
-            uint32_t bw; fs.write(&fp, "x", 1, &bw); fs.close(&fp);
+            FatFile fp{};
+            fs.open(&fp, files[f], FA_WRITE | FA_CREATE_ALWAYS);
+            uint32_t bw;
+            fs.write(&fp, "x", 1, &bw);
+            fs.close(&fp);
         }
-        for (int f = 0; f < N_FILES; f++) fs.unlink(files[f]);
+        for (int f = 0; f < N_FILES; f++)
+            fs.unlink(files[f]);
         t1 = dwt_get();
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         fs.unmount("");
     }
     report("fat(cr)", "create+del x10", total, BENCH_ITERATIONS);
@@ -293,15 +390,20 @@ static void bench_fat() {
 static uint8_t slim_rd[BLK_SZ], slim_pr[BLK_SZ], slim_la[BLK_CNT / 8];
 
 static int slim_read(const umi::fs::SlimConfig*, uint32_t b, uint32_t o, void* buf, uint32_t sz) {
-    std::memcpy(buf, &shared_storage[b * BLK_SZ + o], sz); return 0;
+    std::memcpy(buf, &shared_storage[b * BLK_SZ + o], sz);
+    return 0;
 }
 static int slim_prog(const umi::fs::SlimConfig*, uint32_t b, uint32_t o, const void* buf, uint32_t sz) {
-    std::memcpy(&shared_storage[b * BLK_SZ + o], buf, sz); return 0;
+    std::memcpy(&shared_storage[b * BLK_SZ + o], buf, sz);
+    return 0;
 }
 static int slim_erase(const umi::fs::SlimConfig*, uint32_t b) {
-    std::memset(&shared_storage[b * BLK_SZ], 0xFF, BLK_SZ); return 0;
+    std::memset(&shared_storage[b * BLK_SZ], 0xFF, BLK_SZ);
+    return 0;
 }
-static int slim_sync(const umi::fs::SlimConfig*) { return 0; }
+static int slim_sync(const umi::fs::SlimConfig*) {
+    return 0;
+}
 
 static umi::fs::SlimConfig make_slim_cfg() {
     umi::fs::SlimConfig cfg{};
@@ -337,7 +439,8 @@ static void bench_slim() {
         (void)fs.format(&cfg);
         (void)fs.mount(&cfg);
         t1 = dwt_get();
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         (void)fs.unmount();
     }
     report("slim", "format+mount", total, BENCH_ITERATIONS);
@@ -347,7 +450,9 @@ static void bench_slim() {
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         std::memset(shared_storage, 0xFF, sizeof(shared_storage));
         auto cfg = make_slim_cfg();
-        SlimFs fs{}; (void)fs.format(&cfg); (void)fs.mount(&cfg);
+        SlimFs fs{};
+        (void)fs.format(&cfg);
+        (void)fs.mount(&cfg);
         SlimFile f{};
         (void)fs.file_open(f, "B.DAT", SlimOpenFlags::WRONLY | SlimOpenFlags::CREAT);
         t0 = dwt_get();
@@ -355,7 +460,8 @@ static void bench_slim() {
             (void)fs.file_write(f, {data, BLK_SZ});
         t1 = dwt_get();
         (void)fs.file_close(f);
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         (void)fs.unmount();
     }
     report("slim", "write 1KB", total, BENCH_ITERATIONS);
@@ -365,7 +471,9 @@ static void bench_slim() {
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         std::memset(shared_storage, 0xFF, sizeof(shared_storage));
         auto cfg = make_slim_cfg();
-        SlimFs fs{}; (void)fs.format(&cfg); (void)fs.mount(&cfg);
+        SlimFs fs{};
+        (void)fs.format(&cfg);
+        (void)fs.mount(&cfg);
         SlimFile f{};
         (void)fs.file_open(f, "B.DAT", SlimOpenFlags::WRONLY | SlimOpenFlags::CREAT);
         t0 = dwt_get();
@@ -373,7 +481,8 @@ static void bench_slim() {
             (void)fs.file_write(f, {data, BLK_SZ});
         t1 = dwt_get();
         (void)fs.file_close(f);
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         (void)fs.unmount();
     }
     report("slim", "write 4KB", total, BENCH_ITERATIONS);
@@ -383,18 +492,23 @@ static void bench_slim() {
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         std::memset(shared_storage, 0xFF, sizeof(shared_storage));
         auto cfg = make_slim_cfg();
-        SlimFs fs{}; (void)fs.format(&cfg); (void)fs.mount(&cfg);
+        SlimFs fs{};
+        (void)fs.format(&cfg);
+        (void)fs.mount(&cfg);
         SlimFile f{};
         (void)fs.file_open(f, "B.DAT", SlimOpenFlags::WRONLY | SlimOpenFlags::CREAT);
-        for (int c = 0; c < 2; c++) (void)fs.file_write(f, {data, BLK_SZ});
+        for (int c = 0; c < 2; c++)
+            (void)fs.file_write(f, {data, BLK_SZ});
         (void)fs.file_close(f);
         (void)fs.file_open(f, "B.DAT", SlimOpenFlags::RDONLY);
         uint8_t rd[BLK_SZ];
         t0 = dwt_get();
-        for (int c = 0; c < 2; c++) (void)fs.file_read(f, {rd, BLK_SZ});
+        for (int c = 0; c < 2; c++)
+            (void)fs.file_read(f, {rd, BLK_SZ});
         t1 = dwt_get();
         (void)fs.file_close(f);
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         (void)fs.unmount();
     }
     report("slim", "read 1KB", total, BENCH_ITERATIONS);
@@ -404,18 +518,23 @@ static void bench_slim() {
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         std::memset(shared_storage, 0xFF, sizeof(shared_storage));
         auto cfg = make_slim_cfg();
-        SlimFs fs{}; (void)fs.format(&cfg); (void)fs.mount(&cfg);
+        SlimFs fs{};
+        (void)fs.format(&cfg);
+        (void)fs.mount(&cfg);
         SlimFile f{};
         (void)fs.file_open(f, "B.DAT", SlimOpenFlags::WRONLY | SlimOpenFlags::CREAT);
-        for (int c = 0; c < 8; c++) (void)fs.file_write(f, {data, BLK_SZ});
+        for (int c = 0; c < 8; c++)
+            (void)fs.file_write(f, {data, BLK_SZ});
         (void)fs.file_close(f);
         (void)fs.file_open(f, "B.DAT", SlimOpenFlags::RDONLY);
         uint8_t rd[BLK_SZ];
         t0 = dwt_get();
-        for (int c = 0; c < 8; c++) (void)fs.file_read(f, {rd, BLK_SZ});
+        for (int c = 0; c < 8; c++)
+            (void)fs.file_read(f, {rd, BLK_SZ});
         t1 = dwt_get();
         (void)fs.file_close(f);
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         (void)fs.unmount();
     }
     report("slim", "read 4KB", total, BENCH_ITERATIONS);
@@ -425,14 +544,19 @@ static void bench_slim() {
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         std::memset(shared_storage, 0xFF, sizeof(shared_storage));
         auto cfg = make_slim_cfg();
-        SlimFs fs{}; (void)fs.format(&cfg); (void)fs.mount(&cfg);
+        SlimFs fs{};
+        (void)fs.format(&cfg);
+        (void)fs.mount(&cfg);
         const char* dirs[] = {"D0", "D1", "D2", "D3", "D4"};
         t0 = dwt_get();
-        for (int d = 0; d < N_DIRS; d++) (void)fs.mkdir(dirs[d]);
+        for (int d = 0; d < N_DIRS; d++)
+            (void)fs.mkdir(dirs[d]);
         SlimInfo info{};
-        for (int d = 0; d < N_DIRS; d++) (void)fs.stat(dirs[d], info);
+        for (int d = 0; d < N_DIRS; d++)
+            (void)fs.stat(dirs[d], info);
         t1 = dwt_get();
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         (void)fs.unmount();
     }
     report("slim", "mkdir+stat x5", total, BENCH_ITERATIONS);
@@ -442,8 +566,10 @@ static void bench_slim() {
     for (int i = 0; i < BENCH_WARMUP + BENCH_ITERATIONS; i++) {
         std::memset(shared_storage, 0xFF, sizeof(shared_storage));
         auto cfg = make_slim_cfg();
-        SlimFs fs{}; (void)fs.format(&cfg); (void)fs.mount(&cfg);
-        const char* files[] = {"F0","F1","F2","F3","F4","F5","F6","F7","F8","F9"};
+        SlimFs fs{};
+        (void)fs.format(&cfg);
+        (void)fs.mount(&cfg);
+        const char* files[] = {"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"};
         t0 = dwt_get();
         for (int f = 0; f < N_FILES; f++) {
             SlimFile sf{};
@@ -452,9 +578,11 @@ static void bench_slim() {
             (void)fs.file_write(sf, {&x, 1});
             (void)fs.file_close(sf);
         }
-        for (int f = 0; f < N_FILES; f++) (void)fs.remove(files[f]);
+        for (int f = 0; f < N_FILES; f++)
+            (void)fs.remove(files[f]);
         t1 = dwt_get();
-        if (i >= BENCH_WARMUP) total += (t1 - t0);
+        if (i >= BENCH_WARMUP)
+            total += (t1 - t0);
         (void)fs.unmount();
     }
     report("slim", "create+del x10", total, BENCH_ITERATIONS);
@@ -479,5 +607,7 @@ extern "C" [[noreturn]] void _start() {
     println("");
     println("BENCH_COMPLETE");
 
-    while (true) { __asm volatile("wfi"); }
+    while (true) {
+        __asm volatile("wfi");
+    }
 }

@@ -11,53 +11,53 @@ using namespace umitest;
 
 // --- Reference C implementation ---
 // We need custom ffconf.h for reference — override with defines before include
-#define FFCONF_DEF 80386
-#define FF_FS_READONLY 0
-#define FF_FS_MINIMIZE 0
-#define FF_USE_FIND 0
-#define FF_USE_MKFS 0
-#define FF_USE_FASTSEEK 0
-#define FF_USE_EXPAND 0
-#define FF_USE_CHMOD 0
-#define FF_USE_LABEL 0
-#define FF_USE_FORWARD 0
-#define FF_USE_STRFUNC 0
-#define FF_PRINT_LLI 0
-#define FF_PRINT_FLOAT 0
-#define FF_STRF_ENCODE 0
-#define FF_CODE_PAGE 437
-#define FF_USE_LFN 0
-#define FF_MAX_LFN 255
-#define FF_LFN_UNICODE 0
-#define FF_LFN_BUF 255
-#define FF_SFN_BUF 12
-#define FF_FS_RPATH 0
-#define FF_VOLUMES 1
-#define FF_STR_VOLUME_ID 0
+#define FFCONF_DEF         80386
+#define FF_FS_READONLY     0
+#define FF_FS_MINIMIZE     0
+#define FF_USE_FIND        0
+#define FF_USE_MKFS        0
+#define FF_USE_FASTSEEK    0
+#define FF_USE_EXPAND      0
+#define FF_USE_CHMOD       0
+#define FF_USE_LABEL       0
+#define FF_USE_FORWARD     0
+#define FF_USE_STRFUNC     0
+#define FF_PRINT_LLI       0
+#define FF_PRINT_FLOAT     0
+#define FF_STRF_ENCODE     0
+#define FF_CODE_PAGE       437
+#define FF_USE_LFN         0
+#define FF_MAX_LFN         255
+#define FF_LFN_UNICODE     0
+#define FF_LFN_BUF         255
+#define FF_SFN_BUF         12
+#define FF_FS_RPATH        0
+#define FF_VOLUMES         1
+#define FF_STR_VOLUME_ID   0
 #define FF_MULTI_PARTITION 0
-#define FF_MIN_SS 512
-#define FF_MAX_SS 512
-#define FF_LBA64 0
-#define FF_MIN_GPT 0x10000000
-#define FF_USE_TRIM 0
-#define FF_FS_TINY 0
-#define FF_FS_EXFAT 0
-#define FF_FS_NORTC 1
-#define FF_NORTC_MON 1
-#define FF_NORTC_MDAY 1
-#define FF_NORTC_YEAR 2025
-#define FF_FS_NOFSINFO 0
-#define FF_FS_LOCK 0
-#define FF_FS_REENTRANT 0
-#define FF_FS_TIMEOUT 1000
-#define FF_PATH_DEPTH 10
-#define FF_FS_CRTIME 0
+#define FF_MIN_SS          512
+#define FF_MAX_SS          512
+#define FF_LBA64           0
+#define FF_MIN_GPT         0x10000000
+#define FF_USE_TRIM        0
+#define FF_FS_TINY         0
+#define FF_FS_EXFAT        0
+#define FF_FS_NORTC        1
+#define FF_NORTC_MON       1
+#define FF_NORTC_MDAY      1
+#define FF_NORTC_YEAR      2025
+#define FF_FS_NOFSINFO     0
+#define FF_FS_LOCK         0
+#define FF_FS_REENTRANT    0
+#define FF_FS_TIMEOUT      1000
+#define FF_PATH_DEPTH      10
+#define FF_FS_CRTIME       0
 
 extern "C" {
 // Prevent including ffconf.h from ff.h by defining FF_DEFINED
 // This is tricky — we include ff.h with our defines already active
-#include "ff.h"
 #include "diskio.h"
+#include "ff.h"
 }
 
 #include <chrono>
@@ -84,31 +84,48 @@ static void format_fat16(uint8_t* storage) {
     std::memset(storage, 0, TOTAL_SIZE);
 
     uint8_t* bs = storage;
-    bs[0] = 0xEB; bs[1] = 0x3C; bs[2] = 0x90;
+    bs[0] = 0xEB;
+    bs[1] = 0x3C;
+    bs[2] = 0x90;
     std::memcpy(&bs[3], "MSDOS5.0", 8);
-    bs[11] = 0x00; bs[12] = 0x02; // bytes per sector = 512
-    bs[13] = 4;                     // sectors per cluster
-    bs[14] = 1; bs[15] = 0;        // reserved sectors
-    bs[16] = 2;                     // number of FATs
-    bs[17] = 0x00; bs[18] = 0x02;  // root entries = 512
-    bs[19] = 0x00; bs[20] = 0x08;  // total sectors = 2048
-    bs[21] = 0xF8;                  // media type
-    bs[22] = 2; bs[23] = 0;        // sectors per FAT
-    bs[24] = 0x3F; bs[25] = 0;     // sectors per track
-    bs[26] = 0xFF; bs[27] = 0;     // heads
-    bs[38] = 0x29;                  // boot signature
-    bs[39] = 0x12; bs[40] = 0x34; bs[41] = 0x56; bs[42] = 0x78;
+    bs[11] = 0x00;
+    bs[12] = 0x02; // bytes per sector = 512
+    bs[13] = 4;    // sectors per cluster
+    bs[14] = 1;
+    bs[15] = 0; // reserved sectors
+    bs[16] = 2; // number of FATs
+    bs[17] = 0x00;
+    bs[18] = 0x02; // root entries = 512
+    bs[19] = 0x00;
+    bs[20] = 0x08; // total sectors = 2048
+    bs[21] = 0xF8; // media type
+    bs[22] = 2;
+    bs[23] = 0; // sectors per FAT
+    bs[24] = 0x3F;
+    bs[25] = 0; // sectors per track
+    bs[26] = 0xFF;
+    bs[27] = 0;    // heads
+    bs[38] = 0x29; // boot signature
+    bs[39] = 0x12;
+    bs[40] = 0x34;
+    bs[41] = 0x56;
+    bs[42] = 0x78;
     std::memcpy(&bs[43], "NO NAME    ", 11);
     std::memcpy(&bs[54], "FAT16   ", 8);
-    bs[510] = 0x55; bs[511] = 0xAA;
+    bs[510] = 0x55;
+    bs[511] = 0xAA;
 
     // FAT tables
     uint8_t* fat1 = &storage[512];
-    fat1[0] = 0xF8; fat1[1] = 0xFF;
-    fat1[2] = 0xFF; fat1[3] = 0xFF;
+    fat1[0] = 0xF8;
+    fat1[1] = 0xFF;
+    fat1[2] = 0xFF;
+    fat1[3] = 0xFF;
     uint8_t* fat2 = &storage[512 * 3];
-    fat2[0] = 0xF8; fat2[1] = 0xFF;
-    fat2[2] = 0xFF; fat2[3] = 0xFF;
+    fat2[0] = 0xF8;
+    fat2[1] = 0xFF;
+    fat2[2] = 0xFF;
+    fat2[3] = 0xFF;
 }
 
 // ============================================================================
@@ -148,8 +165,12 @@ DWORD get_fattime(void) {
     return ((DWORD)(2025 - 1980) << 25) | ((DWORD)1 << 21) | ((DWORD)1 << 16);
 }
 
-DSTATUS disk_initialize(BYTE /*pdrv*/) { return 0; }
-DSTATUS disk_status(BYTE /*pdrv*/) { return 0; }
+DSTATUS disk_initialize(BYTE /*pdrv*/) {
+    return 0;
+}
+DSTATUS disk_status(BYTE /*pdrv*/) {
+    return 0;
+}
 
 DRESULT disk_read(BYTE /*pdrv*/, BYTE* buff, LBA_t sector, UINT count) {
     std::memcpy(buff, &storage_ref[sector * SECTOR_SIZE], count * SECTOR_SIZE);
@@ -163,11 +184,19 @@ DRESULT disk_write(BYTE /*pdrv*/, const BYTE* buff, LBA_t sector, UINT count) {
 
 DRESULT disk_ioctl(BYTE /*pdrv*/, BYTE cmd, void* buff) {
     switch (cmd) {
-    case CTRL_SYNC: return RES_OK;
-    case GET_SECTOR_COUNT: *static_cast<LBA_t*>(buff) = SECTOR_COUNT; return RES_OK;
-    case GET_SECTOR_SIZE: *static_cast<WORD*>(buff) = SECTOR_SIZE; return RES_OK;
-    case GET_BLOCK_SIZE: *static_cast<DWORD*>(buff) = 1; return RES_OK;
-    default: return RES_PARERR;
+    case CTRL_SYNC:
+        return RES_OK;
+    case GET_SECTOR_COUNT:
+        *static_cast<LBA_t*>(buff) = SECTOR_COUNT;
+        return RES_OK;
+    case GET_SECTOR_SIZE:
+        *static_cast<WORD*>(buff) = SECTOR_SIZE;
+        return RES_OK;
+    case GET_BLOCK_SIZE:
+        *static_cast<DWORD*>(buff) = 1;
+        return RES_OK;
+    default:
+        return RES_PARERR;
     }
 }
 
@@ -181,9 +210,7 @@ struct Timer {
     using clock = std::chrono::high_resolution_clock;
     clock::time_point start;
     Timer() : start(clock::now()) {}
-    double elapsed_us() const {
-        return std::chrono::duration<double, std::micro>(clock::now() - start).count();
-    }
+    double elapsed_us() const { return std::chrono::duration<double, std::micro>(clock::now() - start).count(); }
 };
 
 static void report_perf(const char* op, double port_us, double ref_us) {
@@ -388,8 +415,7 @@ static void test_dir_compare(Suite& s) {
         umi::fs::FatDir dir{};
         pfs.opendir(&dir, "");
         umi::fs::FatFileInfo fno{};
-        while (pfs.readdir(&dir, &fno) == umi::fs::FatResult::OK && fno.fname[0] != '\0'
-               && pcount < EXPECT_ENTRIES) {
+        while (pfs.readdir(&dir, &fno) == umi::fs::FatResult::OK && fno.fname[0] != '\0' && pcount < EXPECT_ENTRIES) {
             std::strncpy(pnames[pcount], fno.fname, 15);
             pattrs[pcount] = fno.fattrib;
             pcount++;
@@ -444,7 +470,8 @@ static void test_perf_write(Suite& s) {
     constexpr int WARMUP = 2;
     uint8_t pattern[512];
     std::srand(42);
-    for (int i = 0; i < 512; i++) pattern[i] = static_cast<uint8_t>(std::rand() & 0xFF);
+    for (int i = 0; i < 512; i++)
+        pattern[i] = static_cast<uint8_t>(std::rand() & 0xFF);
 
     // Port
     double port_total = 0;
@@ -464,7 +491,8 @@ static void test_perf_write(Suite& s) {
             pfs.write(&fp, pattern, 512, &bw);
         }
         pfs.close(&fp);
-        if (iter >= WARMUP) port_total += t.elapsed_us();
+        if (iter >= WARMUP)
+            port_total += t.elapsed_us();
         pfs.unmount("");
     }
 
@@ -483,7 +511,8 @@ static void test_perf_write(Suite& s) {
             f_write(&fp, pattern, 512, &bw);
         }
         f_close(&fp);
-        if (iter >= WARMUP) ref_total += t.elapsed_us();
+        if (iter >= WARMUP)
+            ref_total += t.elapsed_us();
         f_unmount("");
     }
 
@@ -500,7 +529,8 @@ static void test_perf_read(Suite& s) {
 
     uint8_t pattern[512];
     std::srand(123);
-    for (int i = 0; i < 512; i++) pattern[i] = static_cast<uint8_t>(std::rand() & 0xFF);
+    for (int i = 0; i < 512; i++)
+        pattern[i] = static_cast<uint8_t>(std::rand() & 0xFF);
 
     // Prepare port
     format_fat16(storage_port);
@@ -531,7 +561,8 @@ static void test_perf_read(Suite& s) {
             uint32_t br;
             pfs.read(&fp, buf, 512, &br);
         }
-        if (iter >= WARMUP) port_total += t.elapsed_us();
+        if (iter >= WARMUP)
+            port_total += t.elapsed_us();
         pfs.close(&fp);
     }
     pfs.unmount("");
@@ -560,7 +591,8 @@ static void test_perf_read(Suite& s) {
             UINT br;
             f_read(&fp, buf, 512, &br);
         }
-        if (iter >= WARMUP) ref_total += t.elapsed_us();
+        if (iter >= WARMUP)
+            ref_total += t.elapsed_us();
         f_close(&fp);
     }
     f_unmount("");
@@ -620,7 +652,8 @@ static void test_perf_write_64k(Suite& s) {
     constexpr int CHUNKS = 128; // 64KB total
     uint8_t pattern[CHUNK_SIZE];
     std::srand(777);
-    for (int i = 0; i < CHUNK_SIZE; i++) pattern[i] = static_cast<uint8_t>(std::rand() & 0xFF);
+    for (int i = 0; i < CHUNK_SIZE; i++)
+        pattern[i] = static_cast<uint8_t>(std::rand() & 0xFF);
 
     // Port
     double port_total = 0;
@@ -640,7 +673,8 @@ static void test_perf_write_64k(Suite& s) {
             pfs.write(&fp, pattern, CHUNK_SIZE, &bw);
         }
         pfs.close(&fp);
-        if (iter >= WARMUP) port_total += t.elapsed_us();
+        if (iter >= WARMUP)
+            port_total += t.elapsed_us();
         pfs.unmount("");
     }
 
@@ -659,7 +693,8 @@ static void test_perf_write_64k(Suite& s) {
             f_write(&fp, pattern, CHUNK_SIZE, &bw);
         }
         f_close(&fp);
-        if (iter >= WARMUP) ref_total += t.elapsed_us();
+        if (iter >= WARMUP)
+            ref_total += t.elapsed_us();
         f_unmount("");
     }
 
@@ -680,7 +715,8 @@ static void test_perf_read_64k(Suite& s) {
     constexpr int CHUNKS = 128; // 64KB total
     uint8_t pattern[CHUNK_SIZE];
     std::srand(777);
-    for (int i = 0; i < CHUNK_SIZE; i++) pattern[i] = static_cast<uint8_t>(std::rand() & 0xFF);
+    for (int i = 0; i < CHUNK_SIZE; i++)
+        pattern[i] = static_cast<uint8_t>(std::rand() & 0xFF);
 
     // Prepare port
     format_fat16(storage_port);
@@ -709,7 +745,8 @@ static void test_perf_read_64k(Suite& s) {
             uint32_t br;
             pfs.read(&fp, buf, CHUNK_SIZE, &br);
         }
-        if (iter >= WARMUP) port_total += t.elapsed_us();
+        if (iter >= WARMUP)
+            port_total += t.elapsed_us();
         pfs.close(&fp);
     }
     pfs.unmount("");
@@ -738,7 +775,8 @@ static void test_perf_read_64k(Suite& s) {
             UINT br;
             f_read(&fp, buf, CHUNK_SIZE, &br);
         }
-        if (iter >= WARMUP) ref_total += t.elapsed_us();
+        if (iter >= WARMUP)
+            ref_total += t.elapsed_us();
         f_close(&fp);
     }
     f_unmount("");
