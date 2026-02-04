@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #pragma once
 
 #include <chrono>
@@ -5,23 +6,18 @@
 
 namespace umi::bench {
 
-struct HostTimer {
+/// std::chrono-based timer for host benchmarking (nanoseconds)
+struct ChronoTimer {
     using Counter = std::uint64_t;
 
-    static void enable() { reset(); }
-
-    static void reset() {
-        base() = clock::now();
-    }
+    static void enable() { base() = clock::now(); }
 
     static Counter now() {
         const auto elapsed = clock::now() - base();
-        return static_cast<Counter>(
-            std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count()
-        );
+        return static_cast<Counter>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
     }
 
-private:
+  private:
     using clock = std::chrono::steady_clock;
 
     static clock::time_point& base() {
@@ -29,7 +25,5 @@ private:
         return value;
     }
 };
-
-using TimerImpl = HostTimer;
 
 } // namespace umi::bench

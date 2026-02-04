@@ -3,10 +3,9 @@
 
 local bench_dir = os.scriptdir()
 local include_dir = path.join(bench_dir, "include")
-local platform_host_dir = path.join(bench_dir, "platform/host")
-local platform_renode_dir = path.join(bench_dir, "platform/renode")
 local stm32f4_linker = path.join(bench_dir, "target/stm32f4/linker.ld")
--- Header-only framework
+
+-- Header-only framework (include/bench/...)
 target("umi.bench")
     set_kind("headeronly")
     set_group("umi")
@@ -15,10 +14,14 @@ target_end()
 
 includes("test")
 
-local function stm32f4_bench_target(name, opts)
+-- =============================================================================
+-- Examples (STM32F4 embedded targets)
+-- =============================================================================
+
+local function stm32f4_example(name, opts)
     opts = opts or {}
     target(name)
-        set_group(opts.group or "bench")
+        set_group("bench_examples")
         set_default(false)
         add_rules("embedded")
         set_values("embedded.mcu", "stm32f407vg")
@@ -26,11 +29,8 @@ local function stm32f4_bench_target(name, opts)
         if opts.optimize then
             set_values("embedded.optimize", opts.optimize)
         end
-        -- Keep self-contained (no external deps)
-        add_includedirs(include_dir, platform_renode_dir)
-        if opts.startup then
-            add_files(opts.startup)
-        end
+        add_includedirs(include_dir)
+        add_files(path.join(bench_dir, "target/stm32f4/startup.cc"))
         add_files(opts.source)
         if opts.renode_script then
             on_run(function(target)
@@ -44,28 +44,9 @@ local function stm32f4_bench_target(name, opts)
     target_end()
 end
 
-stm32f4_bench_target("bench_stm32f4", {
-    source = path.join(bench_dir, "test/bench_stm32f4.cc"),
-    startup = path.join(bench_dir, "target/stm32f4/startup.cc"),
+stm32f4_example("bench_instruction_stm32f4", {
+    source = path.join(bench_dir, "examples/instruction_bench_stm32f4.cc"),
     optimize = "fast",
-    renode_script = "lib/umi/bench/test/renode/bench_stm32f4.resc"
+    renode_script = "lib/umi/bench/target/stm32f4/renode/bench_stm32f4.resc"
 })
 
-stm32f4_bench_target("bench_stm32f4_single", {
-    source = path.join(bench_dir, "test/bench_stm32f4_single.cc"),
-    optimize = "fast",
-    renode_script = "lib/umi/bench/test/renode/bench_stm32f4.resc"
-})
-
-stm32f4_bench_target("bench_verify_dwt", {
-    source = path.join(bench_dir, "test/verify_dwt_cycles.cc"),
-    optimize = "fast",
-    renode_script = "lib/umi/bench/test/renode/verify_dwt.resc"
-})
-
-stm32f4_bench_target("comprehensive_bench", {
-    source = path.join(bench_dir, "test/comprehensive_bench.cc"),
-    startup = path.join(bench_dir, "target/stm32f4/startup.cc"),
-    optimize = "fast",
-    renode_script = "lib/umi/bench/test/renode/comprehensive_bench.resc"
-})
