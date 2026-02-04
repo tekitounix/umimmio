@@ -14,7 +14,7 @@ local root_dir = path.directory(lib_dir)
 
 target("test_fs_fat")
     add_rules("host.test")
-    set_group("tests/fs")
+    add_tests("default")
     set_default(true)
     add_deps("umi.fs.fatfs")
     add_files(path.join(test_dir, "test_fat.cc"))
@@ -290,3 +290,126 @@ target("renode_fs_test_ref")
         "-Wno-unused-function",
         {force = true})
 target_end()
+
+-- =====================================================================
+-- Filesystem check: tests + benchmarks + size comparison
+-- =====================================================================
+
+task("fs-check")
+    set_category("action")
+    on_run(function ()
+        import("core.project.project")
+        local sep = string.rep("=", 70)
+
+        -- ---------------------------------------------------------------
+        -- 1. Host unit tests
+        -- ---------------------------------------------------------------
+        local tests = {"test_fs_fat", "test_fs_slim"}
+        for _, name in ipairs(tests) do
+            os.exec("xmake build " .. name)
+        end
+        print("\n" .. sep)
+        print("  1. Host Unit Tests")
+        print(sep .. "\n")
+        local failed = {}
+        for _, name in ipairs(tests) do
+            print(">>> " .. name)
+            local ok = os.execv("xmake", {"run", name}, {try = true})
+            if ok ~= 0 then table.insert(failed, name) end
+            print("")
+        end
+        if #failed > 0 then
+            print("FAILED: " .. table.concat(failed, ", "))
+            os.exit(1)
+        end
+        print("All unit tests passed!\n")
+
+        -- ---------------------------------------------------------------
+        -- 2. Renode benchmarks (slim + fat_cr, then lfs_ref + fat_ref)
+        -- ---------------------------------------------------------------
+        print(sep)
+        print("  2. Renode Benchmarks (DWT cycles, ARM Cortex-M4)")
+        print(sep .. "\n")
+
+        local renode = "/Applications/Renode.app/Contents/MacOS/Renode"
+        if not os.isfile(renode) then renode = "renode" end
+        local resc = path.join(test_dir, "fs_test.resc")
+        local log = "build/renode_fs_uart.log"
+
+        -- slim + fat(cr)
+        os.exec("xmake build renode_fs_test")
+        os.execv(renode, {"--console", "--disable-xwt", "-e", "include @" .. resc})
+        local log_cr = ""
+        if os.isfile(log) then
+            log_cr = io.readfile(log)
+        end
+
+        -- lfs(ref) + fat(ref)
+        os.exec("xmake build renode_fs_test_ref")
+        -- Generate .resc pointing to ref ELF
+        local resc_ref = "build/fs_test_ref.resc"
+        local resc_content = io.readfile(resc)
+        resc_content = resc_content:gsub(
+            "renode_fs_test/release/renode_fs_test%.elf",
+            "renode_fs_test_ref/release/renode_fs_test_ref.elf")
+        io.writefile(resc_ref, resc_content)
+        os.execv(renode, {"--console", "--disable-xwt", "-e", "include @" .. resc_ref})
+        local log_ref = ""
+        if os.isfile(log) then
+            log_ref = io.readfile(log)
+        end
+
+        -- Print both results
+        if #log_cr > 0 then
+            print("\n--- fat(cr) + slim ---")
+            print(log_cr)
+        end
+        if #log_ref > 0 then
+            print("--- lfs(ref) + fat(ref) ---")
+            print(log_ref)
+        end
+
+        -- ---------------------------------------------------------------
+        -- 3. ARM binary size comparison
+        -- ---------------------------------------------------------------
+        print("\n" .. sep)
+        print("  3. ARM Binary Size Comparison (Cortex-M4, -Oz)")
+        print(sep .. "\n")
+
+        local size_targets = {"size_fs_slim", "size_fs_lfs_ref", "size_fs_fat", "size_fs_fat_ref"}
+        for _, name in ipairs(size_targets) do
+            os.exec("xmake build " .. name)
+        end
+
+        local size_cmd = "arm-none-eabi-size"
+        local labels = {
+            size_fs_slim    = "slim",
+            size_fs_lfs_ref = "lfs(ref)",
+            size_fs_fat     = "fat(cr)",
+            size_fs_fat_ref = "fat(ref)",
+        }
+        -- Print header
+        printf("  %-10s %8s %8s %8s %8s\n", "", ".text", ".data", ".bss", "total")
+        printf("  %-10s %8s %8s %8s %8s\n", "----------", "--------", "--------", "--------", "--------")
+        for _, name in ipairs(size_targets) do
+            local target = project.target(name)
+            local elf = target:targetfile()
+            local output = os.iorunv(size_cmd, {elf})
+            -- Parse second line: text data bss dec hex filename
+            for line in output:gmatch("[^\n]+") do
+                local t, d, b, dec = line:match("^%s*(%d+)%s+(%d+)%s+(%d+)%s+(%d+)")
+                if t then
+                    printf("  %-10s %8s %8s %8s %8s\n", labels[name], t, d, b, dec)
+                end
+            end
+        end
+
+        -- ---------------------------------------------------------------
+        -- Summary
+        -- ---------------------------------------------------------------
+        print("\n" .. sep)
+        print("  fs-check complete")
+        print(sep)
+    end)
+    set_menu {usage = "xmake fs-check", description = "Run FS tests, Renode benchmarks, and ARM size comparison"}
+task_end()

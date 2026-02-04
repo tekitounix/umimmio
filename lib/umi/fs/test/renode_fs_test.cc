@@ -14,10 +14,10 @@
 
 #include <common/vector_table.hh>
 
-#include <umifs/fat/ff.hh>
-#include <umifs/fat/ff_diskio.hh>
-#include <umifs/slim/slim.hh>
-#include <umifs/slim/slim_config.hh>
+#include <umi/fs/fat/ff.hh>
+#include <umi/fs/fat/ff_diskio.hh>
+#include <umi/fs/slim/slim.hh>
+#include <umi/fs/slim/slim_config.hh>
 
 #include <cstdint>
 #include <cstring>

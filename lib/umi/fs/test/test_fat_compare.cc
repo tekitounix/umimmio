@@ -6,8 +6,8 @@
 using namespace umitest;
 
 // --- C++23 port ---
-#include <umifs/fat/ff.hh>
-#include <umifs/fat/ff_diskio.hh>
+#include <umi/fs/fat/ff.hh>
+#include <umi/fs/fat/ff_diskio.hh>
 
 // --- Reference C implementation ---
 // We need custom ffconf.h for reference — override with defines before include

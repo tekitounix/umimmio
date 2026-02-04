@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <umios/kernel/block_device.hh>
+#include <umi/kernel/block_device.hh>
 
 #include "ff_types.hh"
 

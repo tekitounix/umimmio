@@ -29,22 +29,22 @@ namespace umiboot {
 
 // Authentication commands (0x30-0x3F range)
 enum class AuthCommand : uint8_t {
-    AUTH_CHALLENGE_REQ  = 0x30,  // Request challenge
-    AUTH_CHALLENGE      = 0x31,  // Challenge (32 bytes)
-    AUTH_RESPONSE       = 0x32,  // Response (32 bytes)
-    AUTH_OK             = 0x33,  // Authentication successful
-    AUTH_FAIL           = 0x34,  // Authentication failed
-    AUTH_LOGOUT         = 0x35,  // End session
-    AUTH_STATUS         = 0x36,  // Query auth status
+    AUTH_CHALLENGE_REQ = 0x30, // Request challenge
+    AUTH_CHALLENGE = 0x31,     // Challenge (32 bytes)
+    AUTH_RESPONSE = 0x32,      // Response (32 bytes)
+    AUTH_OK = 0x33,            // Authentication successful
+    AUTH_FAIL = 0x34,          // Authentication failed
+    AUTH_LOGOUT = 0x35,        // End session
+    AUTH_STATUS = 0x36,        // Query auth status
 };
 
 // Authentication error codes
 enum class AuthError : uint8_t {
-    OK                  = 0x00,
-    INVALID_CHALLENGE   = 0x01,
-    INVALID_RESPONSE    = 0x02,
-    SESSION_EXPIRED     = 0x03,
-    NOT_AUTHENTICATED   = 0x04,
+    OK = 0x00,
+    INVALID_CHALLENGE = 0x01,
+    INVALID_RESPONSE = 0x02,
+    SESSION_EXPIRED = 0x03,
+    NOT_AUTHENTICATED = 0x04,
     ALREADY_AUTHENTICATED = 0x05,
 };
 
@@ -59,9 +59,7 @@ enum class AuthError : uint8_t {
 /// @param data Data to authenticate
 /// @param data_len Data length
 /// @param out Output buffer (32 bytes)
-using HmacSha256Fn = void (*)(const uint8_t* key, size_t key_len,
-                               const uint8_t* data, size_t data_len,
-                               uint8_t* out);
+using HmacSha256Fn = void (*)(const uint8_t* key, size_t key_len, const uint8_t* data, size_t data_len, uint8_t* out);
 
 /// Random number generator type
 /// @param out Output buffer
@@ -69,8 +67,7 @@ using HmacSha256Fn = void (*)(const uint8_t* key, size_t key_len,
 using RandomFn = void (*)(uint8_t* out, size_t len);
 
 /// Constant-time comparison to prevent timing attacks
-inline constexpr bool secure_compare(const uint8_t* a, const uint8_t* b,
-                                      size_t len) noexcept {
+inline constexpr bool secure_compare(const uint8_t* a, const uint8_t* b, size_t len) noexcept {
     uint8_t diff = 0;
     for (size_t i = 0; i < len; ++i) {
         diff |= a[i] ^ b[i];
@@ -83,9 +80,9 @@ inline constexpr bool secure_compare(const uint8_t* a, const uint8_t* b,
 // =============================================================================
 
 enum class AuthState : uint8_t {
-    IDLE,               // No authentication in progress
-    CHALLENGE_SENT,     // Challenge sent, waiting for response
-    AUTHENTICATED,      // Successfully authenticated
+    IDLE,           // No authentication in progress
+    CHALLENGE_SENT, // Challenge sent, waiting for response
+    AUTHENTICATED,  // Successfully authenticated
 };
 
 // =============================================================================
@@ -97,7 +94,7 @@ enum class AuthState : uint8_t {
 /// @tparam SessionTimeoutMs Session timeout in milliseconds (0 = no timeout)
 template <size_t KeySize = 32, uint32_t SessionTimeoutMs = 300000>
 class Authenticator {
-public:
+  public:
     static constexpr size_t CHALLENGE_SIZE = 32;
     static constexpr size_t RESPONSE_SIZE = 32;
 
@@ -206,7 +203,7 @@ public:
     /// Get session start time
     [[nodiscard]] uint32_t session_start() const noexcept { return session_start_; }
 
-private:
+  private:
     uint8_t key_[KeySize]{};
     uint8_t pending_challenge_[CHALLENGE_SIZE]{};
     HmacSha256Fn hmac_fn_ = nullptr;
@@ -223,7 +220,7 @@ private:
 /// Authentication client helper for host side
 template <size_t KeySize = 32>
 class AuthClient {
-public:
+  public:
     static constexpr size_t CHALLENGE_SIZE = 32;
     static constexpr size_t RESPONSE_SIZE = 32;
 
@@ -238,12 +235,13 @@ public:
     /// @param response Output response buffer (RESPONSE_SIZE bytes)
     /// @return true if response computed successfully
     bool compute_response(const uint8_t* challenge, uint8_t* response) noexcept {
-        if (!hmac_fn_) return false;
+        if (!hmac_fn_)
+            return false;
         hmac_fn_(key_, KeySize, challenge, CHALLENGE_SIZE, response);
         return true;
     }
 
-private:
+  private:
     uint8_t key_[KeySize]{};
     HmacSha256Fn hmac_fn_ = nullptr;
 };
@@ -254,12 +252,11 @@ private:
 
 #ifdef UMI_INCLUDE_SOFTWARE_CRYPTO
 
-#include <umios/crypto/sha256.hh>
+    #include <umi/crypto/sha256.hh>
 
 /// Software HMAC-SHA256 implementation (delegates to umi::crypto)
-inline void hmac_sha256_soft(const uint8_t* key, size_t key_len,
-                              const uint8_t* data, size_t data_len,
-                              uint8_t* out) noexcept {
+inline void
+hmac_sha256_soft(const uint8_t* key, size_t key_len, const uint8_t* data, size_t data_len, uint8_t* out) noexcept {
     umi::crypto::hmac_sha256(key, key_len, data, data_len, out);
 }
 
