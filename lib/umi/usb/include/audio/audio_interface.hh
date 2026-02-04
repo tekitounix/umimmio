@@ -12,7 +12,7 @@
 #include <utility>
 
 #include "audio/audio_types.hh"
-#include "core/types.hh"
+#include "../core/types.hh"
 
 namespace umiusb {
 
