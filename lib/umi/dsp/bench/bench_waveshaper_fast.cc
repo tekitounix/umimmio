@@ -237,6 +237,11 @@ inline uint32_t read() {
 constexpr float SAMPLE_RATE = 48000.0f;
 constexpr int N_SAMPLES = 4800; // 100ms @ 48kHz
 
+inline float generate_saw(int index, float freq) {
+    float phase = std::fmod(static_cast<float>(index) * freq / SAMPLE_RATE, 1.0f);
+    return (2.0f * phase) - 1.0f;
+}
+
 // ============================================================================
 // Benchmark template
 // ============================================================================

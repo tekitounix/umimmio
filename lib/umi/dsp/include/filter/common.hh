@@ -1,6 +1,8 @@
 #pragma once
 
-#include <numbers>
+#if __has_include(<numbers>)
+    #include <numbers>
+#endif
 #include <type_traits>
 
 // Common coefficient policy helpers for filters
@@ -10,7 +12,12 @@ constexpr float calc_wc(float fc, float dt) {
 }
 
 constexpr float calc_cutoff_rc(float r1, float c1) {
-    constexpr auto pi = std::numbers::pi_v<float>;
+    constexpr float pi =
+#if defined(__cpp_lib_math_constants)
+        std::numbers::pi_v<float>;
+#else
+        3.14159265358979323846f;
+#endif
     return 1.0f / (2.0f * pi * r1 * c1);
 }
 
