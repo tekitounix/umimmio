@@ -39,20 +39,19 @@
 #include "web_hal.hh"
 
 // Include umios types directly - same types as embedded
-#include <umios/types.hh>
-#include <umios/event.hh>
-#include <umios/audio_context.hh>
-#include <umios/umi_kernel.hh>
-
 #include <array>
 #include <cstdint>
 #include <span>
+#include <umi/core/audio_context.hh>
+#include <umi/core/event.hh>
+#include <umi/core/types.hh>
+#include <umi/kernel/umi_kernel.hh>
 
 #ifdef __EMSCRIPTEN__
-#include <emscripten.h>
-#define UMI_WEB_EXPORT __attribute__((used, visibility("default")))
+    #include <emscripten.h>
+    #define UMI_WEB_EXPORT __attribute__((used, visibility("default")))
 #else
-#define UMI_WEB_EXPORT
+    #define UMI_WEB_EXPORT
 #endif
 
 namespace umi::web {
@@ -84,9 +83,9 @@ struct WebAdapterConfig {
 // identical code paths between embedded and web builds.
 //
 
-template<typename Processor, WebAdapterConfig Config = WebAdapterConfig{}>
+template <typename Processor, WebAdapterConfig Config = WebAdapterConfig{}>
 class WebKernelAdapter {
-public:
+  public:
     WebKernelAdapter() = default;
 
     void init() {
@@ -224,21 +223,18 @@ public:
     uint32_t dsp_peak() const { return WasmHwImpl::dsp_peak(); }
 
     // Active voice count (for DSP load display)
-    uint32_t count_active_voices() const {
-        return get_active_voices_impl(nullptr);
-    }
+    uint32_t count_active_voices() const { return get_active_voices_impl(nullptr); }
 
-private:
+  private:
     // SFINAE: use if processor has active_voice_count()
-    template<typename P = Processor>
-    auto get_active_voices_impl(int*) const
-        -> decltype(std::declval<const P&>().active_voice_count()) {
+    template <typename P = Processor>
+    auto get_active_voices_impl(int*) const -> decltype(std::declval<const P&>().active_voice_count()) {
         return processor_.active_voice_count();
     }
 
     // Fallback: use if processor doesn't have active_voice_count()
     uint32_t get_active_voices_impl(...) const {
-        return 1;  // Assume 1 voice as default
+        return 1; // Assume 1 voice as default
     }
 
     void process_input_events(uint32_t frames) {
@@ -256,15 +252,15 @@ private:
         for (size_t i = 1; i < input_events_count_; ++i) {
             umi::Event key = input_events_snapshot_[i];
             size_t j = i;
-            while (j > 0 && input_events_snapshot_[j-1].sample_pos > key.sample_pos) {
-                input_events_snapshot_[j] = input_events_snapshot_[j-1];
+            while (j > 0 && input_events_snapshot_[j - 1].sample_pos > key.sample_pos) {
+                input_events_snapshot_[j] = input_events_snapshot_[j - 1];
                 --j;
             }
             input_events_snapshot_[j] = key;
         }
     }
 
-private:
+  private:
     Processor processor_{};
     uint32_t sample_rate_ = Config.sample_rate;
     float dt_ = 1.0f / Config.sample_rate;
@@ -289,7 +285,7 @@ private:
 };
 
 // Backward compatibility alias
-template<typename Proc, WebAdapterConfig Config = WebAdapterConfig{}>
+template <typename Proc, WebAdapterConfig Config = WebAdapterConfig{}>
 using WebSimAdapter = WebKernelAdapter<Proc, Config>;
 
 } // namespace umi::web
@@ -299,130 +295,135 @@ using WebSimAdapter = WebKernelAdapter<Proc, Config>;
 // ============================================================================
 // These macros create the WASM exports that the JavaScript runtime calls.
 
-#define UMI_WEB_ADAPTER_EXPORT(ProcessorType) \
-    static umi::web::WebKernelAdapter<ProcessorType> g_web_adapter; \
-    \
-    extern "C" { \
-        UMI_WEB_EXPORT void umi_sim_init(void) { \
-            g_web_adapter.init(); \
-        } \
-        UMI_WEB_EXPORT void umi_sim_reset(void) { \
-            g_web_adapter.reset(); \
-        } \
-        UMI_WEB_EXPORT void umi_sim_process(const float* in, float* out, \
-                                             uint32_t frames, uint32_t sr) { \
-            g_web_adapter.process(in, out, frames, sr); \
-        } \
-        UMI_WEB_EXPORT void umi_sim_note_on(uint8_t note, uint8_t vel) { \
-            g_web_adapter.note_on(note, vel); \
-        } \
-        UMI_WEB_EXPORT void umi_sim_note_off(uint8_t note) { \
-            g_web_adapter.note_off(note); \
-        } \
-        UMI_WEB_EXPORT void umi_sim_cc(uint8_t cc, uint8_t value) { \
-            g_web_adapter.control_change(cc, value); \
-        } \
-        UMI_WEB_EXPORT void umi_sim_midi(uint8_t status, uint8_t d1, uint8_t d2) { \
-            g_web_adapter.send_midi(status, d1, d2); \
-        } \
-        UMI_WEB_EXPORT uint32_t umi_sim_position_lo(void) { \
-            return static_cast<uint32_t>(g_web_adapter.sample_position()); \
-        } \
-        UMI_WEB_EXPORT uint32_t umi_sim_position_hi(void) { \
-            return static_cast<uint32_t>(g_web_adapter.sample_position() >> 32); \
-        } \
-        UMI_WEB_EXPORT uint32_t umi_sim_sample_rate(void) { \
-            return g_web_adapter.sample_rate(); \
-        } \
-        /* DSP Load (0-10000 = 0.00%-100.00%) */ \
-        UMI_WEB_EXPORT uint32_t umi_kernel_dsp_load(void) { \
-            return g_web_adapter.dsp_load(); \
-        } \
-        UMI_WEB_EXPORT uint32_t umi_kernel_dsp_peak(void) { \
-            return g_web_adapter.dsp_peak(); \
-        } \
-        UMI_WEB_EXPORT void umi_kernel_reset_dsp_peak(void) { \
-            umi::web::WasmHwImpl::reset_dsp_peak(); \
-        } \
-        /* Stats */ \
-        UMI_WEB_EXPORT uint32_t umi_kernel_midi_rx(void) { \
-            return g_web_adapter.midi_rx_count(); \
-        } \
-        UMI_WEB_EXPORT uint32_t umi_kernel_audio_buffers(void) { \
-            return g_web_adapter.audio_buffer_count(); \
-        } \
-        UMI_WEB_EXPORT uint64_t umi_kernel_uptime_us(void) { \
-            return umi::web::WasmHwImpl::monotonic_time_usecs(); \
-        } \
-        /* HW Simulation Parameters */ \
-        UMI_WEB_EXPORT uint32_t umi_hw_cpu_freq(void) { \
-            return umi::web::g_hw_sim_params.cpu_freq_mhz; \
-        } \
-        UMI_WEB_EXPORT void umi_hw_set_cpu_freq(uint32_t mhz) { \
-            umi::web::g_hw_sim_params.cpu_freq_mhz = mhz; \
-        } \
-        UMI_WEB_EXPORT uint32_t umi_hw_isr_overhead(void) { \
-            return umi::web::g_hw_sim_params.isr_overhead_cycles; \
-        } \
-        UMI_WEB_EXPORT void umi_hw_set_isr_overhead(uint32_t cycles) { \
-            umi::web::g_hw_sim_params.isr_overhead_cycles = cycles; \
-        } \
-        UMI_WEB_EXPORT uint32_t umi_hw_base_cycles(void) { \
-            return umi::web::g_hw_sim_params.base_cycles_per_sample; \
-        } \
-        UMI_WEB_EXPORT void umi_hw_set_base_cycles(uint32_t cycles) { \
-            umi::web::g_hw_sim_params.base_cycles_per_sample = cycles; \
-        } \
-        UMI_WEB_EXPORT uint32_t umi_hw_voice_cycles(void) { \
-            return umi::web::g_hw_sim_params.voice_cycles_per_sample; \
-        } \
-        UMI_WEB_EXPORT void umi_hw_set_voice_cycles(uint32_t cycles) { \
-            umi::web::g_hw_sim_params.voice_cycles_per_sample = cycles; \
-        } \
-        UMI_WEB_EXPORT uint32_t umi_hw_event_cycles(void) { \
-            return umi::web::g_hw_sim_params.event_cycles; \
-        } \
-        UMI_WEB_EXPORT void umi_hw_set_event_cycles(uint32_t cycles) { \
-            umi::web::g_hw_sim_params.event_cycles = cycles; \
-        } \
+#define UMI_WEB_ADAPTER_EXPORT(ProcessorType)                                                        \
+    static umi::web::WebKernelAdapter<ProcessorType> g_web_adapter;                                  \
+                                                                                                     \
+    extern "C" {                                                                                     \
+    UMI_WEB_EXPORT void umi_sim_init(void) {                                                         \
+        g_web_adapter.init();                                                                        \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_sim_reset(void) {                                                        \
+        g_web_adapter.reset();                                                                       \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_sim_process(const float* in, float* out, uint32_t frames, uint32_t sr) { \
+        g_web_adapter.process(in, out, frames, sr);                                                  \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_sim_note_on(uint8_t note, uint8_t vel) {                                 \
+        g_web_adapter.note_on(note, vel);                                                            \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_sim_note_off(uint8_t note) {                                             \
+        g_web_adapter.note_off(note);                                                                \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_sim_cc(uint8_t cc, uint8_t value) {                                      \
+        g_web_adapter.control_change(cc, value);                                                     \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_sim_midi(uint8_t status, uint8_t d1, uint8_t d2) {                       \
+        g_web_adapter.send_midi(status, d1, d2);                                                     \
+    }                                                                                                \
+    UMI_WEB_EXPORT uint32_t umi_sim_position_lo(void) {                                              \
+        return static_cast<uint32_t>(g_web_adapter.sample_position());                               \
+    }                                                                                                \
+    UMI_WEB_EXPORT uint32_t umi_sim_position_hi(void) {                                              \
+        return static_cast<uint32_t>(g_web_adapter.sample_position() >> 32);                         \
+    }                                                                                                \
+    UMI_WEB_EXPORT uint32_t umi_sim_sample_rate(void) {                                              \
+        return g_web_adapter.sample_rate();                                                          \
+    }                                                                                                \
+    /* DSP Load (0-10000 = 0.00%-100.00%) */                                                         \
+    UMI_WEB_EXPORT uint32_t umi_kernel_dsp_load(void) {                                              \
+        return g_web_adapter.dsp_load();                                                             \
+    }                                                                                                \
+    UMI_WEB_EXPORT uint32_t umi_kernel_dsp_peak(void) {                                              \
+        return g_web_adapter.dsp_peak();                                                             \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_kernel_reset_dsp_peak(void) {                                            \
+        umi::web::WasmHwImpl::reset_dsp_peak();                                                      \
+    }                                                                                                \
+    /* Stats */                                                                                      \
+    UMI_WEB_EXPORT uint32_t umi_kernel_midi_rx(void) {                                               \
+        return g_web_adapter.midi_rx_count();                                                        \
+    }                                                                                                \
+    UMI_WEB_EXPORT uint32_t umi_kernel_audio_buffers(void) {                                         \
+        return g_web_adapter.audio_buffer_count();                                                   \
+    }                                                                                                \
+    UMI_WEB_EXPORT uint64_t umi_kernel_uptime_us(void) {                                             \
+        return umi::web::WasmHwImpl::monotonic_time_usecs();                                         \
+    }                                                                                                \
+    /* HW Simulation Parameters */                                                                   \
+    UMI_WEB_EXPORT uint32_t umi_hw_cpu_freq(void) {                                                  \
+        return umi::web::g_hw_sim_params.cpu_freq_mhz;                                               \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_hw_set_cpu_freq(uint32_t mhz) {                                          \
+        umi::web::g_hw_sim_params.cpu_freq_mhz = mhz;                                                \
+    }                                                                                                \
+    UMI_WEB_EXPORT uint32_t umi_hw_isr_overhead(void) {                                              \
+        return umi::web::g_hw_sim_params.isr_overhead_cycles;                                        \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_hw_set_isr_overhead(uint32_t cycles) {                                   \
+        umi::web::g_hw_sim_params.isr_overhead_cycles = cycles;                                      \
+    }                                                                                                \
+    UMI_WEB_EXPORT uint32_t umi_hw_base_cycles(void) {                                               \
+        return umi::web::g_hw_sim_params.base_cycles_per_sample;                                     \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_hw_set_base_cycles(uint32_t cycles) {                                    \
+        umi::web::g_hw_sim_params.base_cycles_per_sample = cycles;                                   \
+    }                                                                                                \
+    UMI_WEB_EXPORT uint32_t umi_hw_voice_cycles(void) {                                              \
+        return umi::web::g_hw_sim_params.voice_cycles_per_sample;                                    \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_hw_set_voice_cycles(uint32_t cycles) {                                   \
+        umi::web::g_hw_sim_params.voice_cycles_per_sample = cycles;                                  \
+    }                                                                                                \
+    UMI_WEB_EXPORT uint32_t umi_hw_event_cycles(void) {                                              \
+        return umi::web::g_hw_sim_params.event_cycles;                                               \
+    }                                                                                                \
+    UMI_WEB_EXPORT void umi_hw_set_event_cycles(uint32_t cycles) {                                   \
+        umi::web::g_hw_sim_params.event_cycles = cycles;                                             \
+    }                                                                                                \
     }
 
-#define UMI_WEB_ADAPTER_EXPORT_PARAMS(ProcessorType) \
-    extern "C" { \
-        UMI_WEB_EXPORT uint32_t umi_sim_param_count(void) { \
-            return ProcessorType::param_count(); \
-        } \
-        UMI_WEB_EXPORT void umi_sim_set_param(uint32_t id, float value) { \
-            g_web_adapter.processor().set_param(id, value); \
-        } \
-        UMI_WEB_EXPORT float umi_sim_get_param(uint32_t id) { \
-            return g_web_adapter.processor().get_param(id); \
-        } \
-        UMI_WEB_EXPORT const char* umi_sim_param_name(uint32_t id) { \
-            auto* desc = ProcessorType::get_param_descriptor(id); \
-            return desc ? desc->name.data() : ""; \
-        } \
-        UMI_WEB_EXPORT float umi_sim_param_min(uint32_t id) { \
-            auto* desc = ProcessorType::get_param_descriptor(id); \
-            return desc ? desc->min_value : 0.0f; \
-        } \
-        UMI_WEB_EXPORT float umi_sim_param_max(uint32_t id) { \
-            auto* desc = ProcessorType::get_param_descriptor(id); \
-            return desc ? desc->max_value : 1.0f; \
-        } \
-        UMI_WEB_EXPORT float umi_sim_param_default(uint32_t id) { \
-            auto* desc = ProcessorType::get_param_descriptor(id); \
-            return desc ? desc->default_value : 0.0f; \
-        } \
+#define UMI_WEB_ADAPTER_EXPORT_PARAMS(ProcessorType)                  \
+    extern "C" {                                                      \
+    UMI_WEB_EXPORT uint32_t umi_sim_param_count(void) {               \
+        return ProcessorType::param_count();                          \
+    }                                                                 \
+    UMI_WEB_EXPORT void umi_sim_set_param(uint32_t id, float value) { \
+        g_web_adapter.processor().set_param(id, value);               \
+    }                                                                 \
+    UMI_WEB_EXPORT float umi_sim_get_param(uint32_t id) {             \
+        return g_web_adapter.processor().get_param(id);               \
+    }                                                                 \
+    UMI_WEB_EXPORT const char* umi_sim_param_name(uint32_t id) {      \
+        auto* desc = ProcessorType::get_param_descriptor(id);         \
+        return desc ? desc->name.data() : "";                         \
+    }                                                                 \
+    UMI_WEB_EXPORT float umi_sim_param_min(uint32_t id) {             \
+        auto* desc = ProcessorType::get_param_descriptor(id);         \
+        return desc ? desc->min_value : 0.0f;                         \
+    }                                                                 \
+    UMI_WEB_EXPORT float umi_sim_param_max(uint32_t id) {             \
+        auto* desc = ProcessorType::get_param_descriptor(id);         \
+        return desc ? desc->max_value : 1.0f;                         \
+    }                                                                 \
+    UMI_WEB_EXPORT float umi_sim_param_default(uint32_t id) {         \
+        auto* desc = ProcessorType::get_param_descriptor(id);         \
+        return desc ? desc->default_value : 0.0f;                     \
+    }                                                                 \
     }
 
 #define UMI_WEB_ADAPTER_EXPORT_NAMED(ProcessorType, name, vendor, version) \
-    UMI_WEB_ADAPTER_EXPORT(ProcessorType) \
-    UMI_WEB_ADAPTER_EXPORT_PARAMS(ProcessorType) \
-    extern "C" { \
-        UMI_WEB_EXPORT const char* umi_sim_get_name(void) { return name; } \
-        UMI_WEB_EXPORT const char* umi_sim_get_vendor(void) { return vendor; } \
-        UMI_WEB_EXPORT const char* umi_sim_get_version(void) { return version; } \
+    UMI_WEB_ADAPTER_EXPORT(ProcessorType)                                  \
+    UMI_WEB_ADAPTER_EXPORT_PARAMS(ProcessorType)                           \
+    extern "C" {                                                           \
+    UMI_WEB_EXPORT const char* umi_sim_get_name(void) {                    \
+        return name;                                                       \
+    }                                                                      \
+    UMI_WEB_EXPORT const char* umi_sim_get_vendor(void) {                  \
+        return vendor;                                                     \
+    }                                                                      \
+    UMI_WEB_EXPORT const char* umi_sim_get_version(void) {                 \
+        return version;                                                    \
+    }                                                                      \
     }
 
 // Backward compatibility aliases
