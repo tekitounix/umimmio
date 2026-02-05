@@ -6,7 +6,7 @@ using sysbus
 mach create "umi_bench"
 
 # Load custom UMI-OS platform description
-machine LoadPlatformDescription $CWD/tools/renode/stm32f4_test.repl
+machine LoadPlatformDescription $CWD/lib/umi/port/platform/renode/stm32f4_test.repl
 
 # Load the benchmark ELF
 sysbus LoadELF $CWD/build/bench_waveshaper_fast/release/bench_waveshaper_fast.elf
