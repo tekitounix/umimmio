@@ -87,13 +87,14 @@ local function stm32f4_target(name, opts)
             add_files(src)
         end
         add_files(stm32f4_syscalls)
+        add_files(path.join(os.projectdir(), "lib/umi/bench/target/stm32f4/startup.cc"))
         add_files(opts.source)
         if opts.renode_script then
             on_run(function()
                 local renode = "/Applications/Renode.app/Contents/MacOS/Renode"
                 if not os.isfile(renode) then renode = "renode" end
                 local renode_script = opts.renode_script
-                if not path.isabs(renode_script) then
+                if not path.is_absolute(renode_script) then
                     renode_script = path.join(os.projectdir(), renode_script)
                 end
                 os.execv(renode, {"--console", "--disable-xwt", "-e", "include @" .. renode_script})
@@ -141,7 +142,8 @@ stm32f4_target("bench_midi_format", {
 stm32f4_target("bench_diode_ladder", {
     source = path.join(os.projectdir(), "lib/umi/dsp/bench/bench_diode_ladder.cc"),
     optimize = "fast",
-    renode_script = "lib/umi/dsp/bench/renode/bench_diode_ladder.resc"
+    renode_script = "lib/umi/dsp/bench/renode/bench_diode_ladder.resc",
+    deps = {"umi.bench"}
 })
 
 stm32f4_target("bench_waveshaper", {
