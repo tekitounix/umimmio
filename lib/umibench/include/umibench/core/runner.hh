@@ -6,9 +6,9 @@
 #include <cstdint>
 #include <utility>
 
-#include "bench/core/measure.hh"
-#include "bench/core/stats.hh"
-#include "bench/timer/concept.hh"
+#include "umibench/core/measure.hh"
+#include "umibench/core/stats.hh"
+#include "umibench/timer/concept.hh"
 
 namespace umi::bench {
 
@@ -44,7 +44,7 @@ class Runner {
 
         // Simple Insertion Sort to avoid std::sort dependency in bare-metal
         for (std::size_t i = 1; i < N; ++i) {
-            Counter key = sorted[i];
+            const Counter key = sorted[i];
             std::size_t j = i;
             while (j > 0 && sorted[j - 1] > key) {
                 sorted[j] = sorted[j - 1];
@@ -55,7 +55,7 @@ class Runner {
 
         // Use median instead of min for better outlier resistance
         if constexpr (N % 2 == 0) {
-            baseline = (sorted[N / 2 - 1] + sorted[N / 2]) / 2;
+            baseline = (sorted[(N / 2) - 1] + sorted[N / 2]) / 2;
         } else {
             baseline = sorted[N / 2];
         }
@@ -64,14 +64,15 @@ class Runner {
     }
 
     /// Get current baseline value
-    Counter get_baseline() const { return baseline; }
+    [[nodiscard]] Counter get_baseline() const { return baseline; }
 
     /// Run benchmark: N samples, single iteration per sample
     template <std::size_t N = DefaultSamples, typename Func>
     Stats run(Func&& func) const {
+        auto fn = std::forward<Func>(func);
         std::array<Counter, N> samples{};
         for (std::size_t i = 0; i < N; ++i) {
-            samples[i] = measure_corrected<Timer>(std::forward<Func>(func), baseline);
+            samples[i] = measure_corrected<Timer>(fn, baseline);
         }
         return compute_stats(samples);
     }
@@ -79,9 +80,10 @@ class Runner {
     /// Run benchmark: N samples, multiple iterations per sample
     template <std::size_t N = DefaultSamples, typename Func>
     Stats run(std::uint32_t iterations, Func&& func) const {
+        auto fn = std::forward<Func>(func);
         std::array<Counter, N> samples{};
         for (std::size_t i = 0; i < N; ++i) {
-            samples[i] = measure_corrected_n<Timer>(std::forward<Func>(func), baseline, iterations);
+            samples[i] = measure_corrected_n<Timer>(fn, baseline, iterations);
         }
         return compute_stats(samples, iterations);
     }

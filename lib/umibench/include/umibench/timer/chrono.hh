@@ -10,18 +10,18 @@ namespace umi::bench {
 struct ChronoTimer {
     using Counter = std::uint64_t;
 
-    static void enable() { base() = clock::now(); }
+    static void enable() { base() = Clock::now(); }
 
     static Counter now() {
-        const auto elapsed = clock::now() - base();
+        const auto elapsed = Clock::now() - base();
         return static_cast<Counter>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
     }
 
   private:
-    using clock = std::chrono::steady_clock;
+    using Clock = std::chrono::steady_clock;
 
-    static clock::time_point& base() {
-        static clock::time_point value = clock::now();
+    static Clock::time_point& base() {
+        static Clock::time_point value = Clock::now();
         return value;
     }
 };

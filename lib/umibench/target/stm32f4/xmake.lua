@@ -8,6 +8,7 @@ target("umibench_stm32f4_renode")
     -- MCU Configuration
     set_values("embedded.mcu", "stm32f407vg")
     set_values("embedded.optimize", "size")
+    set_values("embedded.toolchain", "clang-arm")
     
     -- Source files
     add_files("startup.cc")
@@ -17,7 +18,7 @@ target("umibench_stm32f4_renode")
     set_values("embedded.linker_script", path.join(os.scriptdir(), "linker.ld"))
     
     -- Dependencies
-    add_deps("umibench")
+    add_deps("umibench_embedded")
     
     -- Include paths
     add_includedirs("../..", {public = false})

@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: MIT
 // bench library tests
 #include <array>
-#include <test.hh>
-#include <umibench/bench.hh>
+#include <cstdint>
 #include <umibench/core/measure.hh>
 #include <umibench/core/runner.hh>
 #include <umibench/core/stats.hh>
 #include <umibench/platform/host.hh>
 #include <umibench/timer/chrono.hh>
+#include <umibench/timer/concept.hh>
+#include <umitest/test.hh>
 
 using namespace umi::bench;
 using namespace umi::test;
+
+namespace {
 
 // =============================================================================
 // Timer concept tests
@@ -31,8 +34,9 @@ bool test_chrono_timer_monotonic(TestContext& t) {
     ChronoTimer::enable();
     auto t1 = ChronoTimer::now();
     volatile int x = 0;
-    for (int i = 0; i < 1000; ++i)
+    for (int i = 0; i < 1000; ++i) {
         x += i;
+    }
     (void)x;
     auto t2 = ChronoTimer::now();
     return t.assert_ge(t2, t1);
@@ -46,8 +50,9 @@ bool test_measure_returns_positive(TestContext& t) {
     ChronoTimer::enable();
     auto elapsed = measure<ChronoTimer>([] {
         volatile int x = 0;
-        for (int i = 0; i < 100; ++i)
+        for (int i = 0; i < 100; ++i) {
             x += i;
+        }
         (void)x;
     });
     // 0以上（空処理でも0になりうる）
@@ -58,15 +63,17 @@ bool test_measure_n_multiplies(TestContext& t) {
     ChronoTimer::enable();
     auto single = measure<ChronoTimer>([] {
         volatile int x = 0;
-        for (int i = 0; i < 100; ++i)
+        for (int i = 0; i < 100; ++i) {
             x += i;
+        }
         (void)x;
     });
     auto multiple = measure_n<ChronoTimer>(
         [] {
             volatile int x = 0;
-            for (int i = 0; i < 100; ++i)
+            for (int i = 0; i < 100; ++i) {
                 x += i;
+            }
             (void)x;
         },
         10);
@@ -76,7 +83,7 @@ bool test_measure_n_multiplies(TestContext& t) {
 
 bool test_measure_corrected_subtracts_baseline(TestContext& t) {
     ChronoTimer::enable();
-    ChronoTimer::Counter baseline = 100;
+    const ChronoTimer::Counter baseline = 100;
     auto result = measure_corrected<ChronoTimer>([] {}, baseline);
     // baseline以下なら0になる
     return t.assert_eq(result, 0u);
@@ -84,7 +91,7 @@ bool test_measure_corrected_subtracts_baseline(TestContext& t) {
 
 bool test_measure_corrected_n(TestContext& t) {
     ChronoTimer::enable();
-    ChronoTimer::Counter baseline = 10;
+    const ChronoTimer::Counter baseline = 10;
     auto result = measure_corrected_n<ChronoTimer>(
         [] {
             volatile int x = 0;
@@ -102,7 +109,7 @@ bool test_measure_corrected_n(TestContext& t) {
 // =============================================================================
 
 bool test_stats_single_sample(TestContext& t) {
-    std::array<std::uint32_t, 1> samples = {42};
+    const std::array<std::uint32_t, 1> samples = {42};
     auto stats = compute_stats(samples);
 
     bool ok = true;
@@ -117,7 +124,7 @@ bool test_stats_single_sample(TestContext& t) {
 }
 
 bool test_stats_odd_samples(TestContext& t) {
-    std::array<std::uint32_t, 5> samples = {5, 1, 3, 4, 2};
+    const std::array<std::uint32_t, 5> samples = {5, 1, 3, 4, 2};
     auto stats = compute_stats(samples);
 
     bool ok = true;
@@ -136,7 +143,7 @@ bool test_stats_odd_samples(TestContext& t) {
 }
 
 bool test_stats_even_samples(TestContext& t) {
-    std::array<std::uint32_t, 4> samples = {1, 4, 2, 3};
+    const std::array<std::uint32_t, 4> samples = {1, 4, 2, 3};
     auto stats = compute_stats(samples);
 
     bool ok = true;
@@ -152,13 +159,13 @@ bool test_stats_even_samples(TestContext& t) {
 }
 
 bool test_stats_iterations_stored(TestContext& t) {
-    std::array<std::uint32_t, 3> samples = {10, 20, 30};
+    const std::array<std::uint32_t, 3> samples = {10, 20, 30};
     auto stats = compute_stats(samples, 100);
     return t.assert_eq(stats.iterations, 100u);
 }
 
 bool test_stats_all_same(TestContext& t) {
-    std::array<std::uint32_t, 4> samples = {7, 7, 7, 7};
+    const std::array<std::uint32_t, 4> samples = {7, 7, 7, 7};
     auto stats = compute_stats(samples);
 
     bool ok = true;
@@ -172,7 +179,7 @@ bool test_stats_all_same(TestContext& t) {
 }
 
 bool test_stats_large_values(TestContext& t) {
-    std::array<std::uint64_t, 3> samples = {1'000'000'000ULL, 2'000'000'000ULL, 3'000'000'000ULL};
+    const std::array<std::uint64_t, 3> samples = {1'000'000'000ULL, 2'000'000'000ULL, 3'000'000'000ULL};
     auto stats = compute_stats(samples);
 
     bool ok = true;
@@ -287,6 +294,8 @@ bool test_full_benchmark_workflow(TestContext& t) {
     return ok;
 }
 
+} // namespace
+
 // =============================================================================
 // Main
 // =============================================================================
@@ -294,18 +303,18 @@ bool test_full_benchmark_workflow(TestContext& t) {
 int main() {
     Suite s("bench");
 
-    s.section("Timer");
+    Suite::section("Timer");
     s.run("chrono_timer_concept", test_chrono_timer_concept);
     s.run("chrono_timer_enable", test_chrono_timer_enable);
     s.run("chrono_timer_monotonic", test_chrono_timer_monotonic);
 
-    s.section("Measure");
+    Suite::section("Measure");
     s.run("measure_returns_positive", test_measure_returns_positive);
     s.run("measure_n_multiplies", test_measure_n_multiplies);
     s.run("measure_corrected_subtracts_baseline", test_measure_corrected_subtracts_baseline);
     s.run("measure_corrected_n", test_measure_corrected_n);
 
-    s.section("Stats");
+    Suite::section("Stats");
     s.run("stats_single_sample", test_stats_single_sample);
     s.run("stats_odd_samples", test_stats_odd_samples);
     s.run("stats_even_samples", test_stats_even_samples);
@@ -313,18 +322,18 @@ int main() {
     s.run("stats_all_same", test_stats_all_same);
     s.run("stats_large_values", test_stats_large_values);
 
-    s.section("Runner");
+    Suite::section("Runner");
     s.run("runner_calibrate", test_runner_calibrate);
     s.run("runner_calibrate_returns_self", test_runner_calibrate_returns_self);
     s.run("runner_run_single_iteration", test_runner_run_single_iteration);
     s.run("runner_run_multiple_iterations", test_runner_run_multiple_iterations);
     s.run("runner_default_samples", test_runner_default_samples);
 
-    s.section("Platform");
+    Suite::section("Platform");
     s.run("host_platform_types", test_host_platform_types);
     s.run("host_platform_init", test_host_platform_init);
 
-    s.section("Integration");
+    Suite::section("Integration");
     s.run("full_benchmark_workflow", test_full_benchmark_workflow);
 
     return s.summary();
