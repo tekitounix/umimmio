@@ -6,5 +6,5 @@ target("umibench")
 -- Host tests
 includes("test")
 
--- Embedded targets (future: migrate from lib/umi/bench)
--- includes("target/stm32f4")
+-- Embedded targets (STM32F4 with Renode)
+includes("target/stm32f4")
