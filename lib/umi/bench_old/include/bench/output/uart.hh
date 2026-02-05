@@ -74,6 +74,33 @@ struct UartOutput {
         }
         return ok;
     }
+
+    static bool print_float(float value, int decimals = 2) {
+        bool ok = true;
+        if (value < 0.0f) {
+            ok = putc('-');
+            if (!ok) return false;
+            value = -value;
+        }
+
+        auto int_part = static_cast<std::uint32_t>(value);
+        ok = print_uint(int_part);
+        if (!ok) return false;
+
+        ok = putc('.');
+        if (!ok) return false;
+
+        value -= static_cast<float>(int_part);
+
+        for (int i = 0; i < decimals; ++i) {
+            value *= 10.0f;
+            auto digit = static_cast<int>(value);
+            ok = putc(static_cast<char>('0' + digit));
+            if (!ok) return false;
+            value -= static_cast<float>(digit);
+        }
+        return true;
+    }
 };
 
 } // namespace umi::bench

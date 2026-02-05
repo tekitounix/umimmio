@@ -41,7 +41,17 @@ class Runner {
 
         // Sort to compute median (more robust than min for outlier resistance)
         std::array<Counter, N> sorted = samples;
-        std::sort(sorted.begin(), sorted.end());
+
+        // Simple Insertion Sort to avoid std::sort dependency in bare-metal
+        for (std::size_t i = 1; i < N; ++i) {
+            Counter key = sorted[i];
+            std::size_t j = i;
+            while (j > 0 && sorted[j - 1] > key) {
+                sorted[j] = sorted[j - 1];
+                --j;
+            }
+            sorted[j] = key;
+        }
 
         // Use median instead of min for better outlier resistance
         if constexpr (N % 2 == 0) {
