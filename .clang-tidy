@@ -1,3 +1,9 @@
+# UMI Project Clang-Tidy Configuration
+#
+# For arm-embedded toolchain compatibility, add to your shell:
+#   export CLANG_TIDY_EXTRA_ARGS="-resource-dir=/opt/homebrew/opt/llvm/lib/clang/20"
+#   (adjust path for your system)
+#
 # bugprone-dynamic-static-initializers: false positive with static constexpr
 # bugprone-easily-swappable-parameters: too noisy for DSP/embedded (e.g., set_adsr, lerp)
 Checks: >
