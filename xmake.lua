@@ -28,24 +28,67 @@ set_version("0.2.0")
 set_xmakever("2.8.0")
 
 -- =====================================================================
--- UMI Package (provides all library include paths)
+-- Package Repositories
 -- =====================================================================
 
-includes("lib/umi")
+-- arm-embedded toolchain and plugins
+if os.isdir(path.join(os.projectdir(), ".refs/arm-embedded-xmake-repo")) then
+    add_repositories("arm-embedded " .. path.join(os.projectdir(), ".refs/arm-embedded-xmake-repo"))
+else
+    add_repositories("arm-embedded https://github.com/tekitounix/arm-embedded-xmake-repo.git")
+end
+
+-- Arm embedded toolchain (optional, for firmware builds)
+add_requires("arm-embedded", {optional = true})
 
 -- =====================================================================
--- WASM Targets (Emscripten)
+-- Language and Build Settings
 -- =====================================================================
 
--- Include headless_webhost subproject
-includes("examples/headless_webhost")
+set_languages("c++23")
+add_rules("mode.debug", "mode.release")
+add_rules("plugin.compile_commands.autoupdate", {outputdir = ".", lsp = "clangd"})
+set_warnings("all", "extra", "error")
 
 -- =====================================================================
--- STM32F4 Kernel + Application (Separated Architecture)
+-- Options
 -- =====================================================================
 
-includes("examples/stm32f4_kernel")
-includes("examples/synth_app")
-includes("examples/daisy_pod_kernel")
-includes("examples/daisy_pod_synth_h7")
+option("board")
+    set_default("stub")
+    set_showmenu(true)
+    set_description("Target board")
+    set_values("stm32f4", "stub")
+option_end()
 
+option("kernel")
+    set_default("mono")
+    set_showmenu(true)
+    set_description("Kernel configuration")
+    set_values("mono", "micro")
+option_end()
+
+-- =====================================================================
+-- Includes
+-- =====================================================================
+
+-- Individual libraries (migrated from monolithic lib/umi)
+includes("lib/umimmio")
+includes("lib/umitest")
+includes("lib/umibench")
+includes("lib/umistring")
+
+-- =====================================================================
+-- WASM Targets (Emscripten) - 移行完了後に再有効化
+-- =====================================================================
+
+-- includes("examples/headless_webhost")
+
+-- =====================================================================
+-- STM32F4 Kernel + Application - 移行完了後に再有効化
+-- =====================================================================
+
+-- includes("examples/stm32f4_kernel")
+-- includes("examples/synth_app")
+-- includes("examples/daisy_pod_kernel")
+-- includes("examples/daisy_pod_synth_h7")
