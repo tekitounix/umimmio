@@ -279,7 +279,15 @@ xmake project -k vsxmake
 
 | コマンド | 結果 | 備考 |
 |----------|------|------|
-| `xmake check clang.tidy` | ⚠️ | clang-arm 21.1.1 の multilib.yaml に `IncludeDirs` キーが含まれているが、clang-tidy 20.x が認識できない |
+| `xmake check clang.tidy` | ⚠️ | clang-arm 21.1.0/21.1.1 の multilib.yaml に `IncludeDirs` キーが含まれているが、clang-tidy 20.x が認識できない |
+
+**検証結果**:
+| バージョン | IncludeDirs | パッチ対象 |
+|-----------|-------------|-----------|
+| 19.1.5 | ❌ なし | ❌ 不要 |
+| 20.1.0 | ❌ なし | ❌ 不要 |
+| 21.1.0 | ✅ あり | ✅ 要パッチ |
+| 21.1.1 | ✅ あり | ✅ 要パッチ |
 
 **注意**: multilib.yaml を削除するとコンパイラが標準ヘッダーを見つけられなくなり、ビルドが失敗する
 
