@@ -42,6 +42,42 @@ end
 add_requires("arm-embedded", {optional = true})
 
 -- =====================================================================
+-- Host LLVM Detection (for clang-tidy compatibility)
+-- =====================================================================
+
+-- Auto-detect host LLVM resource directory to avoid multilib.yaml issues
+-- with arm-embedded toolchain (affects clang-arm 21.1.0/21.1.1)
+local host_resource_dir = nil
+if is_host("macosx") then
+    if os.isdir("/opt/homebrew/opt/llvm/lib/clang") then
+        local dirs = os.dirs("/opt/homebrew/opt/llvm/lib/clang/*")
+        if #dirs > 0 then
+            host_resource_dir = dirs[1]
+        end
+    elseif os.isdir("/usr/local/opt/llvm/lib/clang") then
+        local dirs = os.dirs("/usr/local/opt/llvm/lib/clang/*")
+        if #dirs > 0 then
+            host_resource_dir = dirs[1]
+        end
+    end
+elseif is_host("linux") then
+    for _, ver in ipairs({"20", "19", "18"}) do
+        local dir = "/usr/lib/llvm-" .. ver .. "/lib/clang"
+        if os.isdir(dir) then
+            local subdirs = os.dirs(dir .. "/*")
+            if #subdirs > 0 then
+                host_resource_dir = subdirs[1]
+                break
+            end
+        end
+    end
+end
+
+if host_resource_dir then
+    set_configvar("CLANG_HOST_RESOURCE_DIR", host_resource_dir)
+end
+
+-- =====================================================================
 -- Language and Build Settings
 -- =====================================================================
 
