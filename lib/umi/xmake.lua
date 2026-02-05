@@ -11,8 +11,13 @@
 -- Project Configuration (library-side)
 -- =====================================================================
 
--- Note: arm-embedded repository is configured in root xmake.lua
--- This file assumes it's already loaded
+if os.isdir(path.join(os.projectdir(), ".refs/arm-embedded-xmake-repo")) then
+    add_repositories("arm-embedded " .. path.join(os.projectdir(), ".refs/arm-embedded-xmake-repo"))
+else
+    add_repositories("arm-embedded https://github.com/tekitounix/arm-embedded-xmake-repo.git")
+end
+
+add_requires("arm-embedded", {optional = true})
 
 set_languages("c++23")
 add_rules("mode.debug", "mode.release")

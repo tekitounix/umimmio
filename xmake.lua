@@ -38,44 +38,8 @@ else
     add_repositories("arm-embedded https://github.com/tekitounix/arm-embedded-xmake-repo.git")
 end
 
--- Arm embedded toolchain (optional, for firmware builds)
-add_requires("arm-embedded", {optional = true})
-
--- =====================================================================
--- Host LLVM Detection (for clang-tidy compatibility)
--- =====================================================================
-
--- Auto-detect host LLVM resource directory to avoid multilib.yaml issues
--- with arm-embedded toolchain (affects clang-arm 21.1.0/21.1.1)
-local host_resource_dir = nil
-if is_host("macosx") then
-    if os.isdir("/opt/homebrew/opt/llvm/lib/clang") then
-        local dirs = os.dirs("/opt/homebrew/opt/llvm/lib/clang/*")
-        if #dirs > 0 then
-            host_resource_dir = dirs[1]
-        end
-    elseif os.isdir("/usr/local/opt/llvm/lib/clang") then
-        local dirs = os.dirs("/usr/local/opt/llvm/lib/clang/*")
-        if #dirs > 0 then
-            host_resource_dir = dirs[1]
-        end
-    end
-elseif is_host("linux") then
-    for _, ver in ipairs({"20", "19", "18"}) do
-        local dir = "/usr/lib/llvm-" .. ver .. "/lib/clang"
-        if os.isdir(dir) then
-            local subdirs = os.dirs(dir .. "/*")
-            if #subdirs > 0 then
-                host_resource_dir = subdirs[1]
-                break
-            end
-        end
-    end
-end
-
-if host_resource_dir then
-    set_configvar("CLANG_HOST_RESOURCE_DIR", host_resource_dir)
-end
+-- Arm embedded toolchain (required for firmware builds)
+add_requires("arm-embedded")
 
 -- =====================================================================
 -- Language and Build Settings
@@ -128,3 +92,63 @@ includes("lib/umistring")
 -- includes("examples/synth_app")
 -- includes("examples/daisy_pod_kernel")
 -- includes("examples/daisy_pod_synth_h7")
+
+-- =====================================================================
+-- Custom Tasks
+-- =====================================================================
+
+task("check-embedded")
+    set_category("check")
+    on_run(function()
+        import("lib.detect.find_tool")
+        
+        local clang_tidy = find_tool("clang-tidy")
+        if not clang_tidy then
+            raise("clang-tidy not found")
+        end
+        
+        print("Running clang-tidy on embedded targets...")
+        print("This will test if multilib.yaml causes issues with clang-tidy 20.x")
+        print("")
+        
+        -- Get arm-embedded resource directory
+        local clang_arm = find_tool("clang", {paths = {"~/.xmake/packages/c/clang-arm/*/bin"}})
+        local resource_dir = nil
+        if clang_arm then
+            local out = os.iorunv(clang_arm.program, {"--print-resource-dir"})
+            if out then
+                resource_dir = out:trim()
+            end
+        end
+        
+        -- Embedded target flags
+        local target_flags = {
+            "--extra-arg=--target=thumbv7em-unknown-none-eabihf",
+            "--extra-arg=-mcpu=cortex-m4",
+            "--extra-arg=-mfloat-abi=hard",
+            "--extra-arg=-mfpu=fpv4-sp-d16"
+        }
+        
+        if resource_dir then
+            table.insert(target_flags, "--extra-arg=-resource-dir=" .. resource_dir)
+            print("Using resource-dir: " .. resource_dir)
+        end
+        
+        -- Source files to check
+        local sources = {
+            "lib/umibench/target/stm32f4/startup.cc",
+            "lib/umibench/target/stm32f4/test_renode.cc"
+        }
+        
+        for _, source in ipairs(sources) do
+            if os.isfile(source) then
+                print("Checking: " .. source)
+                local args = {source}
+                for _, flag in ipairs(target_flags) do
+                    table.insert(args, flag)
+                end
+                os.execv(clang_tidy.program, args)
+            end
+        end
+    end)
+task_end()
