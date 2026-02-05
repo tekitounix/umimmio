@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <utility>
 
-#include "bench/timer/concept.hh"
+#include "umibench/timer/concept.hh"
 
 namespace umi::bench {
 

@@ -2,15 +2,15 @@
 #pragma once
 
 // Core
-#include "bench/core/measure.hh"
-#include "bench/core/runner.hh"
-#include "bench/core/stats.hh"
+#include "umibench/core/measure.hh"
+#include "umibench/core/runner.hh"
+#include "umibench/core/stats.hh"
 
 // Timer
-#include "bench/timer/concept.hh"
+#include "umibench/timer/concept.hh"
 
 // Output
-#include "bench/output/concept.hh"
+#include "umibench/output/concept.hh"
 
 namespace umi::bench {
 

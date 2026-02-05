@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "bench/core/runner.hh"
-#include "bench/output/uart.hh"
-#include "bench/timer/dwt.hh"
+#include "umibench/core/runner.hh"
+#include "umibench/output/uart.hh"
+#include "umibench/timer/dwt.hh"
 
 namespace umi::bench {
 

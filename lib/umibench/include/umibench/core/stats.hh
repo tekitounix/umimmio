@@ -23,7 +23,7 @@ struct Stats {
 
     /// Calculate coefficient of variation (CV) - relative standard deviation
     /// @return CV as percentage (stddev / mean * 100), or 0 if mean is 0
-    double cv() const {
+    [[nodiscard]] double cv() const {
         if (mean > 0.0) {
             return (stddev / mean) * 100.0;
         }
@@ -37,7 +37,7 @@ namespace detail {
 template <typename T, std::size_t N>
 void insertion_sort(std::array<T, N>& arr) {
     for (std::size_t i = 1; i < N; ++i) {
-        T key = arr[i];
+        const T key = arr[i];
         std::size_t j = i;
         while (j > 0 && arr[j - 1] > key) {
             arr[j] = arr[j - 1];
@@ -63,10 +63,12 @@ Stats compute_stats(const std::array<Counter, N>& samples, std::uint32_t iterati
     // Calculate sum and min/max in one pass
     double sum = 0.0;
     for (const auto value : samples) {
-        if (value < stats.min)
+        if (value < stats.min) {
             stats.min = value;
-        if (value > stats.max)
+        }
+        if (value > stats.max) {
             stats.max = value;
+        }
         sum += static_cast<double>(value);
     }
     stats.sum = sum;
@@ -78,7 +80,7 @@ Stats compute_stats(const std::array<Counter, N>& samples, std::uint32_t iterati
 
     // Proper median: average of middle two for even N
     if constexpr (N % 2 == 0) {
-        stats.median = (sorted[N / 2 - 1] + sorted[N / 2]) / 2;
+        stats.median = (sorted[(N / 2) - 1] + sorted[N / 2]) / 2;
     } else {
         stats.median = sorted[N / 2];
     }
@@ -86,7 +88,7 @@ Stats compute_stats(const std::array<Counter, N>& samples, std::uint32_t iterati
     // Calculate standard deviation
     double variance_sum = 0.0;
     for (const auto value : samples) {
-        double diff = static_cast<double>(value) - stats.mean;
+        const double diff = static_cast<double>(value) - stats.mean;
         variance_sum += diff * diff;
     }
     stats.stddev = std::sqrt(variance_sum / static_cast<double>(N));

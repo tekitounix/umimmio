@@ -16,7 +16,7 @@
 ## クイックスタート
 
 ```cpp
-#include <umibench/bench.hh>
+#include <umibench/umibench.hh>
 #include <umibench/platform/host.hh>
 
 using Platform = umi::bench::Host;
