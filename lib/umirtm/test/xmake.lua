@@ -1,0 +1,8 @@
+target("test_umirtm")
+    add_rules("host.test")
+    add_tests("default")
+    set_default(true)
+    add_files("test_umirtm.cc")
+    add_deps("umirtm")
+    add_deps("umitest")
+target_end()

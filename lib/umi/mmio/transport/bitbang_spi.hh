@@ -28,8 +28,8 @@ template <typename Pins,
           typename CheckPolicy = std::true_type,
           typename ErrorPolicy = AssertOnError,
           typename AddressType = std::uint8_t,
-          Endian AddrEndian = Endian::Big,
-          Endian DataEndian = Endian::Little,
+          Endian AddrEndian = Endian::BIG,
+          Endian DataEndian = Endian::LITTLE,
           std::uint8_t ReadBit = 0x80,
           std::uint8_t CmdMask = 0x7F,
           std::uint8_t WriteBit = 0x00>
@@ -62,7 +62,7 @@ class BitBangSpiTransport : public ByteAdapter<BitBangSpiTransport<Pins,
         if constexpr (addr_size == 1) {
             tx_buf[0] = (static_cast<std::uint8_t>(reg_addr) & CmdMask) | WriteBit;
         } else {
-            if constexpr (AddrEndian == Endian::Little) {
+            if constexpr (AddrEndian == Endian::LITTLE) {
                 tx_buf[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
                 tx_buf[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
             } else {
@@ -89,7 +89,7 @@ class BitBangSpiTransport : public ByteAdapter<BitBangSpiTransport<Pins,
         if constexpr (addr_size == 1) {
             tx_buf[0] = (static_cast<std::uint8_t>(reg_addr) & CmdMask) | ReadBit;
         } else {
-            if constexpr (AddrEndian == Endian::Little) {
+            if constexpr (AddrEndian == Endian::LITTLE) {
                 tx_buf[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
                 tx_buf[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
             } else {

@@ -6,9 +6,9 @@
 
 #pragma once
 
-#include "register.hh"
-#include "transport/bitbang_i2c.hh"
-#include "transport/bitbang_spi.hh"
-#include "transport/direct.hh"
-#include "transport/i2c.hh"
-#include "transport/spi.hh"
+#include "register.hh"              // IWYU pragma: export
+#include "transport/bitbang_i2c.hh" // IWYU pragma: export
+#include "transport/bitbang_spi.hh" // IWYU pragma: export
+#include "transport/direct.hh"      // IWYU pragma: export
+#include "transport/i2c.hh"         // IWYU pragma: export
+#include "transport/spi.hh"         // IWYU pragma: export

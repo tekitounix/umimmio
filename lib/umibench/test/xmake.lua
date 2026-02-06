@@ -1,5 +1,0 @@
-target("test_umibench")
-    set_kind("binary")
-    add_files("test_bench.cc")
-    add_deps("umibench_host")
-    add_deps("umitest")

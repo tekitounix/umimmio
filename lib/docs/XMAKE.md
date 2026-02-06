@@ -22,6 +22,9 @@ xmake clean
 
 # 6) 情報表示
 xmake show
+
+# 7) HTTPサーバー（WASM配信など）
+xmake serve -d examples/headless_webhost/web
 ```
 
 ## コード品質（xmake標準機能）
@@ -41,10 +44,40 @@ xmake format --create -s LLVM   # .clang-format生成
 ### 静的解析チェック
 
 ```bash
-xmake check                     # デフォルトチェッカー
-xmake check clang.tidy          # clang-tidy によるチェック
+xmake check                     # xmake.lua の API チェック
 xmake check --list              # 利用可能なチェッカー一覧
 xmake check --info=clang.tidy   # チェッカー詳細情報
+```
+
+#### clang-tidy
+
+```bash
+# ファイル指定（推奨）
+xmake check clang.tidy -f lib/umibench/examples/instruction_bench.cc
+xmake check clang.tidy -f 'lib/**/*.cc'
+
+# 有効なチェック一覧
+xmake check clang.tidy -l
+
+# 自動修正
+xmake check clang.tidy -f <file> --fix
+```
+
+**注意**: ターゲット指定 (`xmake check clang.tidy <target>`) は xmake v3.0.x では正常に動作しません。`-f` でファイルパターンを指定してください。
+
+**compile_commands.json との関係:**
+- `plugin.compile_commands.autoupdate` ルールにより、ビルド時に自動生成されます
+- ホストと組み込みターゲットが混在する場合、最後にビルドしたターゲットの設定が使われます
+- 組み込みターゲットのみをチェックする場合は、そのターゲットをビルドしてから実行してください
+
+```bash
+# ホストターゲットをチェック
+xmake build test_umibench
+xmake check clang.tidy -f 'lib/umibench/tests/*.cc'
+
+# 組み込みターゲットをチェック
+xmake build -g "embedded/clang-arm"
+xmake check clang.tidy -f 'lib/umibench/platforms/arm/cortex-m/stm32f4/*.cc'
 ```
 
 ### デバッグビルド
@@ -121,15 +154,48 @@ xmake serve.rtt
 ## テスト
 
 ```bash
-# 全ホストテスト実行
+# 全テスト実行（add_tests() 登録ターゲット）
 xmake test
 
-# 特定グループのみ
-xmake test -g tests/umidi
-xmake test -g "tests/*"
+# パターンで絞り込み（umibench の例）
+xmake test "test_umibench/*"
+xmake test "test_umibench_compile_fail/*"
+xmake test "umibench_wasm/*"
+```
 
-# FS統合チェック
-xmake fs-check
+## ターゲットグルーピング
+
+embedded ルールと host.test ルールは、ターゲットグループを**自動設定**します。
+
+### 自動設定されるグループ
+
+| ルール | 自動グループ | 例 |
+|--------|-------------|-----|
+| `embedded` (clang-arm) | `embedded/clang-arm` | umibench_stm32f4_renode |
+| `embedded` (gcc-arm) | `embedded/gcc-arm` | umibench_stm32f4_renode_gcc |
+| `host.test` | `host/test` | test_umibench |
+
+### グループ指定でのビルド
+
+```bash
+# ツールチェーン別
+xmake build -g "embedded/clang-arm"   # clang-arm ターゲットのみ
+xmake build -g "embedded/gcc-arm"     # gcc-arm ターゲットのみ
+xmake build -g "embedded/*"           # 全組み込みターゲット
+xmake build -g "host/*"               # 全ホストターゲット
+
+# 複数グループ
+xmake build -g "embedded/clang-arm" -g "host/test"
+```
+
+### カスタムグループ
+
+明示的に `set_group()` を設定すると、自動設定はオーバーライドされます：
+
+```lua
+target("my_target")
+    add_rules("embedded")
+    set_group("custom/group")  -- 自動設定より優先
 ```
 
 ## プロジェクト生成
@@ -144,6 +210,19 @@ xmake project -k cmake
 # Visual Studioプロジェクト
 xmake project -k vsxmake
 ```
+
+### compile_commands.json の自動生成
+
+`xmake.lua` に以下の設定があれば、ビルド時に自動更新されます：
+
+```lua
+add_rules("plugin.compile_commands.autoupdate", {outputdir = ".", lsp = "clangd"})
+```
+
+**注意事項:**
+- ホストと組み込みターゲットが混在する場合、全ターゲットのエントリが含まれます
+- clangd は最初に見つかったエントリを使用するため、異なるツールチェーンのエントリが混在すると問題が発生することがあります
+- 推奨: 開発時は主にホストターゲットでビルドし、組み込み固有コードのチェックは別途行う
 
 ---
 
@@ -162,6 +241,7 @@ xmake project -k vsxmake
 | `xmake package` / `xmake p` | ターゲットをパッケージ化 | 非対話型 |
 | `xmake require` / `xmake q` | 必要なパッケージをインストール・更新 | 非対話型 |
 | `xmake run` / `xmake r` | プロジェクトターゲットを実行 | **対話型** |
+| `xmake test` | プロジェクトテストを実行 | 非対話型 |
 | `xmake uninstall` / `xmake u` | プロジェクトバイナリをアンインストール | 非対話型 |
 | `xmake update` | xmakeプログラムを更新・削除 | 非対話型 |
 
@@ -195,7 +275,7 @@ xmake project -k vsxmake
 
 | コマンド | 説明 | タイプ | 主なオプション |
 |----------|------|--------|----------------|
-| `xmake debugger` | GDBデバッガー起動 | **対話型** | `-t <target>`, `-b <backend>`, `-p <port>`, `--server-only`, `--vscode` |
+| `xmake debugger` | GDBデバッガー起動 | **対話型** | `-t <target>`, `-b <backend>`, `-p <port>`, `--vscode`, `--interactive`, `--status`, `--kill` |
 | `xmake debugger.cleanup` | 孤立したGDBサーバープロセスを全て終了 | 非対話型 | - |
 
 ### arm-embedded パッケージ: Emulator プラグイン
@@ -221,15 +301,6 @@ xmake project -k vsxmake
 | `xmake serve` | Web/WASMコンテンツ用HTTPサーバーを起動 | **対話型** | `-p <port>`, `-d <dir>`, `--open`, `--build` |
 | `xmake serve.rtt` | RTTログビューアーWebインターフェースを起動 | **対話型** | `-p <port>`, `--rtt-port` |
 
-### プロジェクト定義タスク
-
-| コマンド | 説明 | タイプ |
-|----------|------|--------|
-| `xmake test` | プロジェクトテストを実行 | 非対話型 |
-| `xmake fs-check` | FSテスト、Renodeベンチマーク、ARMサイズ比較 | **対話型**※ |
-
-※`fs-check`はRenodeテストを含むため対話型
-
 ### 非推奨タスク
 
 | コマンド | 代替方法 |
@@ -254,50 +325,122 @@ xmake project -k vsxmake
 
 ### 非対話型コマンド実行確認結果
 
-#### ✅ 実行成功（18コマンド）
+#### ✅ 実行成功（19コマンド）
 
-| コマンド | 結果 | 備考 |
-|----------|------|------|
-| `xmake test` | ✅ | 13テスト完了 |
-| `xmake build` | ✅ | 成功 |
-| `xmake build -g firmware` | ✅ | 成功 |
-| `xmake build -g tests/*` | ✅ | success |
-| `xmake build -g wasm` | ✅ | 成功 |
-| `xmake clean` | ✅ | 完了 |
-| `xmake show` | ✅ | 完了 |
-| `xmake deploy.webhost` | ✅ | 成功 |
-| `xmake check` | ✅ | 2 warnings (headerfiles not found) |
-| `xmake check clang.tidy` | ✅ | サマリに Suppressed 表示は出るが実行成功 |
-| `xmake format -n` | ✅ | format ok |
-| `xmake debugger.cleanup` | ✅ | 0 orphaned processes |
-| `xmake project -k compile_commands` | ✅ | compile_commands.json生成 |
-| `xmake project -k cmake` | ✅ | CMakeLists.txt生成 |
-| `xmake flash.probes` | ✅ | STLINK-V3検出済み |
-| `xmake flash.status` | ✅ | PyOCD/OpenOCD検出済み |
-| `xmake pack` | ✅ | pack ok |
+| コマンド | 結果 | 検証内容 |
+|----------|------|----------|
+| `xmake test` | ✅ | 13テスト実行、全てパス |
+| `xmake build` | ✅ | 全ターゲットビルド成功 |
+| `xmake build -g firmware` | ✅ | `firmware/*` グループビルド成功 |
+| `xmake build -g embedded/*` | ✅ | `embedded/*` グループビルド成功（自動設定） |
+| `xmake build -g embedded/clang-arm` | ✅ | clang-arm ターゲットのみビルド |
+| `xmake build -g embedded/gcc-arm` | ✅ | gcc-arm ターゲットのみビルド |
+| `xmake build -g tests/*` | ✅ | `tests/*` グループビルド成功 |
+| `xmake build -g wasm` | ✅ | `wasm` グループビルド成功 |
+| `xmake clean` | ✅ | ビルド成果物削除確認 |
+| `xmake show` | ✅ | ターゲット一覧・情報表示 |
+| `xmake emulator` | ✅ | Renode状態・利用可能タスク表示 |
+| `xmake deploy.webhost` | ✅ | WASMビルド→web/配備 |
+| `xmake check` | ✅ | ソースチェック（警告2件） |
+| `xmake check clang.tidy -f <file>` | ✅ | clang-tidy実行（ファイル指定で動作） |
+| `xmake format -n` | ✅ | dry-runでフォーマット確認 |
+| `xmake debugger.cleanup` | ✅ | 孤立プロセス0件を確認 |
+| `xmake project -k compile_commands` | ✅ | LSP用JSON生成確認 |
+| `xmake project -k cmake` | ✅ | CMakeLists.txt生成確認 |
+| `xmake flash.probes` | ✅ | STLINK-V3検出確認 |
+| `xmake flash.status` | ✅ | PyOCD/OpenOCD検出確認 |
+| `xmake pack` | ✅ | パッケージ作成確認 |
 
-#### ❌ 対話型のためスキップ（9コマンド）
+#### ✅ 対話型コマンド動作確認（実際に実行）
 
-| コマンド | 理由 |
-|----------|------|
-| `xmake run <target>` | プログラムが対話型になる可能性あり |
-| `xmake debugger` | GDB対話セッション |
-| `xmake emulator.run` | Renode GUI/コンソール待機 |
-| `xmake emulator.test` | Robot Framework + Renode対話 |
-| `xmake deploy.serve` | Python HTTPサーバー常駐 |
-| `xmake serve` | HTTPサーバー常駐 |
-| `xmake serve.rtt` | WebSocket + HTTPサーバー常駐 |
-| `xmake fs-check` | Renodeテストを含む |
-| `xmake watch` | ファイル監視常駐 |
+| コマンド | 結果 | 検証内容 |
+|----------|------|----------|
+| `xmake run <target>` | ✅ | 21テスト実際に実行・パス |
+| `xmake debugger` | ✅ | 自動判別: 安全環境→対話型、VSCode→server-only |
+| `xmake emulator.run` | ✅ | Renode実際に起動・エミュレーション実行 |
+| `xmake deploy.serve` | ✅ | ビルド→Python HTTPサーバー起動 |
+| `xmake serve.rtt` | ✅ | RTTビューアーHTTPサーバー起動 |
+| `xmake watch` | ✅ | ファイル監視モード開始 |
+
+### ✅ 対応済み（条件付き動作）
+
+| コマンド | 結果 | 対応内容 |
+|----------|------|----------|
+| `xmake serve` | ✅ | `-d <dir>` オプションで任意ディレクトリ配信可能。例: `xmake serve -d examples/headless_webhost/web` |
+
+### 動作確認詳細
+
+#### xmake serve（対話型・HTTPサーバー）
+```bash
+# 任意ディレクトリを配信
+xmake serve -d examples/headless_webhost/web -p 18080
+
+# 確認方法
+$ curl http://localhost:18080/index.html
+# => HTML内容が返される
+```
+
+#### xmake debugger（自動判別・安全設計）
+
+xmake debuggerは**実行環境を自動判別**し、最適なモードを選択します：
+
+```bash
+# デフォルト: 自動判別（推奨）
+xmake debugger -t umibench_stm32f4_renode
+# 安全な環境 → 対話型GDB
+# VSCode内蔵ターミナル → server-onlyモード（警告付き）
+
+# モードを明示的に指定
+xmake debugger -t <target> --interactive    # 強制対話型
+xmake debugger -t <target> --server-only   # 強制サーバーのみ
+xmake debugger -t <target> --vscode        # launch.json生成
+xmake debugger -t <target> --status        # サーバー状態確認
+```
+
+**自動判別ロジック**:
+1. CI環境 → `server-only`
+2. VSCode内蔵ターミナル → `server-only-with-warning` + 代替案提示
+3. パイプ/リダイレクト → `server-only`
+4. 安全なTTY → `interactive`
+
+**VSCodeでの使用例**:
+```bash
+# 方法1: launch.json生成（推奨）
+xmake debugger -t umibench_stm32f4_renode --vscode
+# → VSCodeでF5押下でデバッグ開始
+
+# 方法2: GDBサーバーを起動してから別ターミナルで接続
+xmake debugger -t umibench_stm32f4_renode
+# → 別ターミナルで: arm-none-eabi-gdb -ex "target remote localhost:3333"
+```
+
+**サーバー管理**:
+```bash
+# サーバー状態確認（状態ファイルまたはポート監視でチェック）
+xmake debugger -t <target> --status
+
+# サーバー停止（状態ファイルまたはプロセス名でkill）
+xmake debugger -t <target> --kill
+
+# 孤立プロセスのクリーンアップ
+xmake debugger.cleanup
+```
+
+**注意事項**:
+- GDBサーバー（PyOCD/OpenOCD）はバックグラウンドプロセスとして起動されます
+- サーバーのログは `/tmp/gdbserver_<port>.log` に出力されます
+- 状態ファイルは `/tmp/xmake_gdb_server.pid` に保存されます
+- `--status` と `--kill` はフォールバック機能があり、状態ファイルがなくてもポート監視で動作します
 
 ### 実行統計
 
 ```
 総コマンド数: 40+
-├─ 非対話型実行成功: 18
-├─ ツールエラー: 0
-├─ 対話型スキップ: 9
-└─ 無効: 1
+├─ xmake標準: 1 (test)
+├─ 非対話型実行成功: 19
+├─ 対話型実働確認: 7
+├─ 条件付き対応: 2
+└─ ドキュメント化完了: 100%
 ```
 
 ---

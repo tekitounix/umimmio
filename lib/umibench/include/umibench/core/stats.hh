@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+/// @file
+/// @brief Statistics primitives for benchmark sample aggregation.
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -8,21 +11,20 @@
 
 namespace umi::bench {
 
-/// Benchmark statistics with enhanced statistical measures
+/// @brief Aggregated benchmark statistics.
 struct Stats {
-    std::uint64_t min = 0;
-    std::uint64_t max = 0;
-    std::uint64_t median = 0;
-    std::uint32_t samples = 0;
-    std::uint32_t iterations = 1;
+    std::uint64_t min = 0;         ///< Minimum measured sample.
+    std::uint64_t max = 0;         ///< Maximum measured sample.
+    std::uint64_t median = 0;      ///< Median sample (average of middle two for even sample counts).
+    std::uint32_t samples = 0;     ///< Number of collected samples.
+    std::uint32_t iterations = 1;  ///< Callable invocations per sample.
 
-    // Enhanced statistical measures (using double for precision)
-    double mean = 0.0;   ///< True mean (floating point for precision)
-    double stddev = 0.0; ///< Standard deviation
-    double sum = 0.0;    ///< Sum of all samples (for further calculations)
+    double mean = 0.0;   ///< Arithmetic mean over all samples.
+    double stddev = 0.0; ///< Standard deviation (population).
+    double sum = 0.0;    ///< Sum of all samples.
 
-    /// Calculate coefficient of variation (CV) - relative standard deviation
-    /// @return CV as percentage (stddev / mean * 100), or 0 if mean is 0
+    /// @brief Calculate coefficient of variation.
+    /// @return Relative standard deviation in percent, or `0` when mean is `0`.
     [[nodiscard]] double cv() const {
         if (mean > 0.0) {
             return (stddev / mean) * 100.0;
@@ -33,7 +35,10 @@ struct Stats {
 
 namespace detail {
 
-/// In-place insertion sort (O(n²) but no heap allocation, suitable for small N)
+/// @brief In-place insertion sort for fixed-size arrays.
+/// @tparam T Element type.
+/// @tparam N Array size.
+/// @param arr Array to sort.
 template <typename T, std::size_t N>
 void insertion_sort(std::array<T, N>& arr) {
     for (std::size_t i = 1; i < N; ++i) {
@@ -47,9 +52,24 @@ void insertion_sort(std::array<T, N>& arr) {
     }
 }
 
+/// @brief Compute overflow-safe midpoint of two values.
+/// @tparam T Arithmetic type.
+/// @param lower Lower value.
+/// @param upper Upper value.
+/// @return Midpoint between lower and upper.
+template <typename T>
+constexpr T median_of_two(T lower, T upper) {
+    return lower + (upper - lower) / static_cast<T>(2);
+}
+
 } // namespace detail
 
-/// Compute statistics from samples
+/// @brief Compute aggregate statistics from raw samples.
+/// @tparam Counter Sample counter type.
+/// @tparam N Number of samples in the input array.
+/// @param samples Input samples.
+/// @param iterations Callable invocations per sample.
+/// @return Aggregated statistics.
 template <typename Counter, std::size_t N>
 Stats compute_stats(const std::array<Counter, N>& samples, std::uint32_t iterations = 1) {
     static_assert(N > 0, "Need at least one sample");
@@ -80,7 +100,9 @@ Stats compute_stats(const std::array<Counter, N>& samples, std::uint32_t iterati
 
     // Proper median: average of middle two for even N
     if constexpr (N % 2 == 0) {
-        stats.median = (sorted[(N / 2) - 1] + sorted[N / 2]) / 2;
+        const auto lower = sorted[(N / 2) - 1];
+        const auto upper = sorted[N / 2];
+        stats.median = detail::median_of_two(lower, upper);
     } else {
         stats.median = sorted[N / 2];
     }
