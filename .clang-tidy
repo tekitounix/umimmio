@@ -1,29 +1,30 @@
-# UMI Project Clang-Tidy Configuration
-#
-# For arm-embedded toolchain compatibility, add to your shell:
-#   export CLANG_TIDY_EXTRA_ARGS="-resource-dir=/opt/homebrew/opt/llvm/lib/clang/20"
-#   (adjust path for your system)
-#
-# bugprone-dynamic-static-initializers: false positive with static constexpr
-# bugprone-easily-swappable-parameters: too noisy for DSP/embedded (e.g., set_adsr, lerp)
 Checks: >
   -*,
-  bugprone-*,-bugprone-dynamic-static-initializers,-bugprone-easily-swappable-parameters,
-  clang-analyzer-*,-clang-analyzer-core.FixedAddressDereference,
-  performance-*,-performance-no-int-to-ptr,
-  modernize-*,-modernize-use-trailing-return-type,-modernize-use-std-print,
-  readability-*,-readability-magic-numbers,-readability-uppercase-literal-suffix,-readability-identifier-length,
-  misc-*,-misc-non-private-member-variables-in-classes
+  bugprone-*,
+  -bugprone-dynamic-static-initializers,
+  -bugprone-easily-swappable-parameters,
+  clang-analyzer-*,
+  -clang-analyzer-core.FixedAddressDereference,
+  performance-*,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-std-print,
+  readability-*,
+  -readability-magic-numbers,
+  -readability-uppercase-literal-suffix,
+  -readability-identifier-length,
+  misc-*,
+  -misc-non-private-member-variables-in-classes
 
 WarningsAsErrors: 'bugprone-*,clang-analyzer-*,performance-move-const-arg'
-HeaderFilterRegex: '(^|.*/)(lib/umibench|lib/umitest)/'
+HeaderFilterRegex: '(lib|examples|tests)/.*'
 SystemHeaders: false
 
 CheckOptions:
   # Functions/methods: lower_case
   - { key: readability-identifier-naming.FunctionCase,         value: lower_case }
   - { key: readability-identifier-naming.MethodCase,           value: lower_case }
-  - { key: readability-identifier-naming.FunctionIgnoredRegexp, value: '^_.*|.*_Handler$' }
+  - { key: readability-identifier-naming.FunctionIgnoredRegexp, value: '^_.*|.*_Handler$|.*_IRQHandler$' }
   - { key: readability-identifier-naming.MethodIgnoredRegexp,  value: '^(operator|~).*' }
   
   # Variables: lower_case

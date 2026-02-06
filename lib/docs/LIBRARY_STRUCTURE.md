@@ -1,264 +1,155 @@
-# UMI ライブラリ構造規約
+# UMI ライブラリ構成最終案
 
-lib/ 以下に配置する各ライブラリの標準構造を定義する。
-
----
-
-## 設計原則
-
-1. **Single Source of Truth** — ドキュメントはコードコメントと README のみ。Sphinx/Doxygen 生成は使わない
-2. **実行可能なサンプル** — サンプルはコンパイル可能なコード
-3. **名前空間の明確化** — `#include <libname/...>` で所属ライブラリが常に分かる
+**決定日**: 2026-02-05  
+**方針**: 独立ライブラリ構成 + 統一された内部構造
 
 ---
 
-## 標準構造
+## 基本方針
+
+1. **lib直下に独立ライブラリを配置** — `lib/umi/` 統合ではなく、`lib/umios/`, `lib/umimmio/` など並列配置
+2. **常に `include/<lib>/` ディレクトリを使用** — 単一ヘッダでも機能別でも統一
+3. **namespaceは `umi::` 以下に統一** — フォルダ名とnamespaceは分離
+4. **統合ヘッダは機能名.hh** — 例: `test.hh`, `bench.hh`, `mmio.hh`
+5. **重複を避ける** — umiosが依存するライブラリは独立ライブラリとして配置
+
+---
+
+## 標準ディレクトリ構造
+
+各ライブラリは以下の構造に従う：
 
 ```
 lib/<libname>/
 ├── README.md                  # [必須] ライブラリ概要
 ├── xmake.lua                  # [必須] ビルド定義
+├── docs/                      # [必須] ドキュメント
+│   └── DESIGN.md             # 設計思想
 ├── include/<libname>/         # [必須] 公開ヘッダ
-│   ├── core/                  #   機能別サブディレクトリ（任意）
-│   └── ...
-├── src/                       # [任意] 実装ファイル（ヘッダオンリーなら不要）
-│   └── *.cc
-├── test/                      # [必須] テスト
-│   ├── xmake.lua              #   テストビルド定義
+│   ├── <feature>.hh          # [必須] 統合ヘッダ（機能名）
+│   └── ...                    # 機能別ヘッダ
+├── tests/                      # [必須] テスト
+│   ├── xmake.lua
 │   └── test_*.cc
-├── examples/                  # [推奨] 動作するサンプル
-│   └── *.cc
-└── docs/                      # [推奨] 設計文書（複雑なライブラリのみ）
-    └── DESIGN.md
+├── examples/                  # [任意] サンプル
+└── platforms/                    # [任意] ターゲット固有
 ```
 
 ---
 
-## 各要素の詳細
+## 作成済みライブラリ
 
-### README.md（必須）
+### umitest - テストフレームワーク
 
-30行以下に収める。以下のテンプレートに従う：
-
-```markdown
-# <libname> - 一行説明
-
-簡潔な説明。
-
-## 依存関係
-
-- `umi/core` — AudioContext
-
-## 主要API
-
-- `TypeName` — 説明
-- `concept ConceptName` — 説明
-
-## クイックスタート
-
-\`\`\`cpp
-#include <libname/foo.hh>
-
-// 最小限の動作例
-\`\`\`
-
-## ビルド・テスト
-
-\`\`\`bash
-xmake build test_libname
-xmake run test_libname
-\`\`\`
+```
+lib/umitest/
+├── README.md
+├── xmake.lua
+├── docs/DESIGN.md
+├── include/umitest/
+│   └── test.hh               # 統合ヘッダ → #include <umitest/test.hh>
+└── tests/
+    ├── xmake.lua
+    └── test_umitest.cc
 ```
 
-### xmake.lua（必須）
+**namespace**: `umi::test`  
+**統合ヘッダ**: `#include <umitest/test.hh>`
 
-ライブラリのビルドターゲットを定義する。ヘッダオンリーの場合も `headeronly` ターゲットを定義し、依存関係と include パスを明示する。
+### umibench - ベンチマークフレームワーク
+
+```
+lib/umibench/
+├── README.md
+├── xmake.lua
+├── docs/
+├── include/umibench/
+│   ├── bench.hh              # 統合ヘッダ → #include <umibench/bench.hh>
+│   ├── core/
+│   ├── timer/
+│   └── output/
+├── tests/
+│   ├── xmake.lua
+│   └── test_*.cc
+├── examples/
+└── platforms/arm/cortex-m/stm32f4/
+```
+
+**namespace**: `umi::bench`  
+**統合ヘッダ**: `#include <umibench/bench.hh>`
+
+### umimmio - MMIO抽象
+
+```
+lib/umimmio/
+├── README.md
+├── xmake.lua
+├── docs/
+└── include/umimmio/
+    ├── mmio.hh               # 統合ヘッダ → #include <umimmio/mmio.hh>
+    ├── register.hh
+    └── transport/
+```
+
+**namespace**: `umi::mmio`  
+**統合ヘッダ**: `#include <umimmio/mmio.hh>`
+
+### umistring - 文字列ユーティリティ（検証済み）
+
+```
+lib/umistring/
+├── README.md
+├── xmake.lua
+├── docs/DESIGN.md
+├── include/umistring/
+│   ├── string.hh
+│   ├── convert.hh
+│   ├── split.hh
+│   └── trim.hh
+└── tests/
+    └── test_umistring.cc
+```
+
+**namespace**: `umi::string`  
+**統合ヘッダ**: 未作成（個別include推奨）
+
+---
+
+## namespace 対応表
+
+| ライブラリ | namespace | include例 |
+|-----------|-----------|-----------|
+| `umitest` | `umi::test` | `#include <umitest/test.hh>` |
+| `umibench` | `umi::bench` | `#include <umibench/bench.hh>` |
+| `umimmio` | `umi::mmio` | `#include <umimmio/mmio.hh>` |
+| `umistring` | `umi::string` | `#include <umistring/string.hh>` |
+
+---
+
+## 親 xmake.lua
 
 ```lua
--- ヘッダオンリーの例
-target("libname")
-    set_kind("headeronly")
-    add_headerfiles("include/(libname/**.hh)")
-    add_includedirs("include", { public = true })
-```
-
-### include/\<libname\>/（必須）
-
-公開ヘッダの配置場所。利用側は以下の形式でインクルードする：
-
-```cpp
-#include <libname/foo.hh>
-#include <libname/core/bar.hh>
-```
-
-規則：
-
-- トップレベルに直接 `.hh` を置かない。必ず `include/<libname>/` 以下に配置する
-- 機能が多い場合はサブディレクトリで分類する（`core/`, `codec/`, `filter/` 等）
-- 内部専用ヘッダは `include/<libname>/detail/` に配置する
-
-### src/（任意）
-
-`.cc` 実装ファイルの配置場所。ヘッダオンリーライブラリでは不要。
-
-- include と同じサブディレクトリ構造を対応させると見通しが良い
-- テスト専用のユーティリティは `test/` に置く（ここには置かない）
-
-### test/（必須）
-
-- ファイル名は `test_<topic>.cc` とする
-- 最小のライブラリでも最低1つのテストを持つこと
-- テスト固有のビルド定義は `test/xmake.lua` に記述する
-- テストフレームワークは `lib/umitest` (`<umitest.hh>`) を使用する
-
-### examples/（推奨）
-
-コンパイル可能なサンプルコード。小規模なライブラリでは README.md 内のコード例で十分であり、不要。
-
-```cpp
-// examples/basic.cc
-#include <umidi/core/ump.hh>
-#include <cstdio>
-
-int main() {
-    umidi::Parser parser;
-    umidi::UMP32 ump;
-
-    uint8_t bytes[] = {0x90, 60, 100};
-    for (uint8_t b : bytes) {
-        if (parser.parse(b, ump) && ump.is_note_on()) {
-            printf("Note: %d\n", ump.note());
-        }
-    }
-}
-```
-
-### docs/（推奨）
-
-設計判断の記録や詳細な仕様が必要な場合に使用する。小規模なライブラリでは README.md で十分であり、不要。
-
----
-
-## コメントルール
-
-### 基本方針
-
-- **`///` 一行のみ** — シンプルに保つ
-- **型・クラスには書く** — 何であるかを説明
-- **自明な関数には書かない** — `size()`, `empty()`, `clear()` 等
-- **`@brief`, `@param`, `@return` は使わない** — 冗長
-
-### 良い例
-
-```cpp
-/// 32-bit Universal MIDI Packet.
-struct UMP32 {
-    uint32_t word = 0;
-
-    /// Create Note On message.
-    static constexpr UMP32 note_on(uint8_t ch, uint8_t note, uint8_t vel) noexcept;
-
-    /// Check if this is a Note On (velocity > 0).
-    bool is_note_on() const noexcept;
-
-    // コメント不要 - 名前で自明
-    uint8_t channel() const noexcept;
-    uint8_t note() const noexcept;
-    uint8_t velocity() const noexcept;
-};
-
-/// MIDI byte stream parser.
-class Parser {
-public:
-    /// Parse one byte, returns true when complete message ready.
-    bool parse(uint8_t byte, UMP32& out) noexcept;
-
-    // コメント不要
-    void reset() noexcept;
-};
-```
-
-### 悪い例
-
-```cpp
-// ❌ 冗長 - @記法は使わない
-/// @brief Create Note On message.
-/// @param ch MIDI channel (0-15)
-/// @param note Note number (0-127)
-/// @param vel Velocity (1-127)
-/// @return UMP32 packet
-static constexpr UMP32 note_on(uint8_t ch, uint8_t note, uint8_t vel) noexcept;
-
-// ❌ 自明な関数にコメント
-/// Get the channel.
-uint8_t channel() const noexcept;
-
-// ❌ 複数行で冗長
-/// 32-bit Universal MIDI Packet.
-///
-/// This struct represents a MIDI message in UMP format.
-/// It stores the data as a single uint32_t for efficiency.
-struct UMP32 { ... };
-```
-
-### 複雑なAPIのみ詳細を書く
-
-```cpp
-/// Parse SysEx message with timeout.
-/// Returns partial result if timeout before complete message.
-/// Call repeatedly until returns Ok or Error.
-Result<SysExData> parse_sysex(uint8_t byte, uint32_t timeout_ms) noexcept;
+includes("lib/umimmio")
+includes("lib/umitest")
+includes("lib/umibench")
+includes("lib/umistring")
 ```
 
 ---
 
-## サブディレクトリの分類指針
+## ビルド検証済み
 
-include/ 以下のサブディレクトリは、ライブラリの性質に応じて分類する：
-
-| ライブラリの性質 | 分類基準 | 例 |
-|-----------------|---------|-----|
-| プロトコル実装 | プロトコル層・機能 | `core/`, `codec/`, `messages/`, `protocol/` |
-| DSP/アルゴリズム | 処理カテゴリ | `core/`, `filter/`, `synth/`, `audio/` |
-| ハードウェア抽象 | ハードウェア階層 | `arch/`, `mcu/`, `board/`, `device/` |
-| 小規模ユーティリティ | サブディレクトリなし | 直接 `include/<libname>/` に配置 |
+```bash
+xmake build umitest      # ✅ success
+xmake build umibench     # ✅ success
+xmake build umimmio      # ✅ success
+xmake build umistring    # ✅ success
+```
 
 ---
 
-## 命名規則
+## 次のステップ
 
-| 対象 | 規則 | 例 |
-|------|------|-----|
-| ライブラリ名 | `umi` プレフィックス + 小文字 | `umidi`, `umidsp`, `umifs` |
-| ヘッダファイル | `lower_case.hh` | `audio_context.hh` |
-| 実装ファイル | `lower_case.cc` | `lfs_core.cc` |
-| テストファイル | `test_<topic>.cc` | `test_codec.cc` |
-| ビルドターゲット | ライブラリ名そのまま | `target("umidi")` |
-| テストターゲット | `test_<libname>` | `target("test_umidi")` |
-
----
-
-## チェックリスト
-
-新規ライブラリ作成時、または既存ライブラリの整備時に確認する：
-
-### 必須
-
-- [ ] `README.md` がある（30行以下）
-- [ ] `xmake.lua` がある
-- [ ] 公開ヘッダが `include/<libname>/` 以下にある
-- [ ] `#include <libname/...>` でインクルードできる
-- [ ] `test/` にテストがある
-- [ ] `xmake test` でテストが通る
-- [ ] CODING_STYLE.md に準拠している
-
-### 推奨
-
-- [ ] `examples/` に動作するサンプルがある
-- [ ] `docs/DESIGN.md` に設計思想がある（複雑なライブラリのみ）
-
-### 作成しない
-
-- `docs/conf.py`, `docs/Doxyfile` — 生成ツール設定
-- `docs/API.md` — 手書き API リファレンス（コードコメントが Single Source of Truth）
-- `docs/<MODULE>.md` — モジュール別ドキュメント
+1. 残りのライブラリ移行: `umidsp`, `umimidi`, `umicrypto`, `umiutil`, etc.
+2. 既存 `lib/umi/` の削除（移行完了後）
+3. `examples/` の再有効化

@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+/// @file
+/// @brief Timer concept used by measurement and runner APIs.
+
 #include <concepts>
 #include <cstdint>
 
 namespace umi::bench {
 
-/// Timer concept for cycle counting
+/// @brief Concept for monotonic timer backends.
+/// @tparam T Timer backend type.
 template <typename T>
 concept TimerLike = requires {
     typename T::Counter;

@@ -1,0 +1,15 @@
+# Build outputs
+build/
+.build/
+.xmake/
+.tmp/
+
+# Tooling caches
+.cache/
+.clangd
+compile_commands.json
+
+# Editor / OS noise
+.DS_Store
+*~
+*.swp

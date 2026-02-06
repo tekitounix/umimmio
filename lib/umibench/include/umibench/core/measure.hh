@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+/// @file
+/// @brief Primitive measurement helpers built on TimerLike timers.
+
 #include <atomic>
 #include <cstdint>
 #include <utility>
@@ -9,9 +12,12 @@
 
 namespace umi::bench {
 
-/// Measure a single execution of func, returning elapsed cycles/time
-/// Uses acquire/release memory ordering (sufficient for most cases, less overhead than seq_cst)
-/// and includes compiler barrier to prevent optimization of measurement boundaries.
+/// @brief Measure one callable invocation.
+/// @tparam Timer Timer implementation that satisfies TimerLike.
+/// @tparam Func Callable type.
+/// @param func Callable to execute.
+/// @return Elapsed counter ticks reported by the timer.
+/// @note Uses signal fences to reduce compiler reordering across timing boundaries.
 template <TimerLike Timer, typename Func>
 typename Timer::Counter measure(Func&& func) {
     // Compiler barrier to prevent reordering of timer reads
@@ -25,7 +31,12 @@ typename Timer::Counter measure(Func&& func) {
     return end - start;
 }
 
-/// Measure func executed 'iterations' times
+/// @brief Measure repeated callable invocations.
+/// @tparam Timer Timer implementation that satisfies TimerLike.
+/// @tparam Func Callable type.
+/// @param func Callable to execute.
+/// @param iterations Number of invocations to execute.
+/// @return Elapsed counter ticks for all invocations.
 template <TimerLike Timer, typename Func>
 typename Timer::Counter measure_n(Func&& func, std::uint32_t iterations) {
     return measure<Timer>([&func, iterations] {
@@ -35,14 +46,25 @@ typename Timer::Counter measure_n(Func&& func, std::uint32_t iterations) {
     });
 }
 
-/// Measure with baseline subtraction
+/// @brief Measure once and subtract baseline overhead.
+/// @tparam Timer Timer implementation that satisfies TimerLike.
+/// @tparam Func Callable type.
+/// @param func Callable to execute.
+/// @param baseline Baseline overhead value to subtract.
+/// @return Saturating result (`0` when measured value is not greater than baseline).
 template <TimerLike Timer, typename Func>
 typename Timer::Counter measure_corrected(Func&& func, typename Timer::Counter baseline) {
     const auto measured = measure<Timer>(std::forward<Func>(func));
     return (measured > baseline) ? (measured - baseline) : 0;
 }
 
-/// Measure N iterations with baseline subtraction
+/// @brief Measure repeated invocations and subtract baseline overhead.
+/// @tparam Timer Timer implementation that satisfies TimerLike.
+/// @tparam Func Callable type.
+/// @param func Callable to execute.
+/// @param baseline Baseline overhead value to subtract.
+/// @param iterations Number of invocations to execute.
+/// @return Saturating result (`0` when measured value is not greater than baseline).
 template <TimerLike Timer, typename Func>
 typename Timer::Counter measure_corrected_n(Func&& func, typename Timer::Counter baseline, std::uint32_t iterations) {
     const auto measured = measure_n<Timer>(std::forward<Func>(func), iterations);

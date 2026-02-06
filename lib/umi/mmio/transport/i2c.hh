@@ -22,8 +22,8 @@ template <typename I2C,
           typename CheckPolicy = std::true_type,
           typename ErrorPolicy = AssertOnError,
           typename AddressType = std::uint8_t,
-          Endian AddrEndian = Endian::Big,
-          Endian DataEndian = Endian::Little>
+          Endian AddrEndian = Endian::BIG,
+          Endian DataEndian = Endian::LITTLE>
 class I2cTransport
     : public ByteAdapter<I2cTransport<I2C, CheckPolicy, ErrorPolicy, AddressType, AddrEndian, DataEndian>,
                          CheckPolicy,
@@ -47,7 +47,7 @@ class I2cTransport
         if constexpr (addr_size == 1) {
             buffer[0] = static_cast<std::uint8_t>(reg_addr);
         } else {
-            if constexpr (AddrEndian == Endian::Little) {
+            if constexpr (AddrEndian == Endian::LITTLE) {
                 buffer[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
                 buffer[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
             } else {
@@ -70,7 +70,7 @@ class I2cTransport
         if constexpr (addr_size == 1) {
             addr_bytes[0] = static_cast<std::uint8_t>(reg_addr);
         } else {
-            if constexpr (AddrEndian == Endian::Little) {
+            if constexpr (AddrEndian == Endian::LITTLE) {
                 addr_bytes[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
                 addr_bytes[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
             } else {

@@ -529,7 +529,7 @@ template <class Derived,
           typename CheckPolicy = std::true_type,
           typename ErrorPolicy = AssertOnError,
           typename AddressTypeT = std::uint8_t,
-          Endian DataEndian = Endian::Little>
+          Endian DataEndian = Endian::LITTLE>
 class ByteAdapter : private RegOps<Derived, CheckPolicy, ErrorPolicy> {
     friend class RegOps<Derived, CheckPolicy, ErrorPolicy>;
 
@@ -540,7 +540,7 @@ class ByteAdapter : private RegOps<Derived, CheckPolicy, ErrorPolicy> {
     // Endian conversion
     template <typename T>
     static void pack(T value, std::uint8_t* buffer) noexcept {
-        if constexpr (DataEndian == Endian::Little) {
+        if constexpr (DataEndian == Endian::LITTLE) {
             for (std::size_t i = 0; i < sizeof(T); ++i) {
                 buffer[i] = (value >> (i * 8)) & 0xFF;
             }
@@ -554,7 +554,7 @@ class ByteAdapter : private RegOps<Derived, CheckPolicy, ErrorPolicy> {
     template <typename T>
     static T unpack(const std::uint8_t* buffer) noexcept {
         T value = 0;
-        if constexpr (DataEndian == Endian::Little) {
+        if constexpr (DataEndian == Endian::LITTLE) {
             for (std::size_t i = 0; i < sizeof(T); ++i) {
                 value |= static_cast<T>(buffer[i]) << (i * 8);
             }
