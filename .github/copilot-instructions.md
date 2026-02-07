@@ -64,6 +64,17 @@ These are **hard constraints** — violation causes undefined behavior or audio 
 | **Run specific tests**      | `xmake run test_kernel` for kernel changes |
 | **Tests must pass**         | Don't commit with failing tests            |
 
+### Copyright & Author Attribution
+
+| Location            | Format                                          | Purpose       |
+| ------------------- | ----------------------------------------------- | ------------- |
+| **LICENSE file**    | `Copyright (c) <year> SYNTHERNET (@tekitounix)` | Rights holder |
+| **Source header**   | `// Copyright (c) <year>, tekitounix`           | Short form    |
+| **@author Doxygen** | `@author Shota Moriguchi @tekitounix`           | Code author   |
+
+- SYNTHERNET (all caps) = trade name / 屋号 (rights holder)
+- `@author` = individual contributor (personal name + handle)
+
 ### Debug Adapter Issues
 
 - Unresponsive adapter is **NOT** a USB problem
