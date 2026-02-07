@@ -271,9 +271,9 @@ xmake webhost-serve
 | ---------------------------------------- | ----------------------------- |
 | `docs/refs/specs/ARCHITECTURE.md`        | High-level architecture       |
 | `docs/new/UMI_SYSTEM_ARCHITECTURE.md`    | STM32F4 detailed design       |
-| `lib/docs/CODING_STYLE.md`               | Detailed style guide          |
-| `lib/docs/LIBRARY_STRUCTURE.md`          | Library structure conventions |
-| `lib/docs/TESTING.md`                    | Test strategy                 |
-| `lib/docs/DEBUG_GUIDE.md`                | Debugging (pyOCD, GDB, RTT)   |
+| `lib/docs/standards/CODING_RULE.md`      | Detailed style guide          |
+| `lib/docs/standards/LIBRARY_SPEC.md`     | Library structure conventions |
+| `lib/docs/guides/TESTING_GUIDE.md`       | Test strategy                 |
+| `lib/docs/guides/DEBUGGING_GUIDE.md`     | Debugging (pyOCD, GDB, RTT)   |
 | `docs/new/DESIGN_CONTEXT_API.md`         | AudioContext API design       |
 | `docs/refs/reference/API_APPLICATION.md` | `process()` constraints       |
