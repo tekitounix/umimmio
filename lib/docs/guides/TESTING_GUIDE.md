@@ -257,6 +257,6 @@ xmake build <libname>_renode
 
 ## 参考
 
-- [CODING_STYLE.md](CODING_STYLE.md) - コーディングスタイル
-- [LIBRARY_STRUCTURE.md](LIBRARY_STRUCTURE.md) - ライブラリ構造規約
-- [DEBUG_GUIDE.md](DEBUG_GUIDE.md) - デバッグガイド
+- [Coding Rule](../standards/CODING_RULE.md) - コーディングスタイル
+- [Library Spec](../standards/LIBRARY_SPEC.md) - ライブラリ構造規約
+- [Debugging Guide](DEBUGGING_GUIDE.md) - デバッグガイド
