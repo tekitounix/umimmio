@@ -398,5 +398,5 @@ clang-tidy -p . src/main.cc
 
 ## 関連ドキュメント
 
-- [LIBRARY_STRUCTURE.md](LIBRARY_STRUCTURE.md) - ライブラリ構造規約
-- [TESTING.md](TESTING.md) - テスト戦略
+- [Library Spec](LIBRARY_SPEC.md) - ライブラリ構造規約
+- [Testing Guide](../guides/TESTING_GUIDE.md) - テスト戦略
