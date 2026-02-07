@@ -2,7 +2,7 @@
 
 **Version**: 1.0.0-draft  
 **基準ライブラリ**: `umibench` (v0.1.0)  
-**適用対象**: `lib/umitest`, `lib/umimmio`, `lib/umirtm`, 今後の全ライブラリ
+**適用対象**: `lib/umitest`, `lib/umimmio`, `lib/umirtm`, `lib/umiport`, 今後の全ライブラリ
 
 ---
 
@@ -97,12 +97,15 @@ lib/<libname>/                    # または単体repoのルート
 | `umitest` | `umi::test` | `#include <umitest/test.hh>` |
 | `umibench` | `umi::bench` | `#include <umibench/bench.hh>` |
 | `umimmio` | `umi::mmio` | `#include <umimmio/mmio.hh>` |
-| `umirtm` | `rt` | `#include <umirtm/rtm.hh>` |
+| `umirtm` | `umi::rt` | `#include <umirtm/rtm.hh>` |
+| `umiport` | `umi::port` | `#include <umiport/stm32f4/uart_output.hh>` |
 
 命名規則:
 - ライブラリ名: `umi` + 機能名（小文字）
 - namespace: `umi::` + 機能名
 - ディレクトリ/ヘッダ: `lib/<libname>/include/<libname>/`
+
+> **注**: umirtm は歴史的経緯で `namespace rt {` を使用しているコードがある。新規コードでは `umi::rt` を使用すること。
 
 ---
 
@@ -750,9 +753,11 @@ umibench/RELEASE.md を参照：
 
 ## 9. 参照
 
-- [umibench実装](../umibench/) - リファレンス実装
+- [umibench](../umibench/) - リファレンス実装
 - [umitest](../umitest/) - テストフレームワーク
-- [umimmio](../umimmio/) - MMIO抽象（移行対象）
+- [umimmio](../umimmio/) - MMIO抽象
+- [umirtm](../umirtm/) - RTT互換デバッグモニタ
+- [umiport](../umiport/) - プラットフォーム共有インフラ
 - [arm-embedded-xmake-repo](../../.refs/arm-embedded-xmake-repo/) - パッケージリポジトリ
 
 ---

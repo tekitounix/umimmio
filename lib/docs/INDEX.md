@@ -32,10 +32,10 @@
 
 ## Standard-Compliant Libraries
 
-| Library | Status | Description |
-|---------|--------|-------------|
-| [umibench](../umibench/) | Complete | Cross-target microbenchmark |
-| [umitest](../umitest/) | Complete | Zero-macro test framework |
-| [umimmio](../umimmio/) | Complete | MMIO register abstractions |
-| [umirtm](../umirtm/) | Complete | RTT-compatible debug monitor |
-| [umiport](../umiport/) | Complete | Shared platform infrastructure (STM32F4 startup, linker, UART) |
+| Library | Phase | Description |
+|---------|-------|-------------|
+| [umibench](../umibench/) | Phase 4 | Cross-target microbenchmark (reference implementation) |
+| [umitest](../umitest/) | Phase 3 | Zero-macro test framework |
+| [umimmio](../umimmio/) | Phase 3 | MMIO register abstractions |
+| [umirtm](../umirtm/) | Phase 3 | RTT-compatible debug monitor |
+| [umiport](../umiport/) | WIP | Shared platform infrastructure (STM32F4 startup, linker, UART) |
