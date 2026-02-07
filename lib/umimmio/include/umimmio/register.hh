@@ -1,8 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
 /// @file register.hh
-/// @brief UMI Memory-mapped I/O register abstractions
+/// @brief UMI Memory-mapped I/O register abstractions.
 /// @author Shota Moriguchi @tekitounix
-/// @date 2025
-/// @license MIT
 
 #pragma once
 #include <array>
@@ -17,8 +17,7 @@
 
 /// @namespace umi::mmio
 /// @brief UMI Memory-mapped I/O abstractions
-namespace umi {
-namespace mmio {
+namespace umi::mmio {
 
 /// @typedef Addr
 /// @brief Memory address type
@@ -273,7 +272,10 @@ concept TransportLike = DirectTransportLike<T> || ByteTransportLike<T> || RegTra
 template <class Derived, typename CheckPolicy, typename ErrorPolicy, typename AddressType, Endian DataEndian>
 class ByteAdapter;
 
-/// @brief RegOps base class - CRTP for register operations
+/// @brief CRTP base providing type-safe register read/write/modify operations.
+/// @tparam Derived     Concrete transport (DirectTransport, I2cTransport, etc.).
+/// @tparam CheckPolicy Enable runtime range checks (std::true_type or std::false_type).
+/// @tparam ErrorPolicy Error handler invoked on range violations.
 template <class Derived, typename CheckPolicy = std::true_type, typename ErrorPolicy = AssertOnError>
 class RegOps {
   private:
@@ -309,7 +311,8 @@ class RegOps {
     // template <typename Reg>
     // void reg_write(Reg reg, typename Reg::RegValueType value) const noexcept;
 
-    // write - write to register/field
+    /// @brief Write one or more field/register values in a single bus transaction.
+    /// @tparam Values Value or DynamicValue types carrying the data.
     template <typename... Values>
     void write(Values&&... values) const noexcept {
         if constexpr (sizeof...(Values) == 1) {
@@ -319,7 +322,8 @@ class RegOps {
         }
     }
 
-    // modify - Read-Modify-Write
+    /// @brief Read-modify-write: read current value, apply field changes, write back.
+    /// @tparam Values Value or DynamicValue types carrying the data.
     /// @warning This operation is NOT atomic. Protect with a critical section if needed.
     template <typename... Values>
     void modify(Values&&... values) const noexcept {
@@ -327,7 +331,9 @@ class RegOps {
         modify_impl(std::forward<Values>(values)...);
     }
 
-    // read - read register/field
+    /// @brief Read a register or field value.
+    /// @tparam RegOrField Register or Field type to read.
+    /// @return For registers: the full register value. For fields: the extracted field value.
     template <typename RegOrField>
     auto read(RegOrField /*reg_or_field*/) const noexcept {
         check_transport_allowed<RegOrField>();
@@ -341,7 +347,9 @@ class RegOps {
         }
     }
 
-    // is - value comparison
+    /// @brief Compare a register/field against an expected value.
+    /// @tparam Value Enumerated Value or DynamicValue to compare against.
+    /// @return true if the current hardware value matches.
     template <typename Value>
     bool is(Value&& value) const noexcept {
         using V = std::decay_t<Value>;
@@ -364,7 +372,9 @@ class RegOps {
         }
     }
 
-    // flip - toggle 1-bit field
+    /// @brief Toggle a 1-bit field via read-modify-write.
+    /// @tparam Field A 1-bit Field type (static_assert enforced).
+    /// @pre Field must have both read and write access.
     template <typename Field>
     void flip(Field /*field*/) const noexcept {
         check_transport_allowed<Field>();
@@ -524,7 +534,17 @@ class RegOps {
 
 // DirectTransport has been moved to transport/direct.hh
 
-/// @brief ByteAdapter - base class for byte-oriented transports
+/// @brief CRTP adapter bridging byte-oriented transports (I2C, SPI) to RegOps.
+///
+/// Converts RegOps' typed register read/write into raw_read/raw_write byte
+/// operations that concrete transports implement. Handles endian conversion
+/// between the host CPU byte order and the wire format.
+///
+/// @tparam Derived       Concrete byte transport (I2cTransport, SpiTransport, etc.).
+/// @tparam CheckPolicy   Enable runtime range checks (std::true_type or std::false_type).
+/// @tparam ErrorPolicy   Error handler invoked on range violations.
+/// @tparam AddressTypeT  Register address width on the bus (uint8_t or uint16_t).
+/// @tparam DataEndian    Byte order for data on the wire.
 template <class Derived,
           typename CheckPolicy = std::true_type,
           typename ErrorPolicy = AssertOnError,
@@ -537,7 +557,10 @@ class ByteAdapter : private RegOps<Derived, CheckPolicy, ErrorPolicy> {
     static_assert(std::is_integral_v<AddressTypeT>, "AddressType must be an integral type");
     static_assert(sizeof(AddressTypeT) <= 2, "AddressType must be 8 or 16 bit");
 
-    // Endian conversion
+    /// @brief Pack a register value into a byte buffer according to DataEndian.
+    /// @tparam T Register value type.
+    /// @param value Value to serialize.
+    /// @param buffer Output byte buffer (must be at least sizeof(T) bytes).
     template <typename T>
     static void pack(T value, std::uint8_t* buffer) noexcept {
         if constexpr (DataEndian == Endian::LITTLE) {
@@ -551,6 +574,10 @@ class ByteAdapter : private RegOps<Derived, CheckPolicy, ErrorPolicy> {
         }
     }
 
+    /// @brief Unpack a byte buffer into a register value according to DataEndian.
+    /// @tparam T Register value type.
+    /// @param buffer Input byte buffer (must be at least sizeof(T) bytes).
+    /// @return Deserialized register value.
     template <typename T>
     static T unpack(const std::uint8_t* buffer) noexcept {
         T value = 0;
@@ -575,7 +602,9 @@ class ByteAdapter : private RegOps<Derived, CheckPolicy, ErrorPolicy> {
     using RegOps<Derived, CheckPolicy, ErrorPolicy>::is;
     using RegOps<Derived, CheckPolicy, ErrorPolicy>::flip;
     using AddressType = AddressTypeT;
-    // RegOps required operations
+    /// @brief Read a register by delegating to raw_read() with endian conversion.
+    /// @tparam Reg Register type (provides address and RegValueType).
+    /// @return Current register value.
     template <typename Reg>
     auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
         using T = typename Reg::RegValueType;
@@ -588,6 +617,9 @@ class ByteAdapter : private RegOps<Derived, CheckPolicy, ErrorPolicy> {
         return unpack<T>(buffer.data());
     }
 
+    /// @brief Write a register by delegating to raw_write() with endian conversion.
+    /// @tparam Reg Register type (provides address and RegValueType).
+    /// @param value Value to write.
     template <typename Reg>
     void reg_write(Reg /*reg*/, typename Reg::RegValueType value) const noexcept {
         using T = typename Reg::RegValueType;
@@ -603,5 +635,4 @@ class ByteAdapter : private RegOps<Derived, CheckPolicy, ErrorPolicy> {
 
 // I2cTransport has been moved to transport/i2c.hh
 
-} // namespace mmio
-} // namespace umi
+} // namespace umi::mmio

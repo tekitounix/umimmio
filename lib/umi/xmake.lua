@@ -11,10 +11,10 @@
 -- Project Configuration (library-side)
 -- =====================================================================
 
-if os.isdir(path.join(os.projectdir(), ".refs/arm-embedded-xmake-repo")) then
-    add_repositories("arm-embedded " .. path.join(os.projectdir(), ".refs/arm-embedded-xmake-repo"))
+if os.isdir(path.join(os.projectdir(), "xmake-repo/synthernet")) then
+    add_repositories("synthernet " .. path.join(os.projectdir(), "xmake-repo/synthernet"))
 else
-    add_repositories("arm-embedded https://github.com/tekitounix/arm-embedded-xmake-repo.git")
+    add_repositories("synthernet https://github.com/tekitounix/synthernet-xmake-repo.git")
 end
 
 add_requires("arm-embedded", {optional = true})

@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
+/// @file
+/// @brief Real-Time Monitor (RTM) ring-buffer transport for debug output.
+/// @author Shota Moriguchi @tekitounix
+///
+/// Provides a compile-time configurable monitor with up/down ring buffers
+/// compatible with SEGGER RTT protocol layout.
 #pragma once
 
 #include <algorithm>
@@ -14,14 +22,20 @@
 
 namespace rt {
 
-// 動作モード
+/// @brief Buffer operating mode when full.
 enum class Mode : std::uint32_t {
-    NoBlockSkip = 0,    // バッファフル時はスキップ
-    NoBlockTrim = 1,    // 入るだけ書き込む
-    BlockIfFifoFull = 2 // 空きができるまでブロック
+    NoBlockSkip = 0,    ///< Drop entire write if buffer is full.
+    NoBlockTrim = 1,    ///< Write as much as fits, discard excess.
+    BlockIfFifoFull = 2 ///< Block until space is available.
 };
 
-// メインのモニタークラス（staticメンバのみ）
+/// @brief Static monitor class with configurable ring buffers for debug I/O.
+/// @tparam UpBuffers   Number of host-readable (target→host) buffers.
+/// @tparam DownBuffers Number of host-writable (host→target) buffers.
+/// @tparam UpBufferSize   Size of each up buffer in bytes.
+/// @tparam DownBufferSize Size of each down buffer in bytes.
+/// @tparam DefaultMode    Default Mode for buffer overflow behaviour.
+/// @note Not instantiable—all members are static.
 template <std::size_t UpBuffers = 3,
           std::size_t DownBuffers = 3,
           std::size_t UpBufferSize = 1024,
@@ -34,85 +48,110 @@ class Monitor {
     static_assert(DownBufferSize > 0, "Down buffer size must be positive");
 
   private:
-    // RTMプロトコルのバッファ構造体
+    /// @brief RTM protocol per-buffer descriptor.
     struct rtm_buffer {
-        const char* name;               // バッファ名へのポインタ
-        char* buffer;                   // バッファへのポインタ
-        unsigned size;                  // バッファサイズ
-        volatile unsigned write_offset; // 書き込みオフセット
-        volatile unsigned read_offset;  // 読み取りオフセット
-        unsigned flags;                 // フラグ
+        const char* name;               ///< Buffer name pointer.
+        char* buffer;                   ///< Data buffer pointer.
+        unsigned size;                  ///< Buffer capacity in bytes.
+        volatile unsigned write_offset; ///< Write position (producer).
+        volatile unsigned read_offset;  ///< Read position (consumer).
+        unsigned flags;                 ///< Mode flags.
     };
 
-    // RTMプロトコルのコントロールブロック
+    /// @brief RTM protocol control block (discovered by host debugger).
     struct rtm_control_block_t {
-        char id[16];                               // "RT MONITOR" + padding
-        int max_up_buffers;                        // 最大アップバッファ数
-        int max_down_buffers;                      // 最大ダウンバッファ数
-        rtm_buffer up_buffers[UpBuffers];     // アップバッファ配列
-        rtm_buffer down_buffers[DownBuffers]; // ダウンバッファ配列
+        char id[16];                          ///< Magic ID string.
+        int max_up_buffers;                   ///< Number of up buffers.
+        int max_down_buffers;                 ///< Number of down buffers.
+        rtm_buffer up_buffers[UpBuffers];     ///< Up (target→host) buffer array.
+        rtm_buffer down_buffers[DownBuffers]; ///< Down (host→target) buffer array.
     };
 
-    // バッファ名
+    /// @brief Default buffer name for channel 0.
     static constexpr const char console_name[] = "Console";
-    
-    // C++23: 集約初期化とstd::arrayを活用
+
+    /// @brief Internal storage holding ring buffers and the control block.
     struct Storage {
         alignas(4) std::array<char, UpBufferSize> up_buffer{};
         alignas(4) std::array<char, DownBufferSize> down_buffer{};
-        rtm_control_block_t cb{
-            .id = {},
-            .max_up_buffers = UpBuffers,
-            .max_down_buffers = DownBuffers,
-            .up_buffers = {},
-            .down_buffers = {}
-        };
-        
-        // C++23のconstexprコンストラクタで初期化
+        rtm_control_block_t cb{.id = {},
+                               .max_up_buffers = UpBuffers,
+                               .max_down_buffers = DownBuffers,
+                               .up_buffers = {},
+                               .down_buffers = {}};
+
+        /// @brief Constexpr constructor that wires up buffer pointers (C++23).
         constexpr Storage() {
             cb.up_buffers[0] = {console_name, up_buffer.data(), UpBufferSize, 0, 0, std::to_underlying(DefaultMode)};
-            cb.down_buffers[0] = {console_name, down_buffer.data(), DownBufferSize, 0, 0, std::to_underlying(DefaultMode)};
+            cb.down_buffers[0] = {
+                console_name, down_buffer.data(), DownBufferSize, 0, 0, std::to_underlying(DefaultMode)};
         }
     };
-    
+
     inline static Storage storage{};
 
   public:
-    // コンストラクタを削除（インスタンス化不可）
+    /// @brief Deleted — Monitor is a static-only class.
     Monitor() = delete;
 
-    // 初期化（カスタムID）
+    /// @brief Get a pointer to the internal control block.
+    /// @return Pointer to the rtm_control_block_t structure.
+    /// @note Used by HostMonitor for shared memory export.
+    static auto* get_control_block() noexcept { return &storage.cb; }
+
+    /// @brief Get the size of the control block in bytes.
+    static constexpr auto get_control_block_size() noexcept { return sizeof(rtm_control_block_t); }
+
+    /// @brief Initialize the monitor with a control block ID.
+    /// @param control_block_id ID string written into the control block (max 16 chars).
+    /// @pre Must be called before any write/read operations.
     static void init(std::string_view control_block_id) noexcept {
-        // IDをコントロールブロックに設定
         std::ranges::fill(storage.cb.id, '\0');
-        std::ranges::copy(control_block_id.substr(0, sizeof(storage.cb.id)), storage.cb.id);
+        auto id = control_block_id.substr(0, sizeof(storage.cb.id) - 1);
+        std::ranges::copy(id, storage.cb.id);
+
+        for (auto& buf : storage.cb.up_buffers) {
+            buf.write_offset = 0;
+            buf.read_offset = 0;
+        }
+        for (auto& buf : storage.cb.down_buffers) {
+            buf.write_offset = 0;
+            buf.read_offset = 0;
+        }
     }
 
-    // バイトデータ書き込み
+    /// @brief Write raw byte data to an up buffer.
+    /// @tparam BufferIndex Target buffer index.
+    /// @return Number of bytes actually written.
     template <std::size_t BufferIndex = 0>
     [[nodiscard]] static auto write(std::span<const std::byte> data) noexcept -> std::size_t {
         return write_up_buffer(BufferIndex, data);
     }
 
-    // 文字列書き込み（戻り値チェック推奨）
+    /// @brief Write a string to an up buffer.
+    /// @return Number of bytes actually written.
     template <std::size_t BufferIndex = 0>
     [[nodiscard]] static auto write(std::string_view str) noexcept -> std::size_t {
         return write(std::span{reinterpret_cast<const std::byte*>(str.data()), str.size()});
     }
 
-    // 文字列書き込み（戻り値無視可能）
-    template <std::size_t BufferIndex = 0> static void log(std::string_view str) noexcept {
+    /// @brief Write a string, discarding the return value.
+    template <std::size_t BufferIndex = 0>
+    static void log(std::string_view str) noexcept {
         std::ignore = write<BufferIndex>(str);
     }
 
-    // バイトデータ読み込み
+    /// @brief Read raw bytes from a down buffer.
+    /// @return Number of bytes read.
     template <std::size_t BufferIndex = 0>
     static auto read(std::span<std::byte> buffer) noexcept -> std::size_t {
         return read_down_buffer(BufferIndex, buffer);
     }
 
-    // ダウンバッファから1バイト読み取り
-    template <std::size_t BufferIndex = 0> static auto read_byte() noexcept -> int {
+    /// @brief Read a single byte from a down buffer.
+    /// @return Byte value (0–255), or -1 if empty.
+    template <std::size_t BufferIndex = 0>
+    static auto read_byte() noexcept -> int {
         if constexpr (BufferIndex >= DownBuffers) {
             return -1;
         }
@@ -124,7 +163,7 @@ class Monitor {
 
         const auto read_offset = buffer.read_offset;
         if (read_offset == write_offset) {
-            return -1; // バッファが空
+            return -1;
         }
 
         const auto data = static_cast<unsigned char>(buffer.buffer[read_offset]);
@@ -133,8 +172,9 @@ class Monitor {
         return data;
     }
 
-    // 保留中のデータ量を取得
-    template <std::size_t BufferIndex = 0> static auto get_available() noexcept -> std::size_t {
+    /// @brief Get the number of unread bytes in an up buffer.
+    template <std::size_t BufferIndex = 0>
+    static auto get_available() noexcept -> std::size_t {
         if constexpr (BufferIndex >= UpBuffers) {
             return 0;
         }
@@ -149,8 +189,9 @@ class Monitor {
         return buffer.size - read_offset + write_offset;
     }
 
-    // アップバッファの空き容量を取得
-    template <std::size_t BufferIndex = 0> static auto get_free_space() noexcept -> std::size_t {
+    /// @brief Get the free space in an up buffer.
+    template <std::size_t BufferIndex = 0>
+    static auto get_free_space() noexcept -> std::size_t {
         if constexpr (BufferIndex >= UpBuffers) {
             return 0;
         }
@@ -159,7 +200,10 @@ class Monitor {
         return buffer.size - get_available<BufferIndex>() - 1;
     }
 
-    // ダウンバッファからラインを読み取る
+    /// @brief Read a newline-terminated line from a down buffer.
+    /// @param line_buffer Output buffer for the line.
+    /// @param max_len Maximum characters to read (including NUL).
+    /// @return Pointer to line_buffer on success, nullptr if no data.
     template <std::size_t BufferIndex = 0>
     static auto read_line(char* line_buffer, std::size_t max_len) noexcept -> char* {
         if (max_len == 0)
@@ -188,9 +232,11 @@ class Monitor {
     }
 
   private:
-    // アップバッファへの書き込み（ホスト→ターゲット）
-    static auto write_up_buffer(std::size_t buffer_index, std::span<const std::byte> data) noexcept
-        -> std::size_t {
+    /// @brief Write data into an up (target-to-host) ring buffer.
+    /// @param buffer_index Target buffer index.
+    /// @param data Byte span to write.
+    /// @return Number of bytes actually written.
+    static auto write_up_buffer(std::size_t buffer_index, std::span<const std::byte> data) noexcept -> std::size_t {
         if (buffer_index >= UpBuffers || data.empty()) {
             return 0;
         }
@@ -204,40 +250,34 @@ class Monitor {
         const auto write_offset = buffer.write_offset;
         const auto read_offset = buffer.read_offset;
 
-        // 空き容量を計算
-        const auto free_space = (write_offset >= read_offset)
-                                    ? (size - write_offset + read_offset - 1)
-                                    : (read_offset - write_offset - 1);
+        const auto free_space =
+            (write_offset >= read_offset) ? (size - write_offset + read_offset - 1) : (read_offset - write_offset - 1);
 
         if (free_space == 0) {
-            return 0; // バッファフル
+            return 0;
         }
 
         const auto to_write = std::min(data.size(), static_cast<std::size_t>(free_space));
 
-        // 環状バッファへの書き込み
         const auto until_end = size - write_offset;
         if (to_write <= until_end) {
-            // 一度に書き込める
             std::memcpy(buffer.buffer + write_offset, data.data(), to_write);
         } else {
-            // 2回に分けて書き込む
             std::memcpy(buffer.buffer + write_offset, data.data(), until_end);
             std::memcpy(buffer.buffer, data.data() + until_end, to_write - until_end);
         }
 
-        // メモリバリアで書き込み完了を保証
         std::atomic_thread_fence(std::memory_order_release);
-
-        // 書き込みポインタを更新
         buffer.write_offset = (write_offset + to_write) % size;
 
         return to_write;
     }
 
-    // ダウンバッファからの読み込み（ターゲット→ホスト）
-    static auto read_down_buffer(std::size_t buffer_index, std::span<std::byte> data) noexcept
-        -> std::size_t {
+    /// @brief Read data from a down (host-to-target) ring buffer.
+    /// @param buffer_index Source buffer index.
+    /// @param data Destination byte span.
+    /// @return Number of bytes actually read.
+    static auto read_down_buffer(std::size_t buffer_index, std::span<std::byte> data) noexcept -> std::size_t {
         if (buffer_index >= DownBuffers || data.empty()) {
             return 0;
         }
@@ -253,35 +293,30 @@ class Monitor {
 
         std::atomic_thread_fence(std::memory_order_acquire);
 
-        // 利用可能なデータ量を計算
-        const auto available = (write_offset >= read_offset) ? (write_offset - read_offset)
-                                                             : (size - read_offset + write_offset);
+        const auto available =
+            (write_offset >= read_offset) ? (write_offset - read_offset) : (size - read_offset + write_offset);
 
         if (available == 0) {
-            return 0; // データなし
+            return 0;
         }
 
         const auto to_read = std::min(data.size(), static_cast<std::size_t>(available));
 
-        // 環状バッファからの読み込み
         const auto until_end = size - read_offset;
         if (to_read <= until_end) {
-            // 一度に読み込める
             std::memcpy(data.data(), buffer.buffer + read_offset, to_read);
         } else {
-            // 2回に分けて読み込む
             std::memcpy(data.data(), buffer.buffer + read_offset, until_end);
             std::memcpy(data.data() + until_end, buffer.buffer, to_read - until_end);
         }
 
-        // 読み込みポインタを更新
         buffer.read_offset = (read_offset + to_read) % size;
 
         return to_read;
     }
 };
 
-// ターミナル制御シーケンス
+/// @brief Terminal ANSI escape sequences for colored output.
 namespace terminal {
 constexpr const char* reset = "\x1B[0m";
 constexpr const char* clear = "\x1B[2J";
@@ -329,5 +364,5 @@ constexpr const char* bright_white = "\x1B[4;47m";
 
 } // namespace rt
 
-// グローバル名前空間でのエイリアス
+/// @brief Convenience alias for the default Monitor configuration.
 using rtm = rt::Monitor<>;

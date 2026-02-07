@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: MIT
+/// @file
+/// @brief Minimal test example — one suite, one test.
+
+#include <umitest/test.hh>
+
+int main() {
+    umi::test::Suite suite("minimal");
+
+    suite.run("one plus one equals two", [](umi::test::TestContext& ctx) {
+        ctx.assert_eq(1 + 1, 2);
+        return true;
+    });
+
+    return suite.summary();
+}

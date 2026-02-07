@@ -1,0 +1,188 @@
+// SPDX-License-Identifier: MIT
+/// @file
+/// @brief Tests for Suite workflow: counting, sections, inline checks, summary.
+/// @details Verifies that Suite correctly tracks pass/fail counts, that
+///          run() and check() interact properly, and that summary() returns
+///          the expected exit code.
+
+#include "test_fixture.hh"
+
+namespace umitest::test {
+namespace {
+
+using umi::test::Suite;
+using umi::test::TestContext;
+
+// =============================================================================
+// Suite pass/fail counting via sub-suites
+// =============================================================================
+
+/// @brief Verify a Suite with only passing tests returns 0 from summary().
+bool test_all_pass_suite(TestContext& t) {
+    Suite sub("sub-pass");
+    sub.run("pass1", [](TestContext& ctx) {
+        ctx.assert_true(true);
+        return true;
+    });
+    sub.run("pass2", [](TestContext& ctx) {
+        ctx.assert_eq(1, 1);
+        return true;
+    });
+    sub.check(true);
+
+    // summary() should return 0 when all pass
+    return t.assert_eq(sub.summary(), 0);
+}
+
+/// @brief Verify a Suite with a failing run() returns 1 from summary().
+bool test_failure_detected_via_return(TestContext& t) {
+    Suite sub("sub-fail-return");
+    sub.run("returns-false", [](TestContext&) {
+        return false; // explicitly fail
+    });
+    return t.assert_eq(sub.summary(), 1);
+}
+
+/// @brief Verify a Suite detects failure via assert inside run().
+bool test_failure_detected_via_assert(TestContext& t) {
+    Suite sub("sub-fail-assert");
+    sub.run("assert-fails", [](TestContext& ctx) {
+        ctx.assert_eq(1, 2); // intentional failure
+        return true;         // even returns true — context failure overrides
+    });
+    return t.assert_eq(sub.summary(), 1);
+}
+
+/// @brief Verify check() failures are tracked.
+bool test_check_failure_counted(TestContext& t) {
+    Suite sub("sub-check-fail");
+    sub.check(false, "intentional");
+    return t.assert_eq(sub.summary(), 1);
+}
+
+/// @brief Verify mixed pass and fail counts.
+bool test_mixed_pass_fail(TestContext& t) {
+    Suite sub("sub-mixed");
+    sub.check(true);
+    sub.check(true);
+    sub.check(false, "intentional");
+    sub.run("pass", [](TestContext&) { return true; });
+    sub.run("fail", [](TestContext&) { return false; });
+
+    // 3 pass (2 checks + 1 run), 2 fail (1 check + 1 run)
+    return t.assert_eq(sub.summary(), 1);
+}
+
+// =============================================================================
+// Inline check variants
+// =============================================================================
+
+bool test_inline_checks_comprehensive(TestContext& t) {
+    Suite sub("sub-inline");
+    bool all_ok = true;
+
+    all_ok &= sub.check(true);
+    all_ok &= sub.check(1 > 0, "one positive");
+    all_ok &= sub.check_eq(10, 10);
+    all_ok &= sub.check_ne(1, 2);
+    all_ok &= sub.check_lt(1, 2);
+    all_ok &= sub.check_le(2, 2);
+    all_ok &= sub.check_gt(3, 2);
+    all_ok &= sub.check_ge(3, 3);
+    all_ok &= sub.check_near(1.0f, 1.0001f);
+
+    // All inline checks returned true
+    bool ok = t.assert_true(all_ok, "all inline checks passed");
+    // Sub-suite should also report all pass
+    ok &= t.assert_eq(sub.summary(), 0);
+    return ok;
+}
+
+// =============================================================================
+// Lambda patterns (real-world usage)
+// =============================================================================
+
+bool test_lambda_captures(TestContext& t) {
+    int value = 42;
+    double pi = 3.14159;
+
+    Suite sub("sub-lambda");
+    sub.run("capture-value", [value](TestContext& ctx) {
+        ctx.assert_eq(value, 42);
+        return true;
+    });
+    sub.run("capture-ref", [&pi](TestContext& ctx) {
+        ctx.assert_near(pi, 3.14159);
+        return true;
+    });
+    return t.assert_eq(sub.summary(), 0);
+}
+
+// =============================================================================
+// Multi-section organization
+// =============================================================================
+
+bool test_multi_section_workflow(TestContext& t) {
+    Suite sub("sub-sections");
+
+    Suite::section("Setup");
+    sub.run("init", [](TestContext& ctx) {
+        ctx.assert_true(true, "setup ok");
+        return true;
+    });
+
+    Suite::section("Processing");
+    sub.run("step1", [](TestContext& ctx) {
+        ctx.assert_eq(1 + 1, 2);
+        return true;
+    });
+    sub.run("step2", [](TestContext& ctx) {
+        ctx.assert_gt(100, 0);
+        return true;
+    });
+
+    Suite::section("Cleanup");
+    sub.check(true, "cleanup ok");
+
+    return t.assert_eq(sub.summary(), 0);
+}
+
+// =============================================================================
+// TestContext has_failed / clear_failed behavior
+// =============================================================================
+
+bool test_context_failed_flag(TestContext& t) {
+    // TestContext starts as not-failed
+    bool ok = t.assert_true(!t.has_failed(), "initially not failed");
+
+    // After a passing assert, still not failed
+    t.assert_true(true);
+    ok &= t.assert_true(!t.has_failed(), "still not failed after pass");
+
+    return ok;
+}
+
+} // namespace
+
+void run_suite_workflow_tests(umi::test::Suite& suite) {
+    Suite::section("Suite counting");
+    suite.run("all-pass sub-suite returns 0", test_all_pass_suite);
+    suite.run("failure via return false", test_failure_detected_via_return);
+    suite.run("failure via assert", test_failure_detected_via_assert);
+    suite.run("check failure counted", test_check_failure_counted);
+    suite.run("mixed pass/fail", test_mixed_pass_fail);
+
+    Suite::section("Inline check variants");
+    suite.run("comprehensive checks", test_inline_checks_comprehensive);
+
+    Suite::section("Lambda patterns");
+    suite.run("captures", test_lambda_captures);
+
+    Suite::section("Multi-section workflow");
+    suite.run("section organization", test_multi_section_workflow);
+
+    Suite::section("TestContext behavior");
+    suite.run("failed flag tracking", test_context_failed_flag);
+}
+
+} // namespace umitest::test
