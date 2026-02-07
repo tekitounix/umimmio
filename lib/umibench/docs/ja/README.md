@@ -1,9 +1,8 @@
 # umibench
 
-[English](../../README.md) | 日本語
-[ドキュメント一覧](INDEX.md)
+[English](../../README.md)
 
-`umibench` は、C++ 向けの軽量なクロスターゲット・マイクロベンチマークライブラリです。
+C++ 向けの軽量なクロスターゲット・マイクロベンチマークライブラリです。
 ホスト / WebAssembly / 組み込みで、同じベンチマーク記述スタイルを使えます。
 
 ## 特徴
@@ -47,13 +46,9 @@ xmake build umibench_stm32f4_renode_gcc
 
 ## ドキュメント
 
-- 導入: [`GETTING_STARTED.md`](GETTING_STARTED.md)
-- 詳細な使い方: [`USAGE.md`](USAGE.md)
-- プラットフォーム: [`PLATFORMS.md`](PLATFORMS.md)
-- テスト方針: [`TESTING.md`](TESTING.md)
-- サンプルガイド: [`EXAMPLES.md`](EXAMPLES.md)
-- 設計メモ: [`DESIGN.md`](DESIGN.md)
+- [設計 & API](../DESIGN.md)
+- [共通ガイド](../../docs/INDEX.md)
 
 ## ライセンス
 
-MIT
+MIT — [LICENSE](../../../LICENSE) を参照

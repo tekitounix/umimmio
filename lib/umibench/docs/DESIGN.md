@@ -1,6 +1,6 @@
 # umibench Design
 
-[Docs Home](INDEX.md) | [日本語](ja/DESIGN.md)
+[日本語](ja/DESIGN.md)
 
 ## 1. Vision
 
@@ -201,6 +201,30 @@ Notes:
 
 ## 5. Programming Model
 
+### 5.0 API Reference
+
+Public entrypoint: `include/umibench/bench.hh`
+
+Core API:
+
+- `umi::bench::Runner<Timer>` — benchmark runner
+- `Runner::calibrate<N>()` — baseline calibration
+- `Runner::run<N>(func)` — measure with default iterations
+- `Runner::run<N>(iterations, func)` — measure with explicit iterations
+- `umi::bench::report<Platform>(name, stats)` — full report
+- `umi::bench::report_compact<Platform>(name, stats)` — compact report
+
+Core headers:
+
+- `include/umibench/core/measure.hh`
+- `include/umibench/core/runner.hh`
+- `include/umibench/core/stats.hh`
+
+Concepts:
+
+- `include/umibench/timer/concept.hh` — `TimerLike`: `enable()`, `now()`, `Counter`
+- `include/umibench/output/concept.hh` — `OutputLike`: `init()`, `putc()`, `puts()`, `print_uint(uint64_t)`, `print_double(double)`
+
 ### 5.1 Minimal Path
 
 Required minimal flow:
@@ -377,6 +401,32 @@ Library itself does not draw charts, but emitted data must allow:
 6. Compile-fail checks (for API contract guards) are automated under `tests/compile_fail/`.
 
 Target-specific tests are only for backend-specific behavior that common tests cannot verify.
+
+### 8.1 Test Layout
+
+- `tests/test_main.cc`: test entrypoint
+- `tests/test_timer_measure.cc`: timer/measurement semantics
+- `tests/test_stats_runner.cc`: statistics and runner behavior
+- `tests/test_platform_output_report.cc`: platform/output/report checks
+- `tests/test_integration.cc`: end-to-end benchmark flow
+- `tests/compile_fail/calibrate_zero.cc`: compile-fail guard test
+
+### 8.2 Running Tests
+
+```bash
+xmake test                              # all targets
+xmake test 'test_umibench/*'            # host only
+xmake test 'test_umibench_compile_fail/*'  # compile-fail only
+xmake test 'umibench_wasm/*'            # wasm only
+```
+
+### 8.3 Quality Gates
+
+- Functional tests pass on host
+- WASM tests pass (when `emcc` exists)
+- Compile-fail contract test passes
+- Embedded cross-build passes in CI (`gcc-arm`)
+- Embedded `clang-arm` profile validated locally before release
 
 ---
 
