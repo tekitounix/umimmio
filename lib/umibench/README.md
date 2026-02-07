@@ -1,16 +1,9 @@
 # umibench
 
-English | [日本語](docs/ja/README.md)
+[日本語](docs/ja/README.md)
 
-`umibench` is a small cross-target micro-benchmark library for C++.
-It lets you write one benchmark program style and run it on host, WebAssembly, and embedded targets.
-
-## Release Status
-
-- Current version: `0.1.0`
-- Stability: initial release
-- Versioning policy: [`RELEASE.md`](RELEASE.md)
-- Changelog: [`CHANGELOG.md`](CHANGELOG.md)
+A small cross-target micro-benchmark library for C++.
+Write one benchmark program style and run it on host, WebAssembly, and embedded targets.
 
 ## Why umibench
 
@@ -51,26 +44,25 @@ xmake build umibench_stm32f4_renode
 xmake build umibench_stm32f4_renode_gcc
 ```
 
+## Public API
+
+- Entrypoint: `include/umibench/bench.hh`
+- Core: `Runner<Timer>`, `calibrate<N>()`, `run<N>(iters, fn)`, `report<Platform>(name, stats)`
+- Concepts: `TimerLike`, `OutputLike`
+
+## Examples
+
+- [`examples/minimal.cc`](examples/minimal.cc) — shortest complete benchmark
+- [`examples/function_style.cc`](examples/function_style.cc) — benchmark existing function symbols
+- [`examples/lambda_style.cc`](examples/lambda_style.cc) — benchmark inline lambdas
+- [`examples/instruction_bench.cc`](examples/instruction_bench.cc) — grouped instruction-style micro-benchmarks
+
 ## Documentation
 
-- Documentation index (recommended entry): [`docs/INDEX.md`](docs/INDEX.md)
-- Getting started: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)
-- Detailed usage: [`docs/USAGE.md`](docs/USAGE.md)
-- Platform model: [`docs/PLATFORMS.md`](docs/PLATFORMS.md)
-- Testing and quality gates: [`docs/TESTING.md`](docs/TESTING.md)
-- Example guide: [`docs/EXAMPLES.md`](docs/EXAMPLES.md)
-- Design note: [`docs/DESIGN.md`](docs/DESIGN.md)
-
-Japanese versions are available under [`docs/ja/`](docs/ja/README.md).
-
-Generate Doxygen HTML locally:
-
-```bash
-xmake doxygen -P . -o build/doxygen .
-```
-
-GitHub automation is available via [`.github/workflows/umibench-doxygen.yml`](.github/workflows/umibench-doxygen.yml).
+- [Design & API](docs/DESIGN.md)
+- [Common Guides](../docs/INDEX.md)
+- API docs: `doxygen Doxyfile` → `build/doxygen/html/index.html`
 
 ## License
 
-MIT (`LICENSE`)
+MIT — See [LICENSE](../../LICENSE)
