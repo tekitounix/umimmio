@@ -1,32 +1,32 @@
-# UMI-OS CI/CD Pipeline
-# - Host tests with coverage
-# - WASM tests (Emscripten + Node.js)
-# - UMIM patching tests
-# - ARM build verification
-
-name: CI
+name: UMI CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      run_renode:
+        description: "Run optional Renode smoke check"
+        required: false
+        type: boolean
+        default: false
   push:
-    branches: [master, main, develop]
+    branches: [main, master, develop]
+    paths:
+      - "lib/**"
+      - "xmake.lua"
+      - ".github/workflows/ci.yml"
   pull_request:
-    branches: [master, main, develop]
-
-# CI DISABLED - Temporarily disabled
-# Uncomment the jobs below to re-enable
+    paths:
+      - "lib/**"
+      - "xmake.lua"
 
 jobs:
-  # ===========================================
-  # Host Unit Tests with Coverage (Linux/macOS)
-  # ===========================================
   host-tests:
-    if: false  # CI DISABLED
-    name: Host Tests
+    name: Host Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,42 +36,12 @@ jobs:
         with:
           xmake-version: latest
 
-      - name: Install coverage tools (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get install -y lcov
-
-      - name: Configure
-        run: xmake f -m release -y
-
-      - name: Build test targets
-        run: xmake build test_dsp
-
-      - name: Run unit tests
+      - name: Run all tests (host + compile-fail)
         run: xmake test
 
-      - name: Build with coverage (Linux only)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          xmake f -m debug --coverage=y -y
-          xmake build test_dsp
-          xmake run test_dsp || true
-
-      - name: Generate coverage report
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          lcov --capture --directory .build --output-file coverage.info --ignore-errors mismatch || true
-          lcov --remove coverage.info '/usr/*' '*/test/*' --output-file coverage.info || true
-          lcov --list coverage.info || true
-        continue-on-error: true
-
-  # ===========================================
-  # WASM Build + Tests (including patching)
-  # ===========================================
   wasm-tests:
-    if: false  # CI DISABLED
     name: WASM Tests
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,39 +54,21 @@ jobs:
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: '3.1.50'
+          version: 3.1.50
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
-      - name: Configure for WASM
+      - name: Run WASM tests
         run: |
-          source $EMSDK/emsdk_env.sh
-          xmake f -p wasm -a wasm32 --toolchain=emcc -y
+          source "$EMSDK/emsdk_env.sh"
+          xmake test "*_wasm/*"
 
-      - name: Build UMIM modules
-        run: |
-          source $EMSDK/emsdk_env.sh
-          xmake build umim_synth umim_delay umim_volume
-
-      - name: Verify UMIM modules built
-        run: |
-          echo "Built UMIM modules:"
-          ls -la .build/umim/
-
-      - name: Run WASM headless tests
-        run: node test/test-headless.mjs
-
-  # ===========================================
-  # ARM Firmware Build (Cross-compilation check)
-  # ===========================================
   arm-build:
-    if: false  # CI DISABLED
-    name: ARM Build
+    name: ARM Cross Build (GCC)
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -131,20 +83,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi
 
-      - name: Configure for ARM
-        run: xmake f -p cross -a arm --toolchain=gcc-arm -y || true
+      - name: Build all STM32F4 GCC targets
+        run: |
+          xmake build umibench_stm32f4_renode_gcc
+          xmake build umimmio_stm32f4_renode_gcc
+          xmake build umirtm_stm32f4_renode_gcc
+          xmake build umitest_stm32f4_renode_gcc
 
-      - name: Build firmware
-        run: xmake build firmware renode_test || echo "ARM build requires arm-embedded package"
-
-  # ===========================================
-  # Renode Emulator Tests
-  # ===========================================
-  renode-tests:
-    name: Renode Tests
+  renode-smoke:
+    name: Renode Smoke Check (Manual)
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_renode == 'true'
     runs-on: ubuntu-latest
-    if: false  # Enable when Renode tests are stable
-
+    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -163,15 +113,13 @@ jobs:
         run: |
           wget https://github.com/renode/renode/releases/download/v1.14.0/renode-1.14.0.linux-portable.tar.gz
           tar xzf renode-1.14.0.linux-portable.tar.gz
-          echo "$PWD/renode_1.14.0_portable" >> $GITHUB_PATH
+          echo "$PWD/renode_1.14.0_portable" >> "$GITHUB_PATH"
 
-      - name: Install Robot Framework
-        run: pip install robotframework
-
-      - name: Build for Renode
+      - name: Build and run Renode tests
         run: |
-          xmake f -p cross -a arm --toolchain=gcc-arm -y
-          xmake build renode_test
+          xmake build umibench_stm32f4_renode_gcc
+          timeout 120s renode --console --disable-xwt -e \
+            "include @$PWD/lib/umibench/platforms/arm/cortex-m/stm32f4/renode/bench_stm32f4_ci.resc"
 
-      - name: Run Renode tests
-        run: xmake robot
+      - name: Verify UART output
+        run: test -s build/umibench_stm32f4_renode_gcc/release/uart.log
