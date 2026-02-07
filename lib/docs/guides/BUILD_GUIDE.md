@@ -1,4 +1,4 @@
-# XMake ガイド
+# ビルドガイド
 
 UMI プロジェクトにおける xmake の基本的な使い方と全コマンドリファレンスです。
 
@@ -307,7 +307,7 @@ add_rules("plugin.compile_commands.autoupdate", {outputdir = ".", lsp = "clangd"
 |----------|------|--------|----------------|
 | `xmake release` | ライブラリのバージョン更新・アーカイブ生成・タグ作成 | 非対話型 | `--ver=X.Y.Z`, `--libs=name`, `--dry-run`, `--no-test`, `--no-tag`, `--no-archive` |
 
-詳細は [Release ガイド](RELEASE.md) を参照。
+詳細は [Release ガイド](RELEASE_GUIDE.md) を参照。
 
 ### 非推奨タスク
 
@@ -321,137 +321,4 @@ add_rules("plugin.compile_commands.autoupdate", {outputdir = ".", lsp = "clangd"
 
 ---
 
-## 調査結果サマリー
-
-### コマンド分類一覧
-
-| 分類 | 数 | コマンド例 |
-|------|-----|-----------|
-| **非対話型（バッチ実行可能）** | 30+ | build, clean, test, check, format, pack, project, flash.probes, flash.status, debugger.cleanup |
-| **対話型（ユーザー入力/常駐）** | 9 | run, debugger, emulator.run, emulator.test, serve, serve.rtt, deploy.serve, watch |
-| **無効/未対応** | 0 | - |
-
-### 非対話型コマンド実行確認結果
-
-#### ✅ 実行成功（19コマンド）
-
-| コマンド | 結果 | 検証内容 |
-|----------|------|----------|
-| `xmake test` | ✅ | 13テスト実行、全てパス |
-| `xmake build` | ✅ | 全ターゲットビルド成功 |
-| `xmake build -g firmware` | ✅ | `firmware/*` グループビルド成功 |
-| `xmake build -g embedded/*` | ✅ | `embedded/*` グループビルド成功（自動設定） |
-| `xmake build -g embedded/clang-arm` | ✅ | clang-arm ターゲットのみビルド |
-| `xmake build -g embedded/gcc-arm` | ✅ | gcc-arm ターゲットのみビルド |
-| `xmake build -g tests/*` | ✅ | `tests/*` グループビルド成功 |
-| `xmake build -g wasm` | ✅ | `wasm` グループビルド成功 |
-| `xmake clean` | ✅ | ビルド成果物削除確認 |
-| `xmake show` | ✅ | ターゲット一覧・情報表示 |
-| `xmake emulator` | ✅ | Renode状態・利用可能タスク表示 |
-| `xmake deploy.webhost` | ✅ | WASMビルド→web/配備 |
-| `xmake check` | ✅ | ソースチェック（警告2件） |
-| `xmake check clang.tidy -f <file>` | ✅ | clang-tidy実行（ファイル指定で動作） |
-| `xmake format -n` | ✅ | dry-runでフォーマット確認 |
-| `xmake debugger.cleanup` | ✅ | 孤立プロセス0件を確認 |
-| `xmake project -k compile_commands` | ✅ | LSP用JSON生成確認 |
-| `xmake project -k cmake` | ✅ | CMakeLists.txt生成確認 |
-| `xmake flash.probes` | ✅ | STLINK-V3検出確認 |
-| `xmake flash.status` | ✅ | PyOCD/OpenOCD検出確認 |
-| `xmake pack` | ✅ | パッケージ作成確認 |
-
-#### ✅ 対話型コマンド動作確認（実際に実行）
-
-| コマンド | 結果 | 検証内容 |
-|----------|------|----------|
-| `xmake run <target>` | ✅ | 21テスト実際に実行・パス |
-| `xmake debugger` | ✅ | 自動判別: 安全環境→対話型、VSCode→server-only |
-| `xmake emulator.run` | ✅ | Renode実際に起動・エミュレーション実行 |
-| `xmake deploy.serve` | ✅ | ビルド→Python HTTPサーバー起動 |
-| `xmake serve.rtt` | ✅ | RTTビューアーHTTPサーバー起動 |
-| `xmake watch` | ✅ | ファイル監視モード開始 |
-
-### ✅ 対応済み（条件付き動作）
-
-| コマンド | 結果 | 対応内容 |
-|----------|------|----------|
-| `xmake serve` | ✅ | `-d <dir>` オプションで任意ディレクトリ配信可能。例: `xmake serve -d examples/headless_webhost/web` |
-
-### 動作確認詳細
-
-#### xmake serve（対話型・HTTPサーバー）
-```bash
-# 任意ディレクトリを配信
-xmake serve -d examples/headless_webhost/web -p 18080
-
-# 確認方法
-$ curl http://localhost:18080/index.html
-# => HTML内容が返される
-```
-
-#### xmake debugger（自動判別・安全設計）
-
-xmake debuggerは**実行環境を自動判別**し、最適なモードを選択します：
-
-```bash
-# デフォルト: 自動判別（推奨）
-xmake debugger -t umibench_stm32f4_renode
-# 安全な環境 → 対話型GDB
-# VSCode内蔵ターミナル → server-onlyモード（警告付き）
-
-# モードを明示的に指定
-xmake debugger -t <target> --interactive    # 強制対話型
-xmake debugger -t <target> --server-only   # 強制サーバーのみ
-xmake debugger -t <target> --vscode        # launch.json生成
-xmake debugger -t <target> --status        # サーバー状態確認
-```
-
-**自動判別ロジック**:
-1. CI環境 → `server-only`
-2. VSCode内蔵ターミナル → `server-only-with-warning` + 代替案提示
-3. パイプ/リダイレクト → `server-only`
-4. 安全なTTY → `interactive`
-
-**VSCodeでの使用例**:
-```bash
-# 方法1: launch.json生成（推奨）
-xmake debugger -t umibench_stm32f4_renode --vscode
-# → VSCodeでF5押下でデバッグ開始
-
-# 方法2: GDBサーバーを起動してから別ターミナルで接続
-xmake debugger -t umibench_stm32f4_renode
-# → 別ターミナルで: arm-none-eabi-gdb -ex "target remote localhost:3333"
-```
-
-**サーバー管理**:
-```bash
-# サーバー状態確認（状態ファイルまたはポート監視でチェック）
-xmake debugger -t <target> --status
-
-# サーバー停止（状態ファイルまたはプロセス名でkill）
-xmake debugger -t <target> --kill
-
-# 孤立プロセスのクリーンアップ
-xmake debugger.cleanup
-```
-
-**注意事項**:
-- GDBサーバー（PyOCD/OpenOCD）はバックグラウンドプロセスとして起動されます
-- サーバーのログは `/tmp/gdbserver_<port>.log` に出力されます
-- 状態ファイルは `/tmp/xmake_gdb_server.pid` に保存されます
-- `--status` と `--kill` はフォールバック機能があり、状態ファイルがなくてもポート監視で動作します
-
-### 実行統計
-
-```
-総コマンド数: 40+
-├─ xmake標準: 1 (test)
-├─ 非対話型実行成功: 19
-├─ 対話型実働確認: 7
-├─ 条件付き対応: 2
-└─ ドキュメント化完了: 100%
-```
-
----
-
-*最終更新: 2026-02-05*
-*対象リポジトリ: `.refs/arm-embedded-xmake-repo` (packages/a/arm-embedded/plugins/)*
+*最終更新: 2026-02-07*

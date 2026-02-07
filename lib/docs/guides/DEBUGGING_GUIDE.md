@@ -366,12 +366,9 @@ sox test.wav -n stats
 
 ### サンプルレート変更 (macOS)
 
-macOS CoreAudio API を ctypes で呼び出してサンプルレートを変更できます。実装は `tools/set_sample_rate.py` を参照してください。
+macOS CoreAudio API を ctypes で呼び出してサンプルレートを変更できます。
 
 ```bash
-# サンプルレート変更
-python3 tools/set_sample_rate.py <RATE>    # 例: 48000, 96000
-
 # 音声再生テスト
 afplay /System/Library/Sounds/Ping.aiff
 say "one two three four five"
