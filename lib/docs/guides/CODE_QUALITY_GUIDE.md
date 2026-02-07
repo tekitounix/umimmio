@@ -1,7 +1,7 @@
 # Clang ツール設定ガイド
 
-**場所**: `lib/docs/CLANG_TOOLING.md`  
-**関連**: `CLAUDE.md`, `CODING_STYLE.md`
+**場所**: `lib/docs/guides/CODE_QUALITY_GUIDE.md`
+**関連**: `CLAUDE.md`, `CODING_RULE.md`
 
 ---
 
@@ -253,6 +253,6 @@ xmake coding --info                  # 現在の設定を表示
 
 ## 関連項目
 
-- `CODING_STYLE.md` - 命名規則とスタイル規則
+- [Coding Rule](../standards/CODING_RULE.md) - 命名規則とスタイル規則
 - `CLAUDE.md` - プロジェクトのコーディングガイドライン
 - `.refs/arm-embedded-xmake-repo/docs/ARM_EMBEDDED_STATUS.md` - arm-embedded パッケージの状態

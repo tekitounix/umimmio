@@ -845,6 +845,6 @@ say "audio test"
 
 ## 関連ドキュメント
 
-- [TESTING.md](TESTING.md) - テスト戦略
-- [CODING_STYLE.md](CODING_STYLE.md) - コーディングスタイル
-- [LIBRARY_STRUCTURE.md](LIBRARY_STRUCTURE.md) - ライブラリ構造規約
+- [Testing Guide](TESTING_GUIDE.md) - テスト戦略
+- [Coding Rule](../standards/CODING_RULE.md) - コーディングスタイル
+- [Library Spec](../standards/LIBRARY_SPEC.md) - ライブラリ構造規約
