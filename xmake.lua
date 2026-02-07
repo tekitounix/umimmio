@@ -1,4 +1,6 @@
 set_project("umi")
+-- Version source of truth: git tags (vX.Y.Z).
+-- This value is updated automatically by `xmake release --ver=X.Y.Z`.
 set_version("0.2.0")
 set_xmakever("2.8.0")
 

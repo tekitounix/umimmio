@@ -276,16 +276,12 @@ target_end()
 全ライブラリは同一バージョン。git タグ (`vX.Y.Z`) が唯一のバージョンソース。
 
 ```lua
--- ルート xmake.lua でのバージョン取得
-local function get_version()
-    local ok, ver = pcall(os.iorunv, "git", {"describe", "--tags", "--abbrev=0", "--match=v*"})
-    if ok and ver then
-        return ver:match("v(.+)") or "0.0.0-dev"
-    end
-    return "0.0.0-dev"
-end
-set_version(get_version())
+-- ルート xmake.lua
+-- この値は `xmake release --ver=X.Y.Z` が自動更新する
+set_version("X.Y.Z")
 ```
+
+開発中はリリース時の値がそのまま残る。次のリリースで自動更新される。
 
 ### 6.2 リリースフロー
 
