@@ -1,5 +1,6 @@
 # Build outputs
 build/
+**/.build/
 
 # WASM build artifacts in examples
 examples/**/*.wasm
@@ -26,23 +27,16 @@ examples/**/webhost_sim.js
 
 # Build artifacts
 compile_commands.json
-.tmp/
-
-# Library build caches
-lib/**/.build/
 
 # Editor backups
 *~
 *.swp
-examples/testbench/wasm
 
-# Archive (legacy code)
-archive/
-
-# Tools (xmake packages, toolchains)
-.tools/
+# Development references (local clones for study)
 .refs/
-lib/umidsp/include/filter_ref/
 
-# Third-party libraries
+# Python virtual environments
+.venv/
+
+# Third-party libraries (not part of the project)
 third_party/
