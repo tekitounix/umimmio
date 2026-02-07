@@ -1,8 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
 /// @file bitbang_spi.hh
-/// @brief Bit-bang SPI transport implementation
+/// @brief Bit-bang SPI transport implementation (mode 0, MSB first).
 /// @author Shota Moriguchi @tekitounix
-/// @date 2025
-/// @license MIT
 
 #pragma once
 
@@ -10,20 +10,28 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
 
 #include "../register.hh"
 
-namespace umi {
-namespace mmio {
+namespace umi::mmio {
 
-// Bit-bang SPI transport (mode 0, MSB first)
-// Requirements for Pins:
-//   void cs_low() noexcept; void cs_high() noexcept;
-//   void sck_low() noexcept; void sck_high() noexcept;
-//   void mosi_high() noexcept; void mosi_low() noexcept;
-//   bool miso_read() noexcept;
-//   void delay() noexcept;
-
+/// @brief Bit-bang SPI transport (mode 0, MSB first) via GPIO pins.
+///
+/// Implements software SPI by driving CS/SCK/MOSI and reading MISO through
+/// a GPIO pin abstraction. Address bytes carry read/write command bits.
+///
+/// @tparam Pins        GPIO abstraction providing cs/sck/mosi/miso control.
+/// @tparam CheckPolicy Enable runtime range checks.
+/// @tparam ErrorPolicy Error handler (default: AssertOnError).
+/// @tparam AddressType Register address type (uint8_t or uint16_t).
+/// @tparam AddrEndian  Address byte order on the wire.
+/// @tparam DataEndian  Data byte order on the wire.
+/// @tparam ReadBit     Bit ORed into address byte for reads (default: 0x80).
+/// @tparam CmdMask     Mask applied to address byte before OR (default: 0x7F).
+/// @tparam WriteBit    Bit ORed into address byte for writes (default: 0x00).
+/// @note Pins must provide: cs_low(), cs_high(), sck_low(), sck_high(),
+///       mosi_high(), mosi_low(), miso_read() -> bool, delay().
 template <typename Pins,
           typename CheckPolicy = std::true_type,
           typename ErrorPolicy = AssertOnError,
@@ -51,8 +59,14 @@ class BitBangSpiTransport : public ByteAdapter<BitBangSpiTransport<Pins,
   public:
     using TransportTag = SPITransportTag;
 
+    /// @brief Construct a bit-bang SPI transport.
+    /// @param p Reference to GPIO pin abstraction.
     explicit BitBangSpiTransport(Pins& p) noexcept : pins(p) {}
 
+    /// @brief Write raw bytes to a register address via bit-bang SPI.
+    /// @param reg_addr Register address (WriteBit is ORed in).
+    /// @param data     Pointer to data bytes.
+    /// @param size     Number of data bytes (max 8).
     void raw_write(AddressType reg_addr, const void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressType);
         static_assert(addr_size == 1 || addr_size == 2, "AddressType must be 8 or 16 bit");
@@ -80,6 +94,10 @@ class BitBangSpiTransport : public ByteAdapter<BitBangSpiTransport<Pins,
         pins.cs_high();
     }
 
+    /// @brief Read raw bytes from a register address via bit-bang SPI.
+    /// @param reg_addr Register address (ReadBit is ORed in).
+    /// @param data     Pointer to receive buffer.
+    /// @param size     Number of bytes to read (max 8).
     void raw_read(AddressType reg_addr, void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressType);
         static_assert(addr_size == 1 || addr_size == 2, "AddressType must be 8 or 16 bit");
@@ -111,6 +129,9 @@ class BitBangSpiTransport : public ByteAdapter<BitBangSpiTransport<Pins,
     }
 
   private:
+    /// @brief Transfer one byte full-duplex (mode 0, MSB first).
+    /// @param tx Byte to transmit.
+    /// @return Byte received from MISO.
     std::uint8_t transfer_byte(std::uint8_t tx, [[maybe_unused]] std::uint8_t* rx) const noexcept {
         std::uint8_t value = 0;
         for (int i = 7; i >= 0; --i) {
@@ -131,5 +152,4 @@ class BitBangSpiTransport : public ByteAdapter<BitBangSpiTransport<Pins,
     }
 };
 
-} // namespace mmio
-} // namespace umi
+} // namespace umi::mmio

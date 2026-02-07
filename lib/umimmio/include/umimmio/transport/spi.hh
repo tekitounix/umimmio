@@ -1,8 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
 /// @file spi.hh
-/// @brief SPI transport implementation
+/// @brief SPI transport implementation for byte-addressed devices.
 /// @author Shota Moriguchi @tekitounix
-/// @date 2025
-/// @license MIT
 
 #pragma once
 
@@ -10,16 +10,26 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
 
 #include "../register.hh"
 
-namespace umi {
-namespace mmio {
+namespace umi::mmio {
 
-// SPI Transport for byte-addressed devices
-// Requirements for SpiDevice:
-//   void transfer(const std::uint8_t* tx, std::uint8_t* rx, std::size_t size) noexcept;
-
+/// @brief SPI register transport for byte-addressed devices.
+///
+/// Uses a HAL SPI driver with full-duplex transfer(). Address bytes carry
+/// read/write command bits controlled by ReadBit, WriteBit, and CmdMask.
+///
+/// @tparam SpiDevice   HAL driver type providing transfer(tx, rx, size).
+/// @tparam CheckPolicy Enable runtime range checks.
+/// @tparam ErrorPolicy Error handler (default: AssertOnError).
+/// @tparam AddressType Register address type (uint8_t or uint16_t).
+/// @tparam AddrEndian  Address byte order on the wire.
+/// @tparam DataEndian  Data byte order on the wire.
+/// @tparam ReadBit     Bit ORed into address byte for reads (default: 0x80).
+/// @tparam CmdMask     Mask applied to address byte before OR (default: 0x7F).
+/// @tparam WriteBit    Bit ORed into address byte for writes (default: 0x00).
 template <typename SpiDevice,
           typename CheckPolicy = std::true_type,
           typename ErrorPolicy = AssertOnError,
@@ -47,8 +57,14 @@ class SpiTransport : public ByteAdapter<SpiTransport<SpiDevice,
   public:
     using TransportTag = SPITransportTag;
 
+    /// @brief Construct an SPI transport bound to a HAL device.
+    /// @param dev Reference to the HAL SPI driver.
     explicit SpiTransport(SpiDevice& dev) noexcept : device(dev) {}
 
+    /// @brief Write raw bytes to a register address over SPI.
+    /// @param reg_addr Register address (WriteBit is ORed in).
+    /// @param data     Pointer to data bytes.
+    /// @param size     Number of data bytes (max 8).
     void raw_write(AddressType reg_addr, const void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressType);
         static_assert(addr_size == 1 || addr_size == 2, "AddressType must be 8 or 16 bit");
@@ -72,6 +88,10 @@ class SpiTransport : public ByteAdapter<SpiTransport<SpiDevice,
         device.transfer(tx_buf.data(), nullptr, addr_size + size);
     }
 
+    /// @brief Read raw bytes from a register address over SPI.
+    /// @param reg_addr Register address (ReadBit is ORed in).
+    /// @param data     Pointer to receive buffer.
+    /// @param size     Number of bytes to read (max 8).
     void raw_read(AddressType reg_addr, void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressType);
         static_assert(addr_size == 1 || addr_size == 2, "AddressType must be 8 or 16 bit");
@@ -97,5 +117,4 @@ class SpiTransport : public ByteAdapter<SpiTransport<SpiDevice,
     }
 };
 
-} // namespace mmio
-} // namespace umi
+} // namespace umi::mmio

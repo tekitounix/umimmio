@@ -1,8 +1,8 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
 /// @file bitbang_i2c.hh
-/// @brief Bit-bang I2C transport implementation
+/// @brief Bit-bang I2C transport implementation via GPIO.
 /// @author Shota Moriguchi @tekitounix
-/// @date 2025
-/// @license MIT
 
 #pragma once
 
@@ -10,19 +10,25 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
 
 #include "../register.hh"
 
-namespace umi {
-namespace mmio {
+namespace umi::mmio {
 
-// Bit-bang I2C transport
-// Requirements for Gpio:
-//   void scl_high() noexcept; void scl_low() noexcept;
-//   void sda_high() noexcept; void sda_low() noexcept;
-//   bool sda_read() noexcept; // read SDA line
-//   void delay() noexcept;    // short delay for timing
-
+/// @brief Bit-bang I2C transport via GPIO pins.
+///
+/// Implements software I2C by driving SCL/SDA through a GPIO abstraction.
+/// Supports configurable address/data endianness and error policies.
+///
+/// @tparam Gpio        GPIO abstraction providing scl/sda high/low, sda_read, delay.
+/// @tparam CheckPolicy Enable runtime range checks.
+/// @tparam ErrorPolicy Error handler (default: AssertOnError).
+/// @tparam AddressType Register address type (uint8_t or uint16_t).
+/// @tparam AddrEndian  Address byte order on the wire.
+/// @tparam DataEndian  Data byte order on the wire.
+/// @note Gpio must provide: scl_high(), scl_low(), sda_high(), sda_low(),
+///       sda_read() -> bool, delay().
 template <typename Gpio,
           typename CheckPolicy = std::true_type,
           typename ErrorPolicy = AssertOnError,
@@ -41,8 +47,15 @@ class BitBangI2cTransport
   public:
     using TransportTag = I2CTransportTag;
 
+    /// @brief Construct a bit-bang I2C transport.
+    /// @param g    Reference to GPIO abstraction.
+    /// @param addr 7-bit device address (left-shifted by 1).
     BitBangI2cTransport(Gpio& g, std::uint8_t addr) noexcept : gpio(g), device_addr(addr) {}
 
+    /// @brief Write raw bytes to a register address via bit-bang I2C.
+    /// @param reg_addr Register address.
+    /// @param data     Pointer to data bytes.
+    /// @param size     Number of data bytes (max 8).
     void raw_write(AddressType reg_addr, const void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressType);
         static_assert(addr_size == 1 || addr_size == 2, "AddressType must be 8 or 16 bit");
@@ -85,6 +98,10 @@ class BitBangI2cTransport
         stop();
     }
 
+    /// @brief Read raw bytes from a register address via bit-bang I2C.
+    /// @param reg_addr Register address.
+    /// @param data     Pointer to receive buffer.
+    /// @param size     Number of bytes to read (max 8).
     void raw_read(AddressType reg_addr, void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressType);
         static_assert(addr_size == 1 || addr_size == 2, "AddressType must be 8 or 16 bit");
@@ -131,6 +148,7 @@ class BitBangI2cTransport
     }
 
   private:
+    /// @brief Generate I2C START condition (SDA falls while SCL is high).
     void start() const noexcept {
         gpio.sda_high();
         gpio.scl_high();
@@ -140,6 +158,7 @@ class BitBangI2cTransport
         gpio.scl_low();
     }
 
+    /// @brief Generate I2C STOP condition (SDA rises while SCL is high).
     void stop() const noexcept {
         gpio.sda_low();
         gpio.delay();
@@ -149,6 +168,8 @@ class BitBangI2cTransport
         gpio.delay();
     }
 
+    /// @brief Transmit one byte MSB-first and check ACK.
+    /// @return true if ACK received, false on NACK.
     bool write_byte(std::uint8_t byte) const noexcept {
         for (int i = 7; i >= 0; --i) {
             if ((byte & (1u << i)) != 0) {
@@ -170,6 +191,9 @@ class BitBangI2cTransport
         return ack;
     }
 
+    /// @brief Receive one byte MSB-first, sending ACK or NACK.
+    /// @param ack true to send ACK (more bytes to follow), false for NACK (last byte).
+    /// @return Received byte value.
     std::uint8_t read_byte(bool ack) const noexcept {
         std::uint8_t byte = 0;
         gpio.sda_high(); // release
@@ -196,5 +220,4 @@ class BitBangI2cTransport
     }
 };
 
-} // namespace mmio
-} // namespace umi
+} // namespace umi::mmio

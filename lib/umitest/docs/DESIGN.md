@@ -1,70 +1,245 @@
-# umitest 設計ドキュメント
+# umitest Design
 
-## 目的
+[Docs Home](INDEX.md) | [日本語](ja/DESIGN.md)
 
-マクロ不使用の軽量テストフレームワークを提供する。
+## 1. Vision
 
-## 設計思想
+`umitest` is a zero-macro, header-only test framework for C++23:
 
-### マクロゼロ
+1. Test code is written as ordinary C++ functions returning `bool`.
+2. No preprocessor macros — `std::source_location` replaces `__FILE__`/`__LINE__`.
+3. No external build dependencies — include and use.
+4. Works on host, WASM, and embedded targets without modification.
+5. Output is human-readable colored terminal text suitable for CI logs.
 
-- プリプロセッサマクロを一切使用しない
-- すべての機能は型安全なC++コードで実現
-- `std::source_location` でファイル名・行番号を自動取得
+---
 
-### ヘッダオンリー
+## 2. Non-Negotiable Requirements
 
-- ビルド設定不要
-- インクルードするだけで使用可能
-- リンク時のオーバーヘッドなし
+### 2.1 No Macros
 
-## 主要コンポーネント
+Every assertion is a regular function call. There is no `ASSERT_EQ` or `TEST_CASE` macro.
+Source location is captured via default arguments using `std::source_location::current()`.
 
-| コンポーネント | 説明 | ファイル |
-|--------------|------|---------|
-| Suite | テストスイート管理 | `umitest.hh` |
-| TestContext | アサーション群 | `umitest.hh` |
+### 2.2 Header-Only
 
-## API設計
+The entire framework consists of header files under `include/umitest/`.
+No static libraries, no link-time registration, no code generation.
 
-### Suite
+### 2.3 No Heap Allocation
 
-テストスイートはテストケースの集まり。統計情報を管理し、結果を出力する。
+All internal state uses stack or static storage.
+This ensures compatibility with bare-metal environments where dynamic allocation may be unavailable.
 
-```cpp
-Suite s("test_name");
-s.run("test_case_name", test_function);
-return s.summary();  // 0 = 成功, 1 = 失敗
+### 2.4 No Exceptions
+
+Assertions do not throw. Test functions return `bool`.
+TestContext tracks failure state internally via `mark_failed()`.
+
+### 2.5 Dependency Boundaries
+
+Layering is strict:
+
+1. `umitest` depends only on C++23 standard library headers.
+2. No dependency on other umi libraries.
+3. Other umi libraries depend on `umitest` for testing (test-time only).
+
+Reference dependency graph:
+
+```text
+umibench/tests -> umitest
+umimmio/tests  -> umitest
+umirtm/tests   -> umitest
+umitest/tests  -> umitest (self-test)
 ```
 
-### TestContext
+---
 
-テスト関数内でアサーションを行うためのコンテキスト。
+## 3. Current Layout
+
+```text
+lib/umitest/
+├── README.md
+├── xmake.lua
+├── docs/
+│   ├── INDEX.md
+│   ├── DESIGN.md
+│   ├── GETTING_STARTED.md
+│   ├── USAGE.md
+│   ├── EXAMPLES.md
+│   ├── TESTING.md
+│   └── ja/
+├── examples/
+│   ├── minimal.cc
+│   ├── assertions.cc
+│   └── check_style.cc
+├── include/umitest/
+│   ├── test.hh          # Umbrella header
+│   ├── suite.hh         # Suite class + TestContext impl
+│   ├── context.hh       # TestContext declaration
+│   └── format.hh        # format_value for diagnostic output
+└── tests/
+    ├── test_main.cc
+    ├── test_assertions.cc
+    ├── test_format.cc
+    ├── test_suite_workflow.cc
+    └── xmake.lua
+```
+
+---
+
+## 4. Growth Layout
+
+```text
+lib/umitest/
+├── include/umitest/
+│   ├── test.hh
+│   ├── suite.hh
+│   ├── context.hh
+│   ├── format.hh
+│   └── matchers.hh       # Future: composable matchers (contains, starts_with)
+├── examples/
+│   ├── minimal.cc
+│   ├── assertions.cc
+│   ├── check_style.cc
+│   └── matchers.cc        # Future: matcher usage demo
+└── tests/
+    ├── test_main.cc
+    ├── test_*.cc
+    └── xmake.lua
+```
+
+Notes:
+
+1. Public headers stay under `include/umitest/`.
+2. Future matchers are opt-in via separate header — no bloat on minimal usage.
+3. Suite and TestContext remain the only two user-facing types.
+
+---
+
+## 5. Programming Model
+
+### 5.1 Minimal Path
+
+Required minimal flow:
+
+1. Construct `Suite`.
+2. Define test function taking `TestContext&` and returning `bool`.
+3. Call `suite.run("name", fn)`.
+4. Return `suite.summary()` from `main`.
+
+### 5.2 Two Testing Styles
+
+**Structured style** (with `TestContext`):
 
 ```cpp
-bool test_add(TestContext& t) {
+bool test_foo(TestContext& t) {
     t.assert_eq(1 + 1, 2);
-    t.assert_true(condition);
-    return true;  // 成功時はtrueを返す
+    return true;
 }
+
+Suite s("foo");
+s.run("test_foo", test_foo);
 ```
 
-## 依存関係
+**Inline style** (direct `check_*` on Suite):
 
-- C++23標準ライブラリのみ
-  - `<cstdio>` - 出力
-  - `<source_location>` - ソース位置情報
-  - `<type_traits>` - 型特性
+```cpp
+Suite s("bar");
+s.section("arithmetic");
+s.check_eq(1 + 1, 2);
+s.check_ne(1, 2);
+return s.summary();
+```
 
-## 制約
+### 5.3 Advanced Path
 
-- 例外を使用しない（組み込み環境向け）
-- ヒープ割り当てを行わない
+Advanced usage includes:
 
-## 命名規約
+1. `section()` for logical grouping within output,
+2. `check_near()` / `assert_near()` for floating-point comparison,
+3. custom `format_value` specializations for user types,
+4. multiple Suites in a single test binary for independent statistics.
 
-| 要素 | 命名規則 | 例 |
-|------|---------|-----|
-| クラス | CamelCase | `Suite`, `TestContext` |
-| 関数 | snake_case | `assert_eq`, `assert_true` |
-| 変数 | snake_case | `passed`, `failed` |
+---
+
+## 6. Assertion Semantics
+
+### 6.1 TestContext Assertions
+
+All `assert_*` methods on TestContext:
+
+1. Return `bool` — `true` if the assertion passed, `false` if it failed.
+2. On failure, call `mark_failed()` to set the context failure flag.
+3. On failure, print source location and compared values to stdout.
+4. Do NOT throw, abort, or longjmp. Test execution continues.
+
+### 6.2 Suite Inline Checks
+
+All `check_*` methods on Suite:
+
+1. Return `bool` — same semantics as assertions.
+2. Directly increment the `passed` or `failed` counter.
+3. No TestContext is involved; simpler for quick checks.
+
+### 6.3 Value Formatting
+
+`format_value<T>` converts values to human-readable strings for failure messages.
+Supported types: integral, floating-point, bool, char, const char*, std::string_view, std::nullptr_t, and pointer types.
+
+---
+
+## 7. Output Model
+
+### 7.1 Human-Readable Report
+
+Terminal output with ANSI color codes:
+
+1. Section headers in cyan.
+2. Pass results in green (`OK`).
+3. Fail results in red (`FAIL`) with source location.
+4. Summary line with total pass/fail counts.
+
+### 7.2 Exit Code Convention
+
+`summary()` returns `0` if all tests passed, `1` if any failed.
+This is compatible with CI pipelines and `xmake test`.
+
+---
+
+## 8. Test Strategy
+
+1. umitest is self-testing: `tests/` use umitest itself to verify behavior.
+2. Test files are split by concern: assertions, format, suite workflow.
+3. All tests run on host via `xmake test`.
+4. Tests focus on semantic correctness, not timing.
+5. CI runs host tests on all supported platforms.
+
+---
+
+## 9. Example Strategy
+
+Examples represent learning stages:
+
+1. `minimal`: shortest complete test.
+2. `assertions`: all assertion methods demonstrated.
+3. `check_style`: sections and inline check style.
+
+---
+
+## 10. Near-Term Improvement Plan
+
+1. Add composable matchers for string/container checks.
+2. Add compile-fail test for read-only assertions if applicable.
+3. Expand `format_value` for user-defined types via ADL customization point.
+4. Add benchmarking integration example (umitest + umibench combined).
+
+---
+
+## 11. Design Principles
+
+1. Zero macros — all functionality via regular C++ functions.
+2. Header-only — include and use, no build step.
+3. Embedded-safe — no heap, no exceptions, no RTTI.
+4. Explicit failure location — `std::source_location` in every assertion.
+5. Two styles, one framework — structured (TestContext) and inline (Suite checks) coexist.

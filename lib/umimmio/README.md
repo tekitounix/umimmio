@@ -1,45 +1,68 @@
-# umimmio - UMI Memory-mapped I/O library
+# umimmio
 
-組み込み向けMMIO（Memory-mapped I/O）抽象化ライブラリ。
+English | [日本語](docs/ja/README.md)
 
-## 特徴
+`umimmio` is a type-safe, zero-cost memory-mapped I/O library for C++23.
+It lets you define register maps at compile time and access them through direct MMIO, I2C, or SPI transports with the same API.
 
-- ヘッダオンリー
-- レジスタアクセスの型安全な抽象化
-- ビットフィールド操作
-- 複数トランスポート対応（Direct, I2C, SPI）
+## Release Status
 
-## 依存関係
+- Current version: `0.1.0`
+- Stability: initial release
+- Versioning policy: [`RELEASE.md`](RELEASE.md)
+- Changelog: [`CHANGELOG.md`](CHANGELOG.md)
 
-なし
+## Why umimmio
 
-## 主要API
+- Type-safe registers — compile-time verified access policies (RW/RO/WO)
+- Zero-cost bit field operations — all dispatch resolved at compile time
+- Multiple transports — Direct MMIO, I2C, SPI, and bitbang variants
+- Policy-based error handling — assert, trap, ignore, or custom callback
+- Compile-fail guards — illegal access is rejected at compile time
 
-- `Register<T>` — 型付きレジスタアクセス
-- `BitField` — ビットフィールド操作
-- `MMIO` — メモリマップドI/O抽象化
-
-## クイックスタート
+## Quick Start
 
 ```cpp
 #include <umimmio/mmio.hh>
+using namespace umi::mmio;
 
-// レジスタ定義
-using ControlReg = umimmio::Register<uint32_t, 0x40000000>;
+struct MyDevice : Device<RW> {
+    static constexpr Addr base_address = 0x4000'0000;
+};
 
-// 読み書き
-auto value = ControlReg::read();
-ControlReg::write(value | 0x1);
+using CTRL = Register<MyDevice, 0x00, 32>;
+using EN   = Field<CTRL, 0, 1>;
+
+DirectTransport<> io;
+io.write(EN::Set{});          // set bit 0
+auto val = io.read(EN{});     // read bit 0
+io.flip(EN{});                // toggle bit 0
 ```
 
-## ビルド・テスト
+## Build and Test
 
 ```bash
-xmake build umimmio
 xmake build test_umimmio
-xmake run test_umimmio
+xmake test "test_umimmio/*"
 ```
 
-## ライセンス
+## Documentation
 
-MIT
+- Documentation index (recommended entry): [`docs/INDEX.md`](docs/INDEX.md)
+- Getting started: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)
+- Detailed usage: [`docs/USAGE.md`](docs/USAGE.md)
+- Testing and quality gates: [`docs/TESTING.md`](docs/TESTING.md)
+- Example guide: [`docs/EXAMPLES.md`](docs/EXAMPLES.md)
+- Design note: [`docs/DESIGN.md`](docs/DESIGN.md)
+
+Japanese versions are available under [`docs/ja/`](docs/ja/README.md).
+
+Generate Doxygen HTML locally:
+
+```bash
+xmake doxygen -P . -o build/doxygen .
+```
+
+## License
+
+MIT (`LICENSE`)
