@@ -211,7 +211,7 @@ target_end()
 
 ### 実行タイミング
 
-- **push**: master, main, develop ブランチへのプッシュ時
+- **push**: main, develop ブランチへのプッシュ時
 - **PR**: 上記ブランチへのPR作成/更新時
 
 ---

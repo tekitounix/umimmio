@@ -319,7 +319,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main, master, develop]
+    branches: [main, develop]
   pull_request:
 
 jobs:
@@ -411,7 +411,7 @@ name: <libname> Doxygen
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
 
 jobs:

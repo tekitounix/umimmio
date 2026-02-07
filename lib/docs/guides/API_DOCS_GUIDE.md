@@ -123,7 +123,7 @@ name: <libname> Doxygen
 on:
   workflow_dispatch:
   push:
-    branches: [main, master, develop]
+    branches: [main, develop]
     paths:
       - "lib/<libname>/**"
       - ".github/workflows/<libname>-doxygen.yml"
