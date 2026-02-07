@@ -1,7 +1,6 @@
-# Clang ツール設定ガイド
+# コード品質ガイド
 
-**場所**: `lib/docs/guides/CODE_QUALITY_GUIDE.md`
-**関連**: `CLAUDE.md`, `CODING_RULE.md`
+**関連**: `CLAUDE.md`, [Coding Rule](../standards/CODING_RULE.md)
 
 ---
 
