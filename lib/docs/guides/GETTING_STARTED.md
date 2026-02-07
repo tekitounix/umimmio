@@ -20,8 +20,6 @@ umibench をそのままコピーするのではなく、**段階的に育てる
 ```
 lib/<libname>/
 ├── README.md
-├── LICENSE
-├── VERSION
 ├── xmake.lua
 ├── include/<libname>/
 │   └── <libname>.hh       # 統合ヘッダ（最小でも1つ）
@@ -30,44 +28,25 @@ lib/<libname>/
     └── test_<libname>.cc   # テスト1件以上
 ```
 
-### 1.2 LICENSE
+> **NOTE**: LICENSE, VERSION, CHANGELOG.md は per-lib に置かない。
+> ルート `/LICENSE` と git タグで一元管理する。
+> 詳細は [Library Standard §2.3](../standards/LIBRARY_SPEC.md) 参照。
 
-```
-MIT License
-
-Copyright (c) <year> SYNTHERNET (@tekitounix)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-...
-```
-
-著作権表記規約の詳細は [Library Standard §5.5](../standards/LIBRARY_SPEC.md) を参照。
-
-### 1.3 VERSION
-
-```
-0.1.0
-```
-
-### 1.4 xmake.lua（最小版）
+### 1.2 xmake.lua（最小版）
 
 standalone_repo 判定パターンが重要。モノレポ内とスタンドアロンの両方で動作する。
 
 ```lua
 -- standalone_repo 判定: lib/<libname>/ 単体で動作させるかどうか
 local standalone_repo = os.projectdir() == os.scriptdir()
-<LIBNAME>_STANDALONE_REPO = standalone_repo
 
 if standalone_repo then
     set_project("<libname>")
-    set_version("0.1.0")
     set_xmakever("2.8.0")
     set_languages("c++23")
     add_rules("mode.debug", "mode.release")
     add_rules("plugin.compile_commands.autoupdate", {outputdir = ".", lsp = "clangd"})
     set_warnings("all", "extra", "error")
-
-    -- 依存パッケージ（単体repo時のみ）
     add_requires("umitest", {optional = true})
 end
 
@@ -97,7 +76,7 @@ target_end()
 includes("tests")
 ```
 
-### 1.5 tests/xmake.lua（最小版）
+### 1.3 tests/xmake.lua（最小版）
 
 ```lua
 target("test_<libname>")
@@ -111,7 +90,7 @@ target("test_<libname>")
 target_end()
 ```
 
-### 1.6 最小テスト
+### 1.4 最小テスト
 
 ```cpp
 // SPDX-License-Identifier: MIT
@@ -131,7 +110,7 @@ int main() {
 }
 ```
 
-### 1.7 README.md（最小版）
+### 1.5 README.md（最小版）
 
 ```markdown
 # <libname>
@@ -144,7 +123,7 @@ int main() {
 
 ## License
 
-MIT — See [LICENSE](LICENSE)
+MIT — See [LICENSE](../../LICENSE)
 ```
 
 ### Phase 1 検証
@@ -163,115 +142,81 @@ xmake test    # test_<libname> がパスすること
 
 ```
 lib/<libname>/
-├── README.en.md              # 英語版（READMEが日本語なら）
-├── Doxyfile                  # 最小 Doxygen 設定
-├── .gitignore
-├── docs/
-│   ├── INDEX.md              # ドキュメント入口
-│   ├── DESIGN.md             # 設計思想（8章構成）
-│   └── TESTING.md            # テスト戦略
+├── Doxyfile                  # @INCLUDE base + 固有設定
+└── docs/
+    └── DESIGN.md             # 設計・API仕様・テスト戦略（統合ドキュメント）
 ```
 
-### Doxyfile（最小版）
+### Doxyfile
 
 ```
+@INCLUDE               = ../docs/Doxyfile.base
 PROJECT_NAME           = "<libname>"
-PROJECT_NUMBER         = "0.1.0"
-OUTPUT_DIRECTORY       = build/doxygen
-INPUT                  = README.md include
-FILE_PATTERNS          = *.hh *.md
-RECURSIVE              = YES
-EXTRACT_ALL            = NO
-WARN_IF_UNDOCUMENTED   = YES
-GENERATE_LATEX         = NO
+PROJECT_NUMBER         = "0.0.0-dev"
+PROJECT_BRIEF          = "<1行の説明>"
 ```
 
+`PROJECT_NUMBER` は `xmake release` 実行時に自動更新される。
 Doxygen 運用の詳細は [API Docs ガイド](API_DOCS_GUIDE.md) を参照。
 
-### .gitignore
-
-> **モノレポ注記**: umi モノレポ内ではルートの `.gitignore` がカバーするため不要。
-> standalone リポジトリとして切り出す場合のみ作成する。
-
-```
-build/
-.xmake/
-compile_commands.json
-```
-
-### docs/INDEX.md テンプレート
-
-```markdown
-# <libname> Documentation
-
-## Read in This Order
-
-1. [Design](DESIGN.md)
-2. [Testing](TESTING.md)
-
-## API Reference Map
-
-- Public entrypoint: `include/<libname>/<libname>.hh`
-
-## Local Doxygen Generation
-
-    cd lib/<libname>
-    doxygen Doxyfile
-    open build/doxygen/html/index.html
-```
-
 ### docs/DESIGN.md テンプレート
+
+旧来の INDEX.md, TESTING.md, USAGE.md, EXAMPLES.md, PLATFORMS.md を統合する
+ライブラリ唯一の設計ドキュメント:
 
 ```markdown
 # <libname> Design
 
 ## 1. Vision
 ## 2. Non-Negotiable Requirements
-## 3. Current Layout
-## 4. Growth Layout
-## 5. Programming Model
-## 6. API Specification
-## 7. Test Strategy
-## 8. Design Principles
+## 3. Architecture
+## 4. Programming Model
+## 5. API Specification
+## 6. Test Strategy
+## 7. Design Principles
 ```
 
 全章を埋める必要はない。最低限 §1 Vision と §2 Requirements を書く。
 
-### docs/TESTING.md テンプレート
+### README.md 拡充
+
+Phase 1 の最小 README を以下のテンプレートに合わせて拡充:
 
 ```markdown
-# <libname> Test Strategy
+# <libname>
 
-## Test Environment
+[日本語](docs/ja/README.md)
 
-| 環境 | ステータス |
-|------|-----------|
-| Host (macOS/Linux) | Active |
-| WASM (Emscripten + Node) | — |
-| ARM build | — |
-| ARM execution (Renode) | — |
+<1行の説明>
 
-## Running Tests
+## Why <libname>
+
+- 特徴1
+- 特徴2
+- 特徴3
+
+## Quick Start
+
+## Build and Test
 
     xmake test
 
-## Quality Gates
+## Public API
 
-- All tests pass on host
-- No compiler warnings (-Wall -Wextra -Werror)
+- Entrypoint: `include/<libname>/<libname>.hh`
+
+## Examples
+
+## Documentation
+
+- [Design & API](docs/DESIGN.md)
+- [Common Guides](../docs/INDEX.md)
+- API docs: `doxygen Doxyfile` → `build/doxygen/html/index.html`
+
+## License
+
+MIT — See [LICENSE](../../LICENSE)
 ```
-
-### README.md 拡充
-
-Phase 1 の最小 README に以下を追加:
-
-- Release Status セクション
-- Why セクション（特徴 3 点）
-- Quick Start コード例
-- Documentation リンク
-- Public Headers 一覧
-
-テンプレートは [Library Standard §5.1](../standards/LIBRARY_SPEC.md) を参照。
 
 ### Phase 2 検証
 
@@ -297,14 +242,10 @@ lib/<libname>/
 ├── tests/
 │   └── compile_fail/         # コンパイル失敗テスト
 │       └── fail_*.cc
-├── docs/
-│   ├── GETTING_STARTED.md    # 入門ガイド
-│   ├── USAGE.md              # 詳細使用法
-│   ├── EXAMPLES.md           # サンプル解説
-│   └── ja/                   # 日本語版
-│       ├── README.md
-│       ├── INDEX.md
-│       └── ...
+└── docs/
+    ├── DESIGN.md             # 全章を充実
+    └── ja/                   # 日本語版
+        └── README.md
 ```
 
 ### ヘッダの Doxygen コメント充実
@@ -335,27 +276,9 @@ target("test_<libname>_compile_fail")
     set_default(false)
     add_tests("<test_name>")
     on_test(function()
-        -- Library Standard §3.2 参照
+        -- Library Standard §5.2 参照
     end)
 target_end()
-```
-
-### Doxyfile 拡充
-
-最小版から以下を追加:
-
-```
-INPUT                  = README.md docs include examples tests
-WARN_IF_INCOMPLETE_DOC = YES
-HTML_COLORSTYLE        = AUTO_LIGHT
-HTML_COLORSTYLE_HUE    = 220
-HTML_COLORSTYLE_SAT    = 100
-HTML_COLORSTYLE_GAMMA  = 80
-HTML_CODE_FOLDING      = YES
-HTML_COPY_CLIPBOARD    = YES
-EXCLUDE                = build
-TAB_SIZE               = 4
-HAVE_DOT               = NO
 ```
 
 ### Phase 3 検証
@@ -370,76 +293,45 @@ doxygen Doxyfile                    # 警告ゼロ
 
 ## Phase 4: Release Ready
 
-**目標**: CI 完備、パッケージ登録済み、単体リポジトリとして公開可能。
+**目標**: CI 完備、パッケージ登録済み。
 
 ### 追加するファイル
 
 ```
 lib/<libname>/
-├── CHANGELOG.md
-├── RELEASE.md
-├── .github/                       # standalone時のみ（モノレポではルートCIがカバー）
-│   └── workflows/
-│       ├── <libname>-ci.yml
-│       └── <libname>-doxygen.yml
-├── platforms/                      # マルチプラットフォーム時
-│   ├── host/<libname>/platform.hh
-│   ├── wasm/
-│   │   ├── <libname>/platform.hh
-│   │   └── xmake.lua
-│   └── arm/cortex-m/<board>/
-│       ├── <libname>/platform.hh
-│       └── xmake.lua
+└── platforms/                      # マルチプラットフォーム時
+    ├── host/<libname>/platform.hh
+    ├── wasm/
+    │   ├── <libname>/platform.hh
+    │   └── xmake.lua
+    └── arm/cortex-m/<board>/
+        ├── <libname>/platform.hh
+        └── xmake.lua
 ```
 
-### CHANGELOG.md
+### release_config.lua 登録
 
-```markdown
-# Changelog
+ルートの `release_config.lua` にライブラリを追加:
 
-## [Unreleased]
+```lua
+-- libs セクション
+<libname> = {
+    publish = true,
+    headeronly = true
+},
 
-## [0.1.0] - <date>
-
-### Added
-- 初期リリース
+-- packages セクション
+<libname> = {
+    description = "...",
+    main_header = "<libname>/<libname>.hh"
+},
 ```
-
-### RELEASE.md
-
-```markdown
-# Release Policy
-
-## Current Release Line
-
-| Version | Status | Date |
-|---------|--------|------|
-| 0.1.0   | beta   | <date> |
-
-## Versioning
-
-Semantic Versioning (SemVer). 0.x はベータ: マイナーバージョンで破壊的変更あり。
-
-## Release Checklist
-
-1. VERSION 更新
-2. CHANGELOG.md 更新
-3. `xmake test` 全テスト通過
-4. git tag v<version>
-```
-
-### CI ワークフロー
-
-テンプレートは [Library Standard §4](../standards/LIBRARY_SPEC.md) を参照。
-
-### arm-embedded-xmake-repo パッケージ登録
-
-テンプレートは [Library Standard §6](../standards/LIBRARY_SPEC.md) を参照。
 
 ### Phase 4 検証
 
 ```bash
 xmake test                          # 全テスト通過（Host/WASM/ARM）
+xmake release --ver=X.Y.Z --dry-run  # リリース dry-run 正常
 # CI: GitHub Actions 全ジョブ green
 ```
 
@@ -452,25 +344,19 @@ xmake test                          # 全テスト通過（Host/WASM/ARM）
 | ファイル | Phase 1 | Phase 2 | Phase 3 | Phase 4 |
 |---------|:-------:|:-------:|:-------:|:-------:|
 | `README.md` | **必須** (最小) | 拡充 | — | — |
-| `LICENSE` | **必須** | — | — | — |
-| `VERSION` | **必須** | — | — | — |
 | `xmake.lua` | **必須** | — | — | 拡充 |
 | `include/<lib>/` | **必須** | — | Doxygen充実 | — |
 | `tests/` | **必須** (1件) | — | 充実 | — |
-| `Doxyfile` | — | **最小** | 拡充 | — |
-| `.gitignore` | — | standalone時 | — | — |
-| `docs/INDEX.md` | — | **必須** | — | — |
+| `Doxyfile` | — | **必須** | — | — |
 | `docs/DESIGN.md` | — | **必須** (§1-2) | 全章 | — |
-| `docs/TESTING.md` | — | **必須** | 拡充 | — |
-| `README.en.md` | — | 推奨 | — | — |
 | `examples/` | — | — | **3件+** | — |
 | `compile_fail/` | — | — | 推奨 | — |
-| `docs/ja/` | — | — | 推奨 | — |
-| `docs/USAGE.md` | — | — | 推奨 | — |
-| `CHANGELOG.md` | — | — | — | **必須** |
-| `RELEASE.md` | — | — | — | **必須** |
-| `.github/workflows/` | — | — | — | standalone時 |
+| `docs/ja/README.md` | — | — | 推奨 | — |
 | `platforms/` | — | — | — | 条件付き |
+| `release_config.lua` | — | — | — | 登録 |
+
+> 以下はモノレポルートまたはリリースパイプラインが管理するため、**per-lib に置かない**:
+> LICENSE, VERSION, CHANGELOG.md, RELEASE.md, .gitignore, .github/workflows/
 
 ---
 
@@ -480,4 +366,4 @@ xmake test                          # 全テスト通過（Host/WASM/ARM）
 - [Coding Rule](../standards/CODING_RULE.md) — コーディング規約
 - [API Comment Rule](../standards/API_COMMENT_RULE.md) — API コメント規約
 - [API Docs Guide](API_DOCS_GUIDE.md) — API ドキュメント生成・運用
-- [umibench](../../umibench/) — リファレンス実装（Phase 4 完了済み）
+- [umibench](../../umibench/) — リファレンス実装
