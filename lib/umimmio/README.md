@@ -1,16 +1,9 @@
 # umimmio
 
-English | [日本語](docs/ja/README.md)
+[日本語](docs/ja/README.md)
 
-`umimmio` is a type-safe, zero-cost memory-mapped I/O library for C++23.
-It lets you define register maps at compile time and access them through direct MMIO, I2C, or SPI transports with the same API.
-
-## Release Status
-
-- Current version: `0.1.0`
-- Stability: initial release
-- Versioning policy: [`RELEASE.md`](RELEASE.md)
-- Changelog: [`CHANGELOG.md`](CHANGELOG.md)
+A type-safe, zero-cost memory-mapped I/O library for C++23.
+Define register maps at compile time and access them through direct MMIO, I2C, or SPI transports with the same API.
 
 ## Why umimmio
 
@@ -42,27 +35,27 @@ io.flip(EN{});                // toggle bit 0
 ## Build and Test
 
 ```bash
-xmake build test_umimmio
-xmake test "test_umimmio/*"
+xmake test
 ```
+
+## Public API
+
+- Entrypoint: `include/umimmio/mmio.hh`
+- Core: `Region`, `Field`, `Value`, `Block`, `DirectTransport`
+- Transports: `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
+
+## Examples
+
+- [`examples/minimal.cc`](examples/minimal.cc) — basic register and field definition
+- [`examples/register_map.cc`](examples/register_map.cc) — realistic SPI peripheral register map
+- [`examples/transport_mock.cc`](examples/transport_mock.cc) — RAM-backed mock transport
 
 ## Documentation
 
-- Documentation index (recommended entry): [`docs/INDEX.md`](docs/INDEX.md)
-- Getting started: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)
-- Detailed usage: [`docs/USAGE.md`](docs/USAGE.md)
-- Testing and quality gates: [`docs/TESTING.md`](docs/TESTING.md)
-- Example guide: [`docs/EXAMPLES.md`](docs/EXAMPLES.md)
-- Design note: [`docs/DESIGN.md`](docs/DESIGN.md)
-
-Japanese versions are available under [`docs/ja/`](docs/ja/README.md).
-
-Generate Doxygen HTML locally:
-
-```bash
-xmake doxygen -P . -o build/doxygen .
-```
+- [Design & API](docs/DESIGN.md)
+- [Common Guides](../docs/INDEX.md)
+- API docs: `doxygen Doxyfile` → `build/doxygen/html/index.html`
 
 ## License
 
-MIT (`LICENSE`)
+MIT — See [LICENSE](../../LICENSE)

@@ -1,6 +1,6 @@
 # umimmio Design
 
-[Docs Home](INDEX.md) | [日本語](ja/DESIGN.md)
+[日本語](ja/DESIGN.md)
 
 ## 1. Vision
 
@@ -143,6 +143,38 @@ Notes:
 
 ## 5. Programming Model
 
+### 5.0 API Reference
+
+Public entrypoint: `include/umimmio/mmio.hh`
+
+Core types:
+
+| Type | Purpose |
+|------|---------|
+| `Region<addr, T>` | Register at a fixed address with storage type T |
+| `Field<Region, offset, width>` | Bit field within a Region |
+| `Value<Field, val>` | Named constant for a Field |
+| `DynamicValue<Field>` | Runtime value for a Field |
+| `Block<addr, Regions...>` | Group of contiguous registers |
+
+Transport types:
+
+| Transport | Use Case |
+|-----------|----------|
+| `DirectTransport` | Memory-mapped I/O (volatile pointer access) |
+| `I2cTransport` | HAL-compatible I2C peripheral drivers |
+| `SpiTransport` | HAL-compatible SPI peripheral drivers |
+| `BitBangI2cTransport` | Software I2C via GPIO |
+| `BitBangSpiTransport` | Software SPI via GPIO |
+
+Access policies:
+
+| Policy | `read()` | `write()` | `modify()` |
+|--------|:--------:|:---------:|:----------:|
+| `RW` | Yes | Yes | Yes |
+| `RO` | Yes | No | No |
+| `WO` | No | Yes | No |
+
 ### 5.1 Minimal Path
 
 Required minimal flow for direct MMIO:
@@ -245,6 +277,30 @@ Policy-based via `ErrorPolicy` template parameter:
 3. Transport tests use RAM-backed mock implementing `raw_read` / `raw_write`.
 4. Hardware-level MMIO tests require actual hardware and are out of scope for host tests.
 5. CI runs host tests and compile-fail checks.
+
+### 8.1 Test Layout
+
+- `tests/test_main.cc`: test entrypoint
+- `tests/test_access_policy.cc`: RW/RO/WO policy enforcement
+- `tests/test_register_field.cc`: BitRegion, Register, Field, Value, mask/shift correctness
+- `tests/test_transport.cc`: RAM-backed mock transport for read/write/modify/is/flip
+- `tests/compile_fail/read_wo.cc`: compile-fail guard — reading a write-only register
+- `tests/compile_fail/write_ro.cc`: compile-fail guard — writing a read-only register
+
+### 8.2 Running Tests
+
+```bash
+xmake test                              # all targets
+xmake test 'test_umimmio/*'             # host only
+xmake test 'test_umimmio_compile_fail/*'  # compile-fail only
+```
+
+### 8.3 Quality Gates
+
+- All host tests pass
+- Compile-fail contract tests pass (read_wo, write_ro)
+- Transport mock tests cover single and multi-field write, modify, is, flip
+- Embedded cross-build passes in CI (gcc-arm)
 
 ---
 
