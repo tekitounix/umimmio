@@ -3,7 +3,7 @@ name: UMI Doxygen
 on:
   workflow_dispatch:
   push:
-    branches: [main, master, develop]
+    branches: [main, develop]
     paths:
       - "lib/**"
       - ".github/workflows/doxygen.yml"
