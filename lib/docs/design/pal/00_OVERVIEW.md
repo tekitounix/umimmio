@@ -45,7 +45,7 @@ Error policies                      GPIO AF、クロックツリー、DMA
 |------|------|
 | `00_OVERVIEW.md` | 本文書 — PAL ドキュメントの全体マップ |
 | `01_LAYER_MODEL.md` | 4 層モデル — ハードウェア定義のスコープ分類 |
-| `02_CATEGORY_INDEX.md` | カテゴリ一覧 — C1–C13 の全体マトリクスと完全性チェックリスト |
+| `02_CATEGORY_INDEX.md` | カテゴリ一覧 — C1–C14 の全体マトリクスと完全性チェックリスト |
 | `03_ARCHITECTURE.md` | PAL アーキテクチャ提案 — コード構造と API 設計 (旧 06_RAL_ARCHITECTURE.md) |
 | `04_ANALYSIS.md` | 既存 PAL アプローチの横断分析 (旧 06a_RAL_ANALYSIS.md) |
 | `05_DATA_SOURCES.md` | データソース完全リファレンス — カテゴリ × プラットフォーム別の取得元・ツール・手動作業の整理 |
@@ -56,19 +56,20 @@ Error policies                      GPIO AF、クロックツリー、DMA
 
 | 文書 | カテゴリ | 概要 |
 |------|---------|------|
-| `categories/C01_CORE_PERIPHERALS.md` | C1 | NVIC, SCB, SysTick 等のコアペリフェラルレジスタ |
-| `categories/C02_CORE_SYSTEM.md` | C2 | コアタイプ, FPU/MPU/TrustZone 有無 |
-| `categories/C03_VECTORS.md` | C3 | 割り込み / 例外ベクター |
-| `categories/C04_MEMORY_MAP.md` | C4 | Flash, SRAM, CCM 等のメモリマップ |
-| `categories/C05_PERIPHERAL_REGISTERS.md` | C5 | GPIO, UART, SPI 等のペリフェラルレジスタ |
-| `categories/C06_GPIO_MUX.md` | C6 | GPIO ピンマルチプレクシング (AF/FUNCSEL/Matrix/IOMUXC) |
-| `categories/C07_CLOCK_TREE.md` | C7 | クロックツリー定義 |
-| `categories/C08_DMA_MAPPING.md` | C8 | DMA マッピング |
-| `categories/C09_POWER.md` | C9 | 電力管理 |
-| `categories/C10_SECURITY.md` | C10 | セキュリティ / 保護 |
-| `categories/C11_DEVICE_META.md` | C11 | デバイスメタデータ |
-| `categories/C12_LINKER_STARTUP.md` | C12 | リンカ / スタートアップ |
-| `categories/C13_DEBUG_TRACE.md` | C13 | デバッグ / トレース |
+| `categories/C01_CORE_PERIPHERALS.md` | C1 | NVIC, SCB, SysTick 等のコアペリフェラルレジスタ (MMIO) |
+| `categories/C02_CORE_INTRINSICS.md` | C2 | コア特殊レジスタ・命令イントリンシクス (非 MMIO) |
+| `categories/C03_CORE_SYSTEM.md` | C3 | コアタイプ, FPU/MPU/TrustZone 有無 |
+| `categories/C04_VECTORS.md` | C4 | 割り込み / 例外ベクター |
+| `categories/C05_MEMORY_MAP.md` | C5 | Flash, SRAM, CCM 等のメモリマップ |
+| `categories/C06_PERIPHERAL_REGISTERS.md` | C6 | GPIO, UART, SPI 等のペリフェラルレジスタ |
+| `categories/C07_GPIO_MUX.md` | C7 | GPIO ピンマルチプレクシング (AF/FUNCSEL/Matrix/IOMUXC) |
+| `categories/C08_CLOCK_TREE.md` | C8 | クロックツリー定義 |
+| `categories/C09_DMA_MAPPING.md` | C9 | DMA マッピング |
+| `categories/C10_POWER.md` | C10 | 電力管理 |
+| `categories/C11_SECURITY.md` | C11 | セキュリティ / 保護 |
+| `categories/C12_DEVICE_META.md` | C12 | デバイスメタデータ |
+| `categories/C13_LINKER_STARTUP.md` | C13 | リンカ / スタートアップ |
+| `categories/C14_DEBUG_TRACE.md` | C14 | デバッグ / トレース |
 
 ### 関連文書 (本ディレクトリ外)
 

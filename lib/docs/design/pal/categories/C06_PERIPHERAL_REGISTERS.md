@@ -1,4 +1,4 @@
-# C5: ペリフェラルレジスタ
+# C6: ペリフェラルレジスタ
 
 SVD (System View Description) ファイルの主要カバー範囲であり、PAL 全カテゴリの中で **最大のデータ量** を持つ。
 GPIO, UART, SPI, I2C, Timer, ADC, DMA, USB 等、MCU のペリフェラルレジスタ定義を扱う。
