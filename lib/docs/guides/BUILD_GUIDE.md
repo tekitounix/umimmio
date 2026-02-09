@@ -22,9 +22,6 @@ xmake clean
 
 # 6) 情報表示
 xmake show
-
-# 7) HTTPサーバー（WASM配信など）
-xmake serve -d examples/headless_webhost/web
 ```
 
 ## コード品質（xmake標準機能）
@@ -65,21 +62,6 @@ xmake check clang.tidy -f <file> --fix
 
 **注意**: ターゲット指定 (`xmake check clang.tidy <target>`) は xmake v3.0.x では正常に動作しません。`-f` でファイルパターンを指定してください。
 
-**compile_commands.json との関係:**
-- `plugin.compile_commands.autoupdate` ルールにより、ビルド時に自動生成されます
-- ホストと組み込みターゲットが混在する場合、最後にビルドしたターゲットの設定が使われます
-- 組み込みターゲットのみをチェックする場合は、そのターゲットをビルドしてから実行してください
-
-```bash
-# ホストターゲットをチェック
-xmake build test_umibench
-xmake check clang.tidy -f 'lib/umibench/tests/*.cc'
-
-# 組み込みターゲットをチェック
-xmake build -g "embedded/clang-arm"
-xmake check clang.tidy -f 'lib/umibench/platforms/arm/cortex-m/stm32f4/*.cc'
-```
-
 ### デバッグビルド
 
 ```bash
@@ -90,9 +72,149 @@ xmake f -m debug && xmake
 xmake f -m release && xmake
 ```
 
+---
+
 ## 組み込み開発（arm-embedded パッケージ）
 
-### Flash
+arm-embedded パッケージは、ARM Cortex-M マイクロコントローラの開発に必要なビルドルール、プラグイン、IDE 統合を提供します。
+
+### ルール一覧
+
+#### `embedded` — コアビルドルール
+
+ARM Cortex-M ターゲット向けのクロスコンパイルを自動構成します。
+
+```lua
+target("my_firmware")
+    add_rules("embedded")
+    set_values("embedded.mcu", "stm32f407vg")
+    add_files("src/*.cc")
+```
+
+**設定オプション** (`set_values()` で指定):
+
+| オプション | 説明 | デフォルト |
+|-----------|------|----------|
+| `embedded.mcu` | MCU名（例: stm32f407vg, stm32h533re） | 必須 |
+| `embedded.toolchain` | `gcc-arm` / `clang-arm` | `clang-arm` |
+| `embedded.optimize` | `size`/`speed`/`balanced`/`debug`/`none`/-O0〜-Ofast | `size` |
+| `embedded.debug_level` | `minimal`/`standard`/`maximum`/-g/-g1〜-ggdb3 | `minimal` |
+| `embedded.lto` | `none`/`thin`/`full` | `none` |
+| `embedded.c_standard` | c99〜c23, gnu99〜gnu23 | `c23` |
+| `embedded.cxx_standard` | c++98〜c++23 | `c++23` |
+| `embedded.outputs` | 出力形式の配列 | `{"elf","hex","bin","map"}` |
+| `embedded.linker_script` | カスタムリンカスクリプトパス | 汎用 `common.ld` |
+| `embedded.semihosting` | セミホスティング有効化 | `false` |
+| `embedded.flash_on_run` | `xmake run` 時に自動フラッシュ | `true` |
+| `embedded.probe` | デバッグプローブ UID | なし |
+
+**自動処理:**
+- MCU DB に基づくコンパイラフラグ（Cortex-M コア、FPU、thumb モード）
+- メモリレイアウトシンボル (`__flash_size`, `__ram_size` 等) をリンカに注入
+- ELF/HEX/BIN/MAP ファイル自動生成
+- ビルド後のメモリ使用量表示（90%超で警告）
+- ターゲットグループの自動設定（`embedded/clang-arm` or `embedded/gcc-arm`）
+
+**MCU データベース:**
+
+組み込みルールの MCU 情報は JSON データベースで管理されています:
+
+| ファイル | 内容 |
+|---------|------|
+| `mcu-database.json` | MCU 定義（コア、Flash/RAM サイズ、アドレス） |
+| `cortex-m.json` | Cortex-M コア定義（M0〜M85、FPU、LLVM ターゲット） |
+| `build-options.json` | 最適化レベル、デバッグ情報、LTO プリセット |
+| `toolchain-configs.json` | ツールチェーンのパッケージパス、リンカシンボル |
+
+プロジェクトルートに `mcu-local.json` を配置すると、パッケージの MCU DB を上書きできます。
+
+#### `embedded.vscode` — VSCode 統合ルール
+
+ビルド後に VSCode の設定ファイルを自動生成・更新します。`embedded` ルールの依存ルールとして自動的に適用されます。
+
+**自動生成ファイル:**
+
+| ファイル | 内容 |
+|---------|------|
+| `.vscode/settings.json` | clangd 引数（query-driver、clang-tidy 等） |
+| `.vscode/tasks.json` | Build (Release/Debug)、Clean、Build & Flash タスク |
+| `.vscode/launch.json` | Debug Embedded、RTT Debug (OpenOCD) 構成 |
+
+- ユーザー定義のタスク・構成は保持されます（管理対象は名前で識別）
+- `--query-driver` はツールチェーンのインストールパスから動的に解決
+- RTT の開始アドレスは MCU DB の `ram_origin` から取得
+
+#### `embedded.compdb` — マルチプラットフォーム compile_commands.json
+
+ビルド後に `compile_commands.json` をプラットフォーム別に分割し、clangd の PathMatch 機能で使用します。
+
+```lua
+-- xmake.lua（プロジェクトルート）
+add_rules("embedded.compdb")
+```
+
+**出力:**
+```
+build/compdb/
+├── host/compile_commands.json   # ホストコンパイラ
+├── arm/compile_commands.json    # ARM クロスコンパイラ（gcc-arm + clang-arm）
+└── wasm/compile_commands.json   # Emscripten
+```
+
+**分類ロジック:**
+- `arm-none-eabi` または `.xmake/packages/` を含む → arm
+- `emcc` を含む → wasm
+- その他 → host
+
+`.clangd` の `PathMatch` と組み合わせて使用します:
+
+```yaml
+# .clangd
+CompileFlags:
+  CompilationDatabase: build/compdb/host
+
+---
+If:
+  PathMatch: .*/(platforms|port)/arm/.*
+CompileFlags:
+  CompilationDatabase: build/compdb/arm
+```
+
+ビルド時に自動実行されます。手動で再生成する場合は `xmake compdb` を使用してください。ソースファイルやビルド設定に変更がない場合はスキップされます（オーバーヘッド 0）。
+
+#### `host.test` — ホストテストルール
+
+ホスト上で実行するユニットテスト用ルールです。
+
+```lua
+target("test_mylib")
+    add_rules("host.test")
+    add_files("tests/*.cc")
+```
+
+| オプション | 説明 | デフォルト |
+|-----------|------|----------|
+| `test.runner` | gtest/catch2/unity | なし |
+| `test.coverage` | カバレッジ収集 | `false` |
+| `test.coverage_tool` | gcov/llvm-cov | なし |
+| `test.sanitizers` | サニタイザ配列 | なし |
+
+#### `embedded.test` — 組み込みテストルール
+
+ハードウェアまたはエミュレータ上でテストを実行します。
+
+| オプション | 説明 | デフォルト |
+|-----------|------|----------|
+| `embedded.test_mode` | `hardware`/`qemu`/`renode` | `hardware` |
+| `embedded.test_framework` | `unity`/`minunit` | なし |
+| `embedded.test_timeout` | タイムアウト（秒） | `30` |
+| `embedded.test_output` | `semihosting`/`rtt`/`uart` | なし |
+
+---
+
+### プラグイン（コマンド）
+
+#### Flash
 
 ```bash
 # ターゲットを書き込み
@@ -100,56 +222,55 @@ xmake flash -t <target>
 xmake flash -t stm32f4_kernel
 xmake flash -t synth_app -a 0x08060000
 
-# ツール状態/接続プローブ確認（非対話型）
+# オプション
+xmake flash -t <target> -e           # チップ消去後に書き込み
+xmake flash -t <target> --probe <uid> # プローブ指定
+xmake flash -t <target> -y           # CI/CD モード（確認なし）
+
+# ツール状態/接続プローブ確認
 xmake flash.status
 xmake flash.probes
 ```
 
-### デバッグ
+PyOCD を使用。デバイスパックの自動インストールに対応。ソースに変更があれば自動リビルドします。
+
+#### compdb
 
 ```bash
-# GDBデバッガー起動（対話型）
-xmake debugger -t <target>
-
-# GDBサーバー清理（非対話型）
-xmake debugger.cleanup
+# マルチプラットフォーム compile_commands.json を手動生成
+xmake compdb
 ```
 
-### エミュレータ
+`embedded.compdb` ルール（ビルド時自動実行）の手動版です。
+
+#### test
 
 ```bash
-# ヘルプ表示（非対話型）
-xmake emulator
-
-# Renode対話セッション（対話型）
-xmake emulator.run
-
-# 自動テスト（対話型）
-xmake emulator.test
+# テスト検出・実行
+xmake test
+xmake test -g host              # グループでフィルタ
+xmake test -p "test_umibench*"  # パターンでフィルタ
 ```
 
-### デプロイ
+---
+
+### 開発ワークフロー
+
+#### パッケージ同期（開発中）
+
+arm-embedded パッケージのソースを直接変更しながら開発する場合:
 
 ```bash
-# ビルド成果物をコピー（非対話型）
-xmake deploy -t <target> [--dest <dir>]
+# ローカルソースを ~/.xmake に直接同期（即座に反映）
+xmake dev-sync
 
-# WASMホストデプロイ（非対話型）
-xmake deploy.webhost
-
-# デプロイしてサーバー起動（対話型 - 常駐）
-xmake deploy.serve
+# リリース/CI では正式なパッケージインストールを使用
+xmake require --force arm-embedded
 ```
 
-### HTTPサーバー
+`dev-sync` は `xmake-repo/synthernet/` 配下のルールとプラグインを `~/.xmake/` にコピーします。ファイル追加・削除も自動検出され、レガシーディレクトリのクリーンアップも行われます。
 
-```bash
-# HTTPサーバー起動（対話型 - 常駐）
-xmake serve
-
-# RTTログビューアー（対話型 - 常駐）
-xmake serve.rtt
-```
+---
 
 ## テスト
 
@@ -198,32 +319,6 @@ target("my_target")
     set_group("custom/group")  -- 自動設定より優先
 ```
 
-## プロジェクト生成
-
-```bash
-# compile_commands.json（Clangd用）
-xmake project -k compile_commands
-
-# CMakeLists.txt
-xmake project -k cmake
-
-# Visual Studioプロジェクト
-xmake project -k vsxmake
-```
-
-### compile_commands.json の自動生成
-
-`xmake.lua` に以下の設定があれば、ビルド時に自動更新されます：
-
-```lua
-add_rules("plugin.compile_commands.autoupdate", {outputdir = ".", lsp = "clangd"})
-```
-
-**注意事項:**
-- ホストと組み込みターゲットが混在する場合、全ターゲットのエントリが含まれます
-- clangd は最初に見つかったエントリを使用するため、異なるツールチェーンのエントリが混在すると問題が発生することがあります
-- 推奨: 開発時は主にホストターゲットでビルドし、組み込み固有コードのチェックは別途行う
-
 ---
 
 ## 全コマンドリファレンス
@@ -261,51 +356,34 @@ add_rules("plugin.compile_commands.autoupdate", {outputdir = ".", lsp = "clangd"
 | `xmake show` | プロジェクト情報を表示 | 非対話型 |
 | `xmake watch` | プロジェクトディレクトリを監視してコマンド実行 | **対話型** |
 
-### arm-embedded パッケージ: Flash プラグイン
+### arm-embedded パッケージ
 
 | コマンド | 説明 | タイプ | 主なオプション |
 |----------|------|--------|----------------|
-| `xmake flash` | ARM組み込みターゲントを書き込み | **対話型**※ | `-t <target>`, `-d <device>`, `-b <backend>`, `-a <address>`, `--dry-run` |
-| `xmake flash.probes` | 接続されているデバッグプローブを一覧表示 | 非対話型 | - |
-| `xmake flash.status` | フラッシュツールの状態を表示 | 非対話型 | - |
+| `xmake flash` | ARM ターゲットを書き込み | **対話型**※ | `-t`, `-d`, `-e`, `-r`, `--probe`, `-y` |
+| `xmake flash.probes` | デバッグプローブ一覧 | 非対話型 | - |
+| `xmake flash.status` | フラッシュツール状態 | 非対話型 | - |
+| `xmake compdb` | マルチプラットフォーム compdb 生成 | 非対話型 | - |
+| `xmake test` | テスト検出・実行 | 非対話型 | `-g`, `-p`, `-v` |
 
-※`--dry-run`付与時は非対話型
+※`-y` 付与時は非対話型
 
-### arm-embedded パッケージ: Debugger プラグイン
+### arm-embedded ルール（自動適用）
 
-| コマンド | 説明 | タイプ | 主なオプション |
-|----------|------|--------|----------------|
-| `xmake debugger` | GDBデバッガー起動 | **対話型** | `-t <target>`, `-b <backend>`, `-p <port>`, `--vscode`, `--interactive`, `--status`, `--kill` |
-| `xmake debugger.cleanup` | 孤立したGDBサーバープロセスを全て終了 | 非対話型 | - |
+| ルール | 種別 | 説明 |
+|--------|------|------|
+| `embedded` | target | ARM Cortex-M クロスコンパイル |
+| `embedded.vscode` | project | VSCode 設定自動生成 |
+| `embedded.compdb` | project | compile_commands.json プラットフォーム分割 |
+| `host.test` | target | ホストユニットテスト |
+| `embedded.test` | target | 組み込みテスト（HW/QEMU/Renode） |
 
-### arm-embedded パッケージ: Emulator プラグイン
-
-| コマンド | 説明 | タイプ | 主なオプション |
-|----------|------|--------|----------------|
-| `xmake emulator` | エミュレータのヘルプと状態を表示 | 非対話型 | - |
-| `xmake emulator.run` | Renodeエミュレータを起動 | **対話型** | `-t <target>`, `-s <file>`, `--headless`, `--gdb` |
-| `xmake emulator.test` | Renode Robot Frameworkテストを実行 | **対話型** | `-r <file>`, `-o <dir>` |
-
-### arm-embedded パッケージ: Deploy プラグイン
+### UMI カスタムタスク
 
 | コマンド | 説明 | タイプ | 主なオプション |
 |----------|------|--------|----------------|
-| `xmake deploy` | ビルド成果物を指定ディレクトリにコピー | 非対話型 | `-t <target>`, `-d <dir>` |
-| `xmake deploy.webhost` | WASMヘッドレスホストをデプロイ | 非対話型 | - |
-| `xmake deploy.serve` | デプロイしてローカルサーバーを起動 | **対話型** | - |
-
-### arm-embedded パッケージ: Serve プラグイン
-
-| コマンド | 説明 | タイプ | 主なオプション |
-|----------|------|--------|----------------|
-| `xmake serve` | Web/WASMコンテンツ用HTTPサーバーを起動 | **対話型** | `-p <port>`, `-d <dir>`, `--open`, `--build` |
-| `xmake serve.rtt` | RTTログビューアーWebインターフェースを起動 | **対話型** | `-p <port>`, `--rtt-port` |
-
-### UMI カスタムタスク: Release
-
-| コマンド | 説明 | タイプ | 主なオプション |
-|----------|------|--------|----------------|
-| `xmake release` | ライブラリのバージョン更新・アーカイブ生成・タグ作成 | 非対話型 | `--ver=X.Y.Z`, `--libs=name`, `--dry-run`, `--no-test`, `--no-tag`, `--no-archive` |
+| `xmake release` | バージョン更新・アーカイブ生成・タグ作成 | 非対話型 | `--ver=X.Y.Z`, `--libs=name`, `--dry-run` |
+| `xmake dev-sync` | ローカルパッケージソースを ~/.xmake に同期 | 非対話型 | - |
 
 詳細は [Release ガイド](RELEASE_GUIDE.md) を参照。
 
@@ -313,11 +391,8 @@ add_rules("plugin.compile_commands.autoupdate", {outputdir = ".", lsp = "clangd"
 
 | コマンド | 代替方法 |
 |----------|----------|
-| `xmake flash-h7-app` | `xmake flash -t daisy_pod_synth_h7 -a 0x90000000` |
-| `xmake flash-h7-kernel` | `xmake flash -t daisy_pod_kernel` |
 | `xmake flash-kernel` | `xmake flash -t stm32f4_kernel` |
 | `xmake flash-synth-app` | `xmake flash -t synth_app -a 0x08060000` |
-| `xmake flash-synth-h7` | `xmake flash -t daisy_pod_synth_h7 -a 0x90000000` |
 
 ---
 

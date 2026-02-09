@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## ⚠️ CRITICAL RULES — Always Follow
+## CRITICAL RULES — Always Follow
 
 ### Workflow Rules
 
@@ -14,23 +14,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | **NEVER finish on build success alone** | Firmware tasks require: build → flash → debugger verification → then complete |
 | **MUST read existing code first** | Before modifying, understand current implementation. Don't blindly rewrite. |
 | **MUST make incremental changes** | Large changes should be split into reviewable steps. |
-| **MUST NOT revert to older implementations** | Never “fix” by rolling back to old code; it only returns to a previously working state and discards recent changes, so it has no value as a fix. |
+| **MUST NOT revert to older implementations** | Never "fix" by rolling back to old code; it only returns to a previously working state and discards recent changes, so it has no value as a fix. |
 | **MUST `git stash` before checkout** | Always stash before checking out past commits |
 | **MUST check `git status` first** | Check status and current branch before any commit |
 | **MUST ask before deleting files** | Confirm if commit is needed; use `trash` not `rm` |
 | **Assume NOT a release** | Unless explicitly instructed, this is not a release commit |
 | **Parallel work awareness** | Other work may be ongoing — commit carefully with branch/tag context |
 | **MUST automate test/debug** | Tests and debugging must be fully automated via commands or scripts. Never ask the user to perform manual steps. |
-
-### Planning Phase Checklist
-
-When planning (before any implementation):
-
-1. Read relevant docs (Architecture, Design, Debug Guide)
-2. Identify files & APIs to touch
-3. Confirm build/flash/test path for the target
-4. Define done criteria (what will be verified)
-5. Get confirmation before proceeding to implementation
 
 ### Code Style Rules
 
@@ -77,179 +67,71 @@ These are **hard constraints** — violation causes undefined behavior or audio 
 
 UMI (Universal Musical Instruments) is a universal audio framework enabling multi-target compilation from a single Processor code implementation to embedded, WASM, and desktop plugin platforms.
 
-Key characteristics:
 - One-source multi-target design (same C++ code for all platforms)
-- Modular, patchable DSP architecture
-- C++23, heavily using C++20 concepts-based lightweight type system (no vtable overhead)
-- Sample-accurate event processing
-- Embedded-optimized (Cortex-M support)
+- C++23, concepts-based lightweight type system (no vtable overhead)
+- Sample-accurate event processing, embedded-optimized (Cortex-M)
 
 ## Build System
 
-Uses xmake with custom package repository (`.refs/arm-embedded-xmake-repo`) for embedded build automation.
-
-**Custom Packages:**
-- `arm-embedded`: ARM cross-compiler (gcc-arm and armclang supported), embedded rules, VSCode integration
-- `coding-rules`: clangd/clang-tidy/clang-format configuration automation
+Uses xmake with custom package repository (`xmake-repo/synthernet`).
 
 ```bash
-# Host build and test
-xmake build test_kernel test_audio test_midi  # Build specific host tests
-xmake test                                     # Run host unit tests
+# Host
+xmake test                                     # Run all unit tests
+xmake build test_kernel test_audio test_midi   # Build specific tests
 
-# ARM embedded targets (auto-detects toolchain)
-xmake build stm32f4_kernel    # STM32F4 kernel
-xmake build synth_app         # Synth application (.umia)
-xmake build firmware          # Basic embedded example
-xmake flash-kernel            # Build and flash kernel via pyOCD
-xmake flash-synth-app         # Build and flash synth app
+# ARM embedded
+xmake build stm32f4_kernel                     # STM32F4 kernel
+xmake flash-kernel                             # Build and flash via pyOCD
 
-# WASM (requires Emscripten)
-xmake build headless_webhost  # WASM build
-xmake webhost                  # Build WASM and copy to web/
-xmake webhost-serve            # Build and start local server
+# WASM
+xmake build headless_webhost                   # WASM build
 
-# Renode emulator
-xmake renode                   # Interactive Renode session
-xmake renode-test              # Automated Renode tests
-xmake robot                    # Robot Framework tests
-
-# Code style (from coding-rules package)
-xmake coding init              # Generate .clangd, .clang-tidy, .clang-format
-xmake coding format            # Format source files
-
-# Run a single test binary
-xmake run test_kernel
-
-# Configuration options
-xmake f -m debug|release       # Build mode
-xmake f --board=stm32f4|stub   # Target board
-xmake f --kernel=mono|micro    # Kernel variant
-
-# After config changes
-xmake build <target>           # Rebuild required after xmake f
+# Configuration
+xmake f -m debug|release                       # Build mode
+xmake f --board=stm32f4|stub                   # Target board
 
 # Utility
-xmake clean-all                # Clean all build artifacts
-xmake info                     # Show build configuration
+xmake clean-all                                # Clean all build artifacts
+xmake coding format                            # Format source files
 ```
 
-**Dependencies:**
-- Add packages via `add_requires` in `xmake.lua`
-- If a package is missing, add it to `.refs/arm-embedded-xmake-repo` and sync to the remote repo
+### Custom Package Development (`xmake-repo/synthernet/`)
+
+Rules and plugins are installed to `~/.xmake/` — source edits are NOT automatically picked up.
+
+```bash
+# Edit → sync → rebuild cycle
+vim xmake-repo/synthernet/packages/a/arm-embedded/rules/vscode/modules/launch_generator.lua
+xmake dev-sync                                  # Copy source to ~/.xmake/
+rm -f build/.gens/rules/embedded.vscode.d       # Clear depend cache
+xmake build <target>                            # Triggers regeneration
+```
+
+See `xmake-repo/synthernet/README.md` for full architecture and troubleshooting.
 
 ## Directory Structure
 
-- `docs/`: Specs, guides, references
-- `examples/`: Sample applications and targets
-- `lib/`: Core libraries (OS-agnostic)
-- `port/`: Platform-specific ports
-- `tests/`: Host unit tests and test utilities
-- `tools/`: Build helpers, Renode scripts
-- `third_party/`: External dependencies
-- `xmake.lua`: Main build configuration
+| Directory | Content |
+|-----------|---------|
+| `lib/` | Core libraries (OS-agnostic): umihal, umiport, umirtm, umibench, umitest, etc. |
+| `examples/` | Target applications: stm32f4_kernel, synth_app, headless_webhost |
+| `xmake-repo/synthernet/` | Custom xmake packages: arm-embedded (rules, plugins, MCU database) |
+| `lib/docs/` | Standards and guides (see table below) |
 
-## Architecture
+## Documentation Reference
 
-### Core Libraries (`lib/`)
+Read these **when the task matches** — not all at once.
 
-- **umi/core/**: Fundamental types — AudioContext, Event, Processor concept
-- **umi/kernel/**: STM32F4 kernel, loader, MPU configuration
-- **umi/backend/**: Platform backends (cm for Cortex-M, wasm)
-- **umidsp/**: DSP components (oscillators, filters, envelopes) with optimized implementations
-- **umidi/**: MIDI support (UMP, MIDI 1.0, SysEx)
-- **umiboot/**: Bootloader and firmware verification
-- **umisynth/**: Common synthesizer implementations
-
-### OS/Application Architecture (Embedded)
-
-Complete binary separation between OS and application (`.umia`):
-
-**Task Priorities:**
-- Realtime (0): Audio processing, DMA callbacks
-- Server (1): Drivers, I/O handlers (shell, USB SysEx)
-- User (2): Application tasks (main as Controller task)
-- Idle (3): Background, sleep management
-
-**Execution Model:**
-- `main()` runs as Controller task, registers Processor tasks at init via syscall
-- After init, main loop or coroutine runtime for cooperative multitasking
-- ISRs only notify server tasks; actual processing happens in tasks
-
-**OS/App Communication:**
-- Syscalls: `RegisterProc`, `WaitEvent`, `Yield`, `GetTime`, `Sleep`, `GetShared`, `MidiSend/Recv`, etc.
-- Shared memory (`_shared_start`): Buffer exchange between OS and app
-- OS provides: memory protection (MPU), heap allocation/monitoring, `std::chrono::now`
-
-**MIDI as Central Hub:**
-- OS handles MIDI from all transports (USB, UART) uniformly
-- App receives MIDI as events through syscall
-- SysEx protocol carries: stdio, DFU, profiler, test functions
-
-**OS-side Applications:**
-- Shell, updater run as OS-side apps using same syscall/shared memory interface
-
-### Core APIs
-
-**AudioContext** (`lib/umi/core/audio_context.hh`): Unified interface for sample-accurate audio processing. Provides I/O buffers (std::span), events, and timing information.
-
-**Processor Concept** (`lib/umi/core/processor.hh`):
-```cpp
-template<typename P>
-concept ProcessorLike = requires(P& p, AudioContext& ctx) {
-    { p.process(ctx) } -> std::same_as<void>;
-};
-```
-No inheritance required, no vtable. Extended via Port/Parameter descriptors.
-
-**Event System** (`lib/umi/core/event.hh`): EventType includes Midi, Param, Raw, ButtonDown/Up. Sample-accurate processing with buffer position specification.
-
-### Examples (`examples/`)
-
-- **stm32f4_kernel/**: STM32F4 kernel with full OS implementation
-- **synth_app/**: Multi-platform synthesizer (app binary)
-- **headless_webhost/**: Web WASM implementation
-
-## Quick Start
-
-**Host (unit tests):**
-```bash
-xmake build test_kernel test_audio test_midi
-xmake test
-```
-
-**STM32F4 (kernel/app):**
-```bash
-xmake build stm32f4_kernel
-xmake build synth_app
-xmake flash-kernel
-xmake flash-synth-app
-```
-
-**WASM:**
-```bash
-xmake build headless_webhost
-xmake webhost
-xmake webhost-serve
-```
-
-## Testing
-
-- **Framework:** Minimal in-tree framework (`tests/test_common.hh`, no exceptions/RTTI)
-- **Location:** `tests/`
-- **Naming:** `test_*.cc`
-- **Run:** `xmake run test_kernel`
-- **Details:** `docs/refs/guides/TESTING.md`
-
-## Key Documentation
-
-| Document | Content |
-|----------|---------|
-| `docs/refs/specs/ARCHITECTURE.md` | High-level architecture |
-| `docs/new/UMI_SYSTEM_ARCHITECTURE.md` | STM32F4 detailed design |
-| `lib/docs/standards/CODING_RULE.md` | Detailed style guide |
-| `lib/docs/standards/LIBRARY_SPEC.md` | Library structure conventions |
-| `lib/docs/guides/TESTING_GUIDE.md` | Test strategy |
-| `lib/docs/guides/DEBUGGING_GUIDE.md` | Debugging (pyOCD, GDB, RTT) |
-| `docs/new/DESIGN_CONTEXT_API.md` | AudioContext API design |
-| `docs/refs/reference/API_APPLICATION.md` | `process()` constraints |
+| When you are... | Read this |
+|-----------------|-----------|
+| Modifying C++ code | `lib/docs/standards/CODING_RULE.md` — full style guide |
+| Creating or restructuring a library | `lib/docs/standards/LIBRARY_SPEC.md` — namespace, directory, xmake conventions |
+| Writing Doxygen comments | `lib/docs/standards/API_COMMENT_RULE.md` — comment format rules |
+| Writing or modifying tests | `lib/docs/guides/TESTING_GUIDE.md` — test strategy and patterns |
+| Debugging embedded targets | `lib/docs/guides/DEBUGGING_GUIDE.md` — pyOCD, GDB, RTT setup |
+| Editing xmake-repo rules/plugins | `xmake-repo/synthernet/README.md` — package architecture and dev-sync |
+| Working on AudioContext API | `docs/new/DESIGN_CONTEXT_API.md` — API design decisions |
+| Working on STM32F4 system design | `docs/new/UMI_SYSTEM_ARCHITECTURE.md` — OS/app architecture |
+| Understanding overall architecture | `docs/refs/specs/ARCHITECTURE.md` — high-level design |
+| Working on process() constraints | `docs/refs/reference/API_APPLICATION.md` — real-time API rules |

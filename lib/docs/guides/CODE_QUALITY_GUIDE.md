@@ -254,4 +254,4 @@ xmake coding --info                  # 現在の設定を表示
 
 - [Coding Rule](../standards/CODING_RULE.md) - 命名規則とスタイル規則
 - `CLAUDE.md` - プロジェクトのコーディングガイドライン
-- `.refs/arm-embedded-xmake-repo/docs/ARM_EMBEDDED_STATUS.md` - arm-embedded パッケージの状態
+- `xmake-repo/synthernet/docs/ARM_EMBEDDED_STATUS.md` - arm-embedded パッケージの状態
