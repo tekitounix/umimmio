@@ -79,6 +79,9 @@ lib/<libname>/
         └── renode/*.resc
 ```
 
+> **Note:** `platforms/` はライブラリ固有のプラットフォーム抽象に使用する。
+> umiport のボード定義は `include/umiport/board/` に配置する（詳細は ARCHITECTURE_FINAL.md 参照）。
+
 ### 2.3 ライブラリに置かないもの
 
 以下はモノレポルートまたはリリースパイプラインが管理する:
@@ -102,7 +105,10 @@ lib/<libname>/
 | `umibench` | `umi::bench` | `#include <umibench/bench.hh>` |
 | `umimmio` | `umi::mmio` | `#include <umimmio/mmio.hh>` |
 | `umirtm` | `umi::rt` | `#include <umirtm/rtm.hh>` |
-| `umiport` | `umi::port` | `#include <umiport/stm32f4/uart_output.hh>` |
+| `umiport` | `umi::port` | `#include <umiport/mcu/stm32f4/uart_output.hh>` |
+| umiport (board.hh) | `umi::board` | `#include <umiport/board/stm32f4-renode/board.hh>` |
+| `umihal` | `umi::hal` | `#include <umihal/gpio.hh>` |
+| `umidevice` | `umi::device` | `#include <umidevice/audio/pcm3060/pcm3060.hh>` |
 
 命名規則:
 - ライブラリ名: `umi` + 機能名（小文字）

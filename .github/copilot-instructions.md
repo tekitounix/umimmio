@@ -98,7 +98,7 @@ Key characteristics:
 
 ## Build System
 
-Uses xmake with custom package repository (`.refs/arm-embedded-xmake-repo`) for embedded build automation.
+Uses xmake with custom package repository (`xmake-repo/synthernet`) for embedded build automation.
 
 **Custom Packages:**
 
@@ -150,7 +150,7 @@ xmake info                     # Show build configuration
 **Dependencies:**
 
 - Add packages via `add_requires` in `xmake.lua`
-- If a package is missing, add it to `.refs/arm-embedded-xmake-repo` and sync to the remote repo
+- If a package is missing, add it to `xmake-repo/synthernet` and sync to the remote repo
 
 ## Directory Structure
 
