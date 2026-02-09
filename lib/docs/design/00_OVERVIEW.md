@@ -1,6 +1,6 @@
 # UMI 設計ドキュメント概要
 
-本ディレクトリは、UMI の HAL / BSP / ビルドシステム設計に関する議論・調査・意思決定を集約する。
+本ディレクトリは、UMI の HAL / ドライバ / ビルドシステム設計に関する議論・調査・意思決定を集約する。
 これはアーキテクチャそのものではなく、**設計議論のナビゲーションマップ**である。
 
 ---
@@ -12,22 +12,30 @@
 │                    Build System (xmake)                  │
 │  umiport.board rule / MCU DB / memory.ld generation     │
 │                                                         │
-│   "どの BSP 実装を選択・コンパイルするか"                │
+│   "どのドライバ実装を選択・コンパイルするか"              │
 └────────────┬───────────────────────────┬────────────────┘
              │ selects                   │ configures
              ▼                           ▼
 ┌──────────────────────┐    ┌──────────────────────────┐
-│   HAL (umihal)       │    │   BSP (umiport +         │
-│                      │    │        umidevice)         │
-│ C++23 concepts で    │◄───│                           │
-│ HW 契約を定義        │    │ MCU/board 固有の実装      │
-│ (実装なし・型のみ)   │    │ HAL concepts を satisfy   │
+│   HAL (umihal)       │    │   Driver (umiport)       │
+│                      │    │                           │
+│ C++23 concepts で    │◄───│ MCU 固有のドライバ実装    │
+│ HW 契約を定義        │    │ HAL concepts を satisfy   │
+│ (実装なし・型のみ)   │    │                           │
 └──────────────────────┘    └──────────────────────────┘
   defines contracts           provides implementations
+
+                             ┌──────────────────────────┐
+                             │   Device (umidevice)     │
+                             │                           │
+                             │ MCU 外部デバイス定義      │
+                             │ (I2C/SPI センサ、DAC 等)  │
+                             └──────────────────────────┘
+                               external device drivers
 ```
 
-**依存の流れ:** アプリケーション → BSP → HAL (concepts)
-**選択の流れ:** Build System → BSP 実装を選択 → HAL contracts を satisfy
+**依存の流れ:** アプリケーション → Driver (umiport) → HAL (concepts)
+**選択の流れ:** Build System → Driver 実装を選択 → HAL contracts を satisfy
 
 ---
 
@@ -59,7 +67,7 @@
 | `06a_RAL_ANALYSIS.md` | → `pal/04_ANALYSIS.md` に移動 |
 | `06_RAL_ARCHITECTURE.md` | → `pal/03_ARCHITECTURE.md` に移動 |
 | `06b_PAL_HW_DEFINITIONS.md` | → `pal/` に分割・拡充 |
-| `pal/` | **PAL (Peripheral Access Layer) 設計ドキュメント群** — 4 層モデル、13 カテゴリの詳細分析、生成ヘッダのコード例 |
+| `pal/` | **PAL (Peripheral Access Layer) 設計ドキュメント群** — 4 層モデル、14 カテゴリの詳細分析、生成ヘッダのコード例 |
 | `07_HW_DATA_PIPELINE.md` | HW 定義データ統合パイプライン — SVD/CMSIS/CubeMX 等の複数ソース統合と生成戦略 |
 
 ### アーカイブ
@@ -83,12 +91,17 @@
 - GPIO の入出力型安全性
 - エラーモデル (`Result<T>` の設計)
 
-### BSP (umiport / umidevice)
+### Driver (umiport)
 
 - パッケージ粒度: MCU / board / device の分割
 - ボード定義フォーマット: Lua + C++ デュアル構造
 - データ継承モデル (`extends` によるボード派生)
 - startup / linker script の配置
+
+### Device (umidevice)
+
+- MCU 外部デバイスの定義 (I2C/SPI センサ、DAC 等)
+- MCU と同列のレイヤ配置 (ドライバではなくデバイス定義)
 
 ### Build System (xmake)
 
