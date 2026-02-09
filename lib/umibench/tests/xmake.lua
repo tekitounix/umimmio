@@ -1,3 +1,6 @@
+local bench_stm32f4_renode = path.join(os.scriptdir(), "stm32f4-renode")
+
+-- Host tests
 target("test_umibench")
     add_rules("host.test")
     add_tests("default")
@@ -49,3 +52,40 @@ target("test_umibench_compile_fail")
 
         return true
     end)
+
+-- STM32F4 Renode ARM targets
+target("umibench_stm32f4_renode")
+    set_kind("binary")
+    set_default(false)
+    add_rules("embedded", "umiport.board")
+
+    set_values("embedded.mcu", "stm32f407vg")
+    set_values("embedded.optimize", "size")
+    set_values("embedded.toolchain", "clang-arm")
+    set_values("umiport.board", "stm32f4-renode")
+
+    add_files("test_*.cc")
+
+    add_deps("umibench_embedded", "umiport")
+    umibench_add_umitest_dep()
+
+    add_includedirs(bench_stm32f4_renode, {public = false})
+target_end()
+
+target("umibench_stm32f4_renode_gcc")
+    set_kind("binary")
+    set_default(false)
+    add_rules("embedded", "umiport.board")
+
+    set_values("embedded.mcu", "stm32f407vg")
+    set_values("embedded.optimize", "size")
+    set_values("embedded.toolchain", "gcc-arm")
+    set_values("umiport.board", "stm32f4-renode")
+
+    add_files("test_*.cc")
+
+    add_deps("umibench_embedded", "umiport")
+    umibench_add_umitest_dep()
+
+    add_includedirs(bench_stm32f4_renode, {public = false})
+target_end()

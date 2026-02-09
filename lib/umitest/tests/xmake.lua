@@ -1,3 +1,4 @@
+-- Host tests
 target("test_umitest")
     add_rules("host.test")
     add_tests("default")
@@ -44,4 +45,37 @@ target("test_umitest_compile_fail")
 
         return true
     end)
+target_end()
+
+-- STM32F4 Renode ARM targets
+target("umitest_stm32f4_renode")
+    set_kind("binary")
+    set_default(false)
+    add_rules("embedded", "umiport.board")
+
+    set_values("embedded.mcu", "stm32f407vg")
+    set_values("embedded.optimize", "size")
+    set_values("embedded.toolchain", "clang-arm")
+    set_values("umiport.board", "stm32f4-renode")
+
+    add_files("test_*.cc")
+
+    add_deps("umitest", "umiport")
+    umitest_add_umimmio_dep()
+target_end()
+
+target("umitest_stm32f4_renode_gcc")
+    set_kind("binary")
+    set_default(false)
+    add_rules("embedded", "umiport.board")
+
+    set_values("embedded.mcu", "stm32f407vg")
+    set_values("embedded.optimize", "size")
+    set_values("embedded.toolchain", "gcc-arm")
+    set_values("umiport.board", "stm32f4-renode")
+
+    add_files("test_*.cc")
+
+    add_deps("umitest", "umiport")
+    umitest_add_umimmio_dep()
 target_end()

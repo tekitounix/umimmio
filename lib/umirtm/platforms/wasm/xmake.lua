@@ -19,6 +19,7 @@ target("umirtm_wasm")
     add_tests("default")
 
     add_files("../../tests/test_*.cc")
+    add_files(path.join(os.projectdir(), "lib/umiport/src/wasm/write.cc"))
     add_deps("umirtm")
     umirtm_add_umitest_dep()
 
