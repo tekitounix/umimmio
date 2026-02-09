@@ -471,8 +471,8 @@ namespace stm32f4 {
 
 | 選択肢 | 構造 | メリット | デメリット |
 |--------|------|---------|-----------|
-| **umiport 内** | `umiport/mcu/stm32f4/ral/` | BSP と同じパッケージ | umiport が肥大化 |
-| **独立ライブラリ** | `umidevice-stm32f4/` | 関心の分離 | パッケージ数増加 |
+| **umiport 内** | `umiport/mcu/stm32f4/ral/` | ドライバと同じパッケージ | umiport が肥大化 |
+| **独立ライブラリ** | `umipal-stm32f4/` | 関心の分離 | パッケージ数増加 |
 | **umimmio 拡張** | `umimmio/devices/stm32f4/` | MMIO と統合 | umimmio の責務拡大 |
 
 ### 10.3 SVD パッチ戦略

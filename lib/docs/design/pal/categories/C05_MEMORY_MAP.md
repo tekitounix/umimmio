@@ -5,7 +5,7 @@
 ## 1. 概要
 
 メモリマップは MCU のアドレス空間における各メモリ領域の配置 (ベースアドレスとサイズ) を定義する。
-リンカスクリプト (C12) の生成、DMA バッファ配置、スタック/ヒープ設定の基礎データとなる。
+リンカスクリプト (C13) の生成、DMA バッファ配置、スタック/ヒープ設定の基礎データとなる。
 
 **PAL レイヤとの対応**:
 
@@ -203,46 +203,14 @@ namespace bitband {
     }
 }
 
-// --- Peripheral base addresses ---
+// --- Peripheral bus base addresses (memory map reference) ---
+// 個別ペリフェラルの型定義 (using GPIOA = GPIOx<0x4002'0000>) は C6 で定義。
+// ここではバス境界のみを定義する。
 constexpr uint32_t periph_base = 0x4000'0000;
-
-// APB1 peripherals
-constexpr uint32_t apb1_base   = periph_base;
-constexpr uint32_t tim2_base   = apb1_base + 0x0000;
-constexpr uint32_t tim3_base   = apb1_base + 0x0400;
-constexpr uint32_t tim4_base   = apb1_base + 0x0800;
-constexpr uint32_t tim5_base   = apb1_base + 0x0C00;
-constexpr uint32_t spi2_base   = apb1_base + 0x3800;
-constexpr uint32_t spi3_base   = apb1_base + 0x3C00;
-constexpr uint32_t usart2_base = apb1_base + 0x4400;
-constexpr uint32_t usart3_base = apb1_base + 0x4800;
-constexpr uint32_t i2c1_base   = apb1_base + 0x5400;
-constexpr uint32_t i2c2_base   = apb1_base + 0x5800;
-constexpr uint32_t i2c3_base   = apb1_base + 0x5C00;
-
-// APB2 peripherals
-constexpr uint32_t apb2_base   = periph_base + 0x1'0000;
-constexpr uint32_t tim1_base   = apb2_base + 0x0000;
-constexpr uint32_t usart1_base = apb2_base + 0x1000;
-constexpr uint32_t usart6_base = apb2_base + 0x1400;
-constexpr uint32_t adc1_base   = apb2_base + 0x2000;
-constexpr uint32_t spi1_base   = apb2_base + 0x3000;
-constexpr uint32_t syscfg_base = apb2_base + 0x3800;
-
-// AHB1 peripherals
-constexpr uint32_t ahb1_base   = periph_base + 0x2'0000;
-constexpr uint32_t gpioa_base  = ahb1_base + 0x0000;
-constexpr uint32_t gpiob_base  = ahb1_base + 0x0400;
-constexpr uint32_t gpioc_base  = ahb1_base + 0x0800;
-constexpr uint32_t gpiod_base  = ahb1_base + 0x0C00;
-constexpr uint32_t gpioe_base  = ahb1_base + 0x1000;
-constexpr uint32_t rcc_base    = ahb1_base + 0x3800;
-constexpr uint32_t dma1_base   = ahb1_base + 0x6000;
-constexpr uint32_t dma2_base   = ahb1_base + 0x6400;
-
-// AHB2 peripherals
-constexpr uint32_t ahb2_base   = periph_base + 0x1000'0000;
-constexpr uint32_t usb_otg_fs_base = ahb2_base + 0x0000;
+constexpr uint32_t apb1_base   = 0x4000'0000;
+constexpr uint32_t apb2_base   = 0x4001'0000;
+constexpr uint32_t ahb1_base   = 0x4002'0000;
+constexpr uint32_t ahb2_base   = 0x5000'0000;
 
 } // namespace umi::pal::stm32f407::memory
 ```

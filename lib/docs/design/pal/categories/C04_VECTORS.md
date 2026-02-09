@@ -102,13 +102,13 @@ CPU 割り込みハンドラ
 
 ### 4.2 PAL での表現
 
-Interrupt Matrix の設定は C5 (ペリフェラルレジスタ) で MMIO として定義するが、
-割り込みソース番号は本カテゴリ (C3) で IRQn 相当として定義する。
+Interrupt Matrix の設定は C6 (ペリフェラルレジスタ) で MMIO として定義するが、
+割り込みソース番号は本カテゴリ (C4) で IRQn 相当として定義する。
 
 ```
 ESP32-S3:
-  PAL C3: 割り込みソース番号 (0-98) の enum
-  PAL C5: INTERRUPT_CORE0/1_*_MAP_REG レジスタ (MMIO)
+  PAL C4: 割り込みソース番号 (0-98) の enum
+  PAL C6: INTERRUPT_CORE0/1_*_MAP_REG レジスタ (MMIO)
 ```
 
 ### 4.3 RISC-V ベース ESP32 (C3, C6, P4)
