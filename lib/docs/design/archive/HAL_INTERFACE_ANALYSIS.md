@@ -375,7 +375,190 @@ Wire.endTransmission();
 
 ---
 
-## 5. 実行モデルの隠蔽 vs 分離
+## 5. 同期・非同期 — 実装の詳細ではなく使用の契約
+
+### 5.1 なぜ「実装の詳細」では済まないのか
+
+同期/非同期の違いは、ポーリング・DMA・割り込みのどれを使うかという実装選択の話に見える。しかし**呼び出し側にとっては、その関数を呼べるコンテキストを決定する制約**である。
+
+| 実行モデル | 呼べるコンテキスト | ブロック | バッファ所有権 | 完了通知 |
+|-----------|------------------|---------|-------------|---------|
+| **Blocking** | init時、Serverタスク | する | 関数復帰まで借用 | 戻り値 |
+| **Blocking + timeout** | Serverタスク（上限時間保証） | する（有界） | 関数復帰まで借用 | 戻り値 + 転送量 |
+| **Non-blocking (poll)** | どこでも（ISR含む） | しない | 即時 | 戻り値（BUSY/NOT_READY） |
+| **Async (callback)** | どこでも（開始は） | しない | **完了まで呼び出し側が保持必須** | コールバック（ISRコンテキスト） |
+| **Continuous (streaming)** | init時に開始 | しない | **永続的にHALが管理** | 周期的コールバック |
+
+これはUMIのタスク優先度モデルと直結する:
+
+| UMI実行コンテキスト | 優先度 | 使用可能な実行モデル |
+|---------------------|--------|---------------------|
+| **Realtime** (process(), DMA callback) | 0 | Non-blocking, Continuous のみ |
+| **Server** (ドライバ, Shell, USB SysEx) | 1 | Blocking(有界), Non-blocking, Async |
+| **User** (mainループ, Controller) | 2 | 全て |
+| **ISR** | — | Non-blocking のみ（最小限） |
+
+つまり：
+- `write(data)` がブロッキングなら、**process() から呼ぶことは許されない**
+- `write_async(data, callback)` なら process() から呼べるが、**callback は ISR コンテキストで来るので、そこでヒープ確保や mutex は禁止**
+- `write_byte()` は「TXレジスタが空くまで待つ」場合、これは短時間でもブロッキングであり、**type safety の観点ではリアルタイムコンテキストで使えない**
+
+### 5.2 型で実行モデルを区別する意味
+
+「この関数はブロックするのか？」が型から読めないと、以下が起きる:
+
+1. **リアルタイム違反の見逃し** — `I2cMaster::write()` がブロッキングだとしても、concept制約だけではリアルタイムコンテキストからの呼び出しを防げない
+2. **バッファ寿命の事故** — `write_async(data, cb)` は完了まで `data` が生きている必要がある。ブロッキング `write(data)` と同じ concept にあると、呼び出し側はこの違いに気づかない
+3. **コールバックコンテキストの罠** — async コールバックは通常 ISR で呼ばれるが、これが concept のシグネチャからは見えない
+
+**結論**: 同期/非同期はインターフェイスの「分け方の美学」ではなく、**呼び出し側のコンテキスト安全性を型で保証するための本質的な設計軸**。
+
+### 5.3 各HALのアプローチ
+
+| HAL | 同期/非同期の扱い | コンテキスト安全性の保証 |
+|-----|-------------------|----------------------|
+| **embedded-hal** | 別crate (`embedded-hal` / `embedded-hal-async` / `embedded-hal-nb`) | Rustの型システム + Send/Sync trait で保証 |
+| **Zephyr** | 別API関数群 (Polling / IRQ-driven / Async DMA) | ドキュメント + Kconfig の排他制御 |
+| **CMSIS-Driver** | 単一API + SignalEvent callback | コールバック有無で判別（型では非保証） |
+| **Mbed** | 別クラス (`BufferedSerial` / `UnbufferedSerial`) | クラス選択で暗黙的に保証 |
+| **ESP-IDF** | 別関数群 (`i2c_master_transmit` / `i2c_master_transmit_multi_buffer`) | ドキュメントのみ |
+
+Rust embedded-hal が最も明確: **blocking trait と async trait は型の世界で完全に別物**。呼び出し側が `embedded_hal::i2c::I2c` を要求すれば blocking、`embedded_hal_async::i2c::I2c` を要求すれば async。コンパイル時に強制される。
+
+### 5.4 UMI umihal への含意
+
+現在のumihalの本質的な問題を整理する:
+
+#### 問題A: Blocking メソッドと Async メソッドが同一 concept に同居
+
+```cpp
+// i2c.hh — 現状
+concept I2cMaster = requires(T& i2c, ...) {
+    // これらはブロッキング — Server/Userタスクからのみ呼べる
+    { i2c.write(address, tx_data) } -> std::same_as<Result<void>>;
+    { i2c.read(address, rx_data) } -> std::same_as<Result<void>>;
+
+    // これらは非ブロッキング — どこからでも開始できるがバッファ寿命保証が必要
+    { i2c.write_async(address, tx_data, callback) } -> std::same_as<Result<void>>;
+    { i2c.read_async(address, rx_data, callback) } -> std::same_as<Result<void>>;
+};
+```
+
+テンプレート引数で `I2cMaster` を要求するコードが、blocking 側だけを使うのか async 側だけを使うのか、**制約からは読めない**。
+
+#### 問題B: I2S の3層混在
+
+```cpp
+// i2s.hh — 現状: 3つの全く異なる実行モデルが同居
+concept I2sMaster = requires(T& i2s, ...) {
+    // ① Blocking — 完了まで待つ
+    { i2s.transmit(tx_data) } -> std::same_as<Result<void>>;
+    // ② Async (callback) — DMA完了で通知
+    { i2s.transmit_async(tx_data, callback) } -> std::same_as<Result<void>>;
+    // ③ Continuous (streaming) — 永続的にダブルバッファ
+    { i2s.start_continuous_transmit(tx_data, buffer_callback) } -> std::same_as<Result<void>>;
+};
+```
+
+実際にオーディオシステムが使うのは③のみ。にもかかわらず、全実装が①②のスタブも強制される。
+
+#### 問題C: `write_byte()` の曖昧性
+
+```cpp
+concept UartBasic = requires(T& u, uint8_t byte) {
+    { u.write_byte(byte) } -> std::same_as<Result<void>>;
+};
+```
+
+`write_byte()` は短時間ブロック（TX FIFO空き待ち）か、即時失敗（BUSY返却）か？ **concept のシグネチャからは判別不能**。
+
+選択肢:
+- **A**: `write_byte()` は常にブロッキングと定義 → `UartBasic` は Blocking concept
+- **B**: `write_byte()` は BUSY を返す可能性あり → Non-blocking Poll モデル
+- **C**: 両方別concept (`UartBlocking::write_byte()`, `UartPoll::try_write_byte()`)
+
+**推奨: A + 命名規則** — `try_` prefix のないメソッドはブロッキング。Non-blocking は `try_write_byte()` → `Result<void>` (BUSY を正常な戻り値として扱う)。
+
+### 5.5 推奨設計: 実行モデルの concept 階層化
+
+```
+                        UartBasic (blocking)
+                        ├── write_byte()      ... ブロック
+                        ├── read_byte()       ... ブロック
+                        │
+                UartBuffered (blocking + buffer)
+                        ├── write(span)       ... ブロック
+                        ├── read(span)        ... ブロック
+                        │
+                UartAsync (non-blocking start + callback)
+                        ├── write_async(span, cb)  ... 即時復帰、後でcb
+                        │
+                UartPoll (non-blocking immediate)
+                        ├── try_write_byte()  ... 即時復帰、BUSY可
+                        └── try_read_byte()   ... 即時復帰、NOT_READY可
+```
+
+**concept間の関係は階層（refinement）ではなく独立**:
+- `UartAsync` は `UartBasic` を refine しない — 実行モデルが異なる
+- `UartPoll` も `UartBasic` を refine しない
+- `UartBuffered` は `UartBasic` を refine する（同じ実行モデルの拡張）
+
+これにより:
+```cpp
+// ドライバコード: blocking I2C でコーデック初期化（init時のみ呼ばれる）
+template <I2cBlocking Bus>
+void codec_init(Bus& bus) {
+    bus.write(codec_addr, init_sequence);  // ブロッキング OK — init コンテキスト
+}
+
+// リアルタイムコード: non-blocking で MIDI 送信
+template <UartPoll Port>
+void send_midi_byte(Port& port, uint8_t byte) {
+    auto result = port.try_write_byte(byte);  // 即時復帰 — process() から安全
+    if (!result && result.error() == ErrorCode::BUSY) { /* 次回再試行 */ }
+}
+
+// DMAオーディオストリーミング: continuous 専用
+template <I2sContinuous Stream>
+void start_audio(Stream& stream, std::span<int16_t> buf, auto cb) {
+    stream.start_continuous(buf, cb);  // 永続的ストリーミング開始
+}
+```
+
+### 5.6 `try_` 命名規則の根拠
+
+| prefix | 意味 | ブロック | 使用可能コンテキスト |
+|--------|------|---------|---------------------|
+| なし (`write`, `read`) | 完了まで待つ | する | Server, User, Init |
+| `try_` (`try_write`, `try_read`) | 即時試行、失敗可 | しない | **全て（Realtime, ISR 含む）** |
+| `_async` suffix (`write_async`) | 開始のみ、完了はcb | しない（開始） | 全て（cbはISR） |
+
+この規則はC++標準ライブラリ (`try_lock`, `try_wait`) やRust (`try_send`, `try_recv`) でも共通。UMI のコーディング規則とも整合する。
+
+コールバックの実行コンテキストについても明示が必要:
+```cpp
+/// @brief 非同期転送を開始する
+/// @note callback は ISR コンテキストから呼ばれる。
+///       ヒープ確保・mutex・stdio 禁止。
+{ u.write_async(data, callback) } -> std::same_as<Result<void>>;
+```
+
+### 5.7 バッファ所有権と寿命の型表現
+
+async の最大の落とし穴は**バッファ寿命**。Rust では `'a` ライフタイムで静的に保証されるが、C++ には直接の対応物がない。
+
+| 方針 | 説明 | トレードオフ |
+|------|------|-------------|
+| ドキュメント保証 | `@pre data のライフタイムは callback 完了まで保証すること` | 最も軽量だが、コンパイル時検証なし |
+| `std::span` の明示 | async は `std::span` を取り、「この span が指す先を保持せよ」と契約 | 現状と同じ |
+| バッファハンドル | `AsyncBuffer` 型を返し、完了まで drop 不可にする | RAII + move semantics で安全だが複雑 |
+| 静的バッファ要求 | async は `StaticBuffer<N>` のみ受け付ける | 組み込みでは合理的（ヒープなし前提） |
+
+**推奨**: UMI の組み込みコンテキストでは「ドキュメント保証 + 静的バッファ推奨」が現実的。将来的に `AsyncBuffer` RAII パターンを検討する余地を残す。
+
+---
+
+## 5B. 実行モデルの分離方式（インターフェイス設計）
 
 ### ❌ 混在式（現在のumihal）
 
@@ -396,6 +579,8 @@ concept Uart = requires(T& uart, ...) {
 - ポーリング実装でも非同期メソッドの実装が必要
 - 「NOT_SUPPORTEDを返してもよい」は型安全性を損なう
 - ドライバ作者が「このUartは非同期をサポートするか？」を型で判別できない
+- **呼び出し側がブロッキング関数をリアルタイムコンテキストから呼ぶミスを型で防げない**
+- **バッファ寿命の契約がブロッキング関数と非同期関数で異なるのに同一 concept に混在**
 
 ### ✅ 分離式（推奨）
 
