@@ -320,6 +320,39 @@ Examples represent learning stages:
 2. Add multi-transport example (same register map, different buses).
 3. Document register map generation workflow for vendor SVD/CMSIS files.
 4. Add batch register dump utility for debugging.
+5. **Constrain byte-transport template parameters with HAL concepts.**
+   Currently, `I2cTransport<I2C>` and `SpiTransport<SpiDevice>` accept any type
+   as the HAL driver parameter (duck typing). Adding explicit `requires` clauses
+   would produce clear concept-mismatch errors instead of deep template failures:
+
+   ```cpp
+   // Current: unconstrained — errors appear deep in raw_read/raw_write
+   template <typename I2C, ...>
+   class I2cTransport : public ByteAdapter<...> { ... };
+
+   // Improved: concept-constrained — early, clear error at instantiation
+   template <umi::hal::I2cTransport I2C, ...>
+   class I2cTransport : public ByteAdapter<...> { ... };
+   ```
+
+   **Prerequisite:** The `umi::hal::I2cTransport` concept signature
+   (`write(addr, reg, tx)`) does not match what `mmio::I2cTransport`
+   actually calls (`write(addr, payload)` without separate `reg`).
+   The HAL concept must be aligned first (see `03_ARCHITECTURE.md` §10.3).
+
+6. **Resolve naming collision between `umi::hal` and `umi::mmio` Transport types.**
+   Both namespaces define `I2cTransport` and `SpiTransport`, but at different
+   abstraction levels:
+
+   | Name | Namespace | Kind | Abstraction |
+   |------|-----------|------|-------------|
+   | `I2cTransport` | `umi::hal` | concept | Bus-level: send/receive bytes |
+   | `I2cTransport` | `umi::mmio` | class | Register-level: address framing + endian conversion |
+
+   Consider renaming the mmio class to `I2cRegisterBus` or `I2cRegisterTransport`
+   to eliminate ambiguity. The mmio Transport *consumes* the HAL concept (takes
+   a HAL-conformant type as template parameter), so they are complementary,
+   not competing abstractions.
 
 ---
 
