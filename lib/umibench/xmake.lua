@@ -41,26 +41,20 @@ target("umibench_common")
 target("umibench_host")
     set_kind("headeronly")
     add_deps("umibench_common")
-    add_defines("UMIBENCH_HOST")
     add_includedirs("platforms/host", { public = true })
 
 target("umibench_wasm_platform")
     set_kind("headeronly")
     add_deps("umibench_common")
-    add_defines("UMIBENCH_WASM")
     add_includedirs("platforms/wasm", { public = true })
 
 target("umibench_embedded")
     set_kind("headeronly")
     add_deps("umibench_common")
     umibench_add_umimmio_dep()
-    add_defines("UMIBENCH_EMBEDDED")
 
--- Host tests
+-- Host tests + ARM embedded targets
 includes("tests")
-
--- Embedded targets (STM32F4 with Renode)
-includes("platforms/arm/cortex-m/stm32f4")
 
 -- WASM target
 includes("platforms/wasm")

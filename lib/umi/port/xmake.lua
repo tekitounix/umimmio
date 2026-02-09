@@ -1,13 +1,15 @@
 -- =====================================================================
--- UMI-Port: Hardware Abstraction Layer
+-- UMI-Port: Hardware Abstraction Layer (MCU/Board implementations)
 -- =====================================================================
 -- Layer structure (each subdirectory is an include root):
---   concepts/    - C++23 Concept contracts (always included)
 --   common/      - Cortex-M common (NVIC, SCB, SysTick, DWT, etc.)
 --   arch/<arch>/ - CPU core (cm4, cm7) context switch, cache, FPU
 --   mcu/<mcu>/   - SoC peripherals (stm32f4, stm32h7)
 --   board/<brd>/ - Board-level drivers (stm32f4_disco, daisy_seed)
 --   platform/<p>/ - Execution environment (embedded, wasm)
+--
+-- HAL concepts are in the independent `umihal` package.
+-- Device drivers are in the independent `umidevice` package.
 -- =====================================================================
 --
 -- NOTE: This is a header-only target for include paths only.
@@ -26,7 +28,6 @@ target("umi.port")
     add_includedirs(lib_dir, {public = true})
 
     -- Core include directories (always included)
-    add_includedirs(path.join(port_dir, "concepts"), {public = true})
     add_includedirs(path.join(port_dir, "common"), {public = true})
 
     -- Architecture-specific (Cortex-M4)
@@ -42,12 +43,10 @@ target("umi.port")
     add_includedirs(path.join(port_dir, "platform/embedded"), {public = true})
 
     -- Header files (use relative paths for xmake format compatibility)
-    add_headerfiles("concepts/**/*.hh")
     add_headerfiles("common/**/*.hh")
     add_headerfiles("arch/**/*.hh")
     add_headerfiles("mcu/**/*.hh")
     add_headerfiles("board/**/*.hh")
-    add_headerfiles("device/**/*.hh")
     add_headerfiles("platform/**/*.hh")
 
 target_end()

@@ -28,11 +28,8 @@ target("umimmio")
     add_headerfiles("include/(umimmio/**.hh)")
     add_includedirs("include", { public = true })
 
--- Host tests
+-- Host tests + ARM embedded targets
 includes("tests")
 
 -- WASM target
 includes("platforms/wasm")
-
--- Embedded targets (STM32F4 with Renode)
-includes("platforms/arm/cortex-m/stm32f4")
