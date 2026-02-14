@@ -1,21 +1,18 @@
 set_project("umi")
--- Version source of truth: git tags (vX.Y.Z).
--- This value is updated automatically by `xmake release --ver=X.Y.Z`.
-set_version("0.2.0")
+set_version("0.3.0")   -- クリーンスレート: 0.2.0 → 0.3.0
 set_xmakever("2.8.0")
 
 set_languages("c++23")
-add_rules("mode.debug", "mode.release", "embedded.compdb")
-add_rules("embedded.vscode", {target = "umirtm_example_stm32f4_disco"})
+add_rules("mode.debug", "mode.release")
 set_warnings("all", "extra", "error")
 
-includes("lib/umihal")
-includes("lib/umiport")
-includes("lib/umimmio")
-includes("lib/umitest")
-includes("lib/umidevice")
-includes("lib/umibench")
-includes("lib/umirtm")
+-- Phase 1 で順次追加
+-- includes("lib/umitest")
+-- includes("lib/umibench")
+-- includes("lib/umirtm")
+-- includes("lib/umimmio")
+-- includes("lib/umicore")
+-- includes("lib/umihal")
 
 includes("tools/release.lua")
 includes("tools/dev-sync.lua")
