@@ -6,11 +6,8 @@ This page is the canonical documentation entry for both GitHub and Doxygen.
 
 ## Read in This Order
 
-1. [Getting Started](GETTING_STARTED.md)
-2. [Usage](USAGE.md)
-3. [Examples](EXAMPLES.md)
-4. [Testing](TESTING.md)
-5. [Design](DESIGN.md)
+1. [Testing](TESTING.md)
+2. [Design](DESIGN.md)
 
 ## API Reference Map
 

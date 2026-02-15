@@ -6,11 +6,8 @@
 
 ## 読む順序
 
-1. [Getting Started](../GETTING_STARTED.md)
-2. [Usage](../USAGE.md)
-3. [Examples](../EXAMPLES.md)
-4. [テスト](TESTING.md)
-5. [設計](DESIGN.md)
+1. [テスト](TESTING.md)
+2. [設計](DESIGN.md)
 
 ## API リファレンスマップ
 

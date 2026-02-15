@@ -73,9 +73,6 @@ lib/umimmio/
 ├── docs/
 │   ├── INDEX.md
 │   ├── DESIGN.md
-│   ├── GETTING_STARTED.md
-│   ├── USAGE.md
-│   ├── EXAMPLES.md
 │   ├── TESTING.md
 │   └── ja/
 ├── examples/
