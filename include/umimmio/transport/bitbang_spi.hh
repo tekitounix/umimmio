@@ -1,10 +1,10 @@
+#pragma once
+
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file bitbang_spi.hh
 /// @brief Bit-bang SPI transport implementation (mode 0, MSB first).
 /// @author Shota Moriguchi @tekitounix
-
-#pragma once
 
 #include <array>
 #include <cassert>

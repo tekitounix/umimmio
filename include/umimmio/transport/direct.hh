@@ -1,10 +1,10 @@
+#pragma once
+
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file direct.hh
 /// @brief Direct memory-mapped I/O transport implementation.
 /// @author Shota Moriguchi @tekitounix
-
-#pragma once
 
 #include <concepts>
 #include <type_traits>

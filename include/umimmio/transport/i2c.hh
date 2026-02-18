@@ -1,10 +1,10 @@
+#pragma once
+
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file i2c.hh
 /// @brief I2C transport implementation for HAL-compatible drivers.
 /// @author Shota Moriguchi @tekitounix
-
-#pragma once
 
 #include <array>
 #include <cassert>

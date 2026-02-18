@@ -1,10 +1,10 @@
+#pragma once
+
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file bitbang_i2c.hh
 /// @brief Bit-bang I2C transport implementation via GPIO.
 /// @author Shota Moriguchi @tekitounix
-
-#pragma once
 
 #include <array>
 #include <cassert>
