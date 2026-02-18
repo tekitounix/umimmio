@@ -1,10 +1,11 @@
+#pragma once
+
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file register.hh
 /// @brief UMI Memory-mapped I/O register abstractions.
 /// @author Shota Moriguchi @tekitounix
 
-#pragma once
 #include <array>
 #include <cassert>
 #include <concepts>

@@ -1,10 +1,10 @@
+#pragma once
+
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file spi.hh
 /// @brief SPI transport implementation for byte-addressed devices.
 /// @author Shota Moriguchi @tekitounix
-
-#pragma once
 
 #include <array>
 #include <cassert>
