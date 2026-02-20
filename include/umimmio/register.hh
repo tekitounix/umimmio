@@ -437,51 +437,70 @@ class RegOps {
         static_assert(RegionType::AccessType::can_write, "Cannot write to read-only register");
 
         if constexpr (RegionType::is_register) {
-            // Handle Value type for registers
-            if constexpr (requires { V::value; }) {
-                // Value type with enumerated value
-                if constexpr (CheckPolicy::value) {
-                    if constexpr (RegionType::bit_width < sizeof(V::value) * bits8) {
-                        auto const max_value = (1ULL << RegionType::bit_width) - 1;
-                        if (static_cast<std::uint64_t>(V::value) > max_value) {
-                            ErrorPolicy::on_range_error("Register value out of range");
-                        }
-                    }
-                }
-                self().reg_write(RegionType{}, static_cast<typename RegionType::RegValueType>(V::value));
-            } else {
-                // DynamicValue type
-                if constexpr (CheckPolicy::value) {
-                    if constexpr (RegionType::bit_width < sizeof(decltype(value.assigned_value)) * bits8) {
-                        auto const max_value = (1ULL << RegionType::bit_width) - 1;
-                        if (static_cast<std::uint64_t>(value.assigned_value) > max_value) {
-                            ErrorPolicy::on_range_error("Register value out of range");
-                        }
-                    }
-                }
-                self().reg_write(RegionType{}, value.assigned_value);
-            }
+            write_register_value(std::forward<Value>(value));
         } else {
-            // Field: start from reset value
-            using ParentRegType = typename RegionType::ParentRegType;
-            auto reg_val = ParentRegType::reset_value();
-            if constexpr (requires { V::value; }) {
-                // Enumerated value
-                reg_val = (reg_val & ~RegionType::mask()) | ((V::value << RegionType::shift) & RegionType::mask());
-            } else {
-                // Dynamic value with runtime check
-                if constexpr (CheckPolicy::value) {
-                    if constexpr (RegionType::bit_width < sizeof(decltype(value.assigned_value)) * bits8) {
-                        [[maybe_unused]] auto const max_value = (1ULL << RegionType::bit_width) - 1;
-                        if (static_cast<std::uint64_t>(value.assigned_value) > max_value) {
-                            ErrorPolicy::on_range_error("Field value out of range");
-                        }
-                    }
+            write_field_value(std::forward<Value>(value));
+        }
+    }
+
+    /// @brief Write a Value to a register-type region.
+    template <typename Value>
+    void write_register_value(Value&& value) const noexcept {
+        using V = std::decay_t<Value>;
+        using RegionType = typename V::RegionType;
+
+        if constexpr (requires { V::value; }) {
+            // Enumerated value
+            check_range_if_enabled<RegionType, std::uint64_t(V::value)>("Register value out of range");
+            self().reg_write(RegionType{}, static_cast<typename RegionType::RegValueType>(V::value));
+        } else {
+            // Dynamic value
+            check_dynamic_range_if_enabled<RegionType>(value.assigned_value, "Register value out of range");
+            self().reg_write(RegionType{}, value.assigned_value);
+        }
+    }
+
+    /// @brief Write a Value to a field-type region (masks into parent register).
+    template <typename Value>
+    void write_field_value(Value&& value) const noexcept {
+        using V = std::decay_t<Value>;
+        using RegionType = typename V::RegionType;
+        using ParentRegType = typename RegionType::ParentRegType;
+
+        auto reg_val = ParentRegType::reset_value();
+        if constexpr (requires { V::value; }) {
+            reg_val = (reg_val & ~RegionType::mask()) | ((V::value << RegionType::shift) & RegionType::mask());
+        } else {
+            check_dynamic_range_if_enabled<RegionType>(value.assigned_value, "Field value out of range");
+            reg_val = (reg_val & ~RegionType::mask()) |
+                      ((value.assigned_value << RegionType::shift) & RegionType::mask());
+        }
+        self().reg_write(ParentRegType{}, reg_val);
+    }
+
+    /// @brief Check if a compile-time value exceeds the region's bit width (if policy enabled).
+    template <typename RegionType, std::uint64_t Val>
+    void check_range_if_enabled(const char* msg) const noexcept {
+        if constexpr (CheckPolicy::value) {
+            if constexpr (RegionType::bit_width < sizeof(Val) * bits8) {
+                constexpr auto max_value = (1ULL << RegionType::bit_width) - 1;
+                if (Val > max_value) {
+                    ErrorPolicy::on_range_error(msg);
                 }
-                reg_val = (reg_val & ~RegionType::mask()) |
-                          ((value.assigned_value << RegionType::shift) & RegionType::mask());
             }
-            self().reg_write(ParentRegType{}, reg_val);
+        }
+    }
+
+    /// @brief Check if a dynamic value exceeds the region's bit width (if policy enabled).
+    template <typename RegionType, typename T>
+    void check_dynamic_range_if_enabled(T assigned_value, const char* msg) const noexcept {
+        if constexpr (CheckPolicy::value) {
+            if constexpr (RegionType::bit_width < sizeof(assigned_value) * bits8) {
+                auto const max_value = (1ULL << RegionType::bit_width) - 1;
+                if (static_cast<std::uint64_t>(assigned_value) > max_value) {
+                    ErrorPolicy::on_range_error(msg);
+                }
+            }
         }
     }
 
