@@ -122,7 +122,14 @@ struct MockI2CGpio {
     mutable std::uint8_t current_byte = 0;
 
     // State machine for read simulation
-    mutable enum class State : std::uint8_t { IDLE, ADDR_WRITE, REG_ADDR, ADDR_READ, DATA_READ, DATA_WRITE } state = State::IDLE;
+    mutable enum class State : std::uint8_t {
+        IDLE,
+        ADDR_WRITE,
+        REG_ADDR,
+        ADDR_READ,
+        DATA_READ,
+        DATA_WRITE
+    } state = State::IDLE;
     mutable std::uint8_t reg_addr = 0;
     mutable int data_offset = 0;
 
