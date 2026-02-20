@@ -3,6 +3,7 @@
 /// @brief Minimal Region/Field definition example.
 
 #include <cstdio>
+
 #include <umimmio/register.hh>
 
 // Define a simple 8-bit register at address 0x4000'0000

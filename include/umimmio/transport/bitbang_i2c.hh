@@ -170,9 +170,9 @@ class BitBangI2cTransport
 
     /// @brief Transmit one byte MSB-first and check ACK.
     /// @return true if ACK received, false on NACK.
-    bool write_byte(std::uint8_t byte) const noexcept {
+    [[nodiscard]] bool write_byte(std::uint8_t byte) const noexcept {
         for (int i = 7; i >= 0; --i) {
-            if ((byte & (1u << i)) != 0) {
+            if ((byte & (1U << i)) != 0) {
                 gpio.sda_high();
             } else {
                 gpio.sda_low();
@@ -186,7 +186,7 @@ class BitBangI2cTransport
         gpio.delay();
         gpio.scl_high();
         gpio.delay();
-        bool ack = !gpio.sda_read();
+        bool const ack = !gpio.sda_read();
         gpio.scl_low();
         return ack;
     }
@@ -194,14 +194,14 @@ class BitBangI2cTransport
     /// @brief Receive one byte MSB-first, sending ACK or NACK.
     /// @param ack true to send ACK (more bytes to follow), false for NACK (last byte).
     /// @return Received byte value.
-    std::uint8_t read_byte(bool ack) const noexcept {
+    [[nodiscard]] std::uint8_t read_byte(bool ack) const noexcept {
         std::uint8_t byte = 0;
         gpio.sda_high(); // release
         for (int i = 7; i >= 0; --i) {
             gpio.scl_high();
             gpio.delay();
             if (gpio.sda_read()) {
-                byte |= static_cast<std::uint8_t>(1u << i);
+                byte |= static_cast<std::uint8_t>(1U << i);
             }
             gpio.scl_low();
             gpio.delay();

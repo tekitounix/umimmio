@@ -3,6 +3,7 @@
 /// @brief Peripheral-style register map definition example.
 
 #include <cstdio>
+
 #include <umimmio/register.hh>
 
 // =============================================================================

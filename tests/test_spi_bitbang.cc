@@ -32,11 +32,12 @@ struct MockSpi {
     /// For reads, response data comes from memory[addr].
     /// For writes, tx data is stored at memory[addr].
     void transfer(const std::uint8_t* tx, std::uint8_t* rx, std::size_t size) const {
-        if (size < 2)
+        if (size < 2) {
             return;
+        }
         // Address is first byte (mask off command bits)
-        std::uint8_t addr = tx[0] & 0x7F;
-        bool is_read = (tx[0] & 0x80) != 0;
+        std::uint8_t const addr = tx[0] & 0x7F;
+        bool const is_read = (tx[0] & 0x80) != 0;
 
         if (rx != nullptr && is_read) {
             // Read: fill rx with data from memory starting at addr
@@ -61,41 +62,41 @@ struct SPIFieldHigh : Field<SPIReg32, 24, 8> {};
 
 bool test_spi_write_read(TestContext& t) {
     MockSpi spi;
-    SpiTransport<MockSpi> transport(spi);
+    SpiTransport<MockSpi> const transport(spi);
 
-    transport.write(SPIReg32::value(0xCAFE'BABEu));
+    transport.write(SPIReg32::value(0xCAFE'BABEU));
     auto val = transport.read(SPIReg32{});
-    return t.assert_eq(val, 0xCAFE'BABEu);
+    return t.assert_eq(val, 0xCAFE'BABEU);
 }
 
 bool test_spi_field_read(TestContext& t) {
     MockSpi spi;
-    SpiTransport<MockSpi> transport(spi);
+    SpiTransport<MockSpi> const transport(spi);
 
-    transport.write(SPIReg32::value(0x000000ABu));
+    transport.write(SPIReg32::value(0x000000ABU));
     auto val = transport.read(SPIField8{});
     return t.assert_eq(val, static_cast<uint8_t>(0xAB));
 }
 
 bool test_spi_modify(TestContext& t) {
     MockSpi spi;
-    SpiTransport<MockSpi> transport(spi);
+    SpiTransport<MockSpi> const transport(spi);
 
-    transport.write(SPIReg32::value(0xFF000000u));
+    transport.write(SPIReg32::value(0xFF000000U));
     transport.modify(SPIField8::value(static_cast<uint8_t>(0x42)));
 
     bool ok = true;
     auto val = transport.read(SPIReg32{});
-    ok &= t.assert_eq(val & 0xFFu, 0x42u);
-    ok &= t.assert_eq(val & 0xFF000000u, 0xFF000000u);
+    ok &= t.assert_eq(val & 0xFFU, 0x42U);
+    ok &= t.assert_eq(val & 0xFF000000U, 0xFF000000U);
     return ok;
 }
 
 bool test_spi_high_field(TestContext& t) {
     MockSpi spi;
-    SpiTransport<MockSpi> transport(spi);
+    SpiTransport<MockSpi> const transport(spi);
 
-    transport.write(SPIReg32::value(0xAB000000u));
+    transport.write(SPIReg32::value(0xAB000000U));
     auto val = transport.read(SPIFieldHigh{});
     return t.assert_eq(val, static_cast<uint8_t>(0xAB));
 }
@@ -121,14 +122,7 @@ struct MockI2CGpio {
     mutable std::uint8_t current_byte = 0;
 
     // State machine for read simulation
-    mutable enum class State {
-        IDLE,
-        ADDR_WRITE,
-        REG_ADDR,
-        ADDR_READ,
-        DATA_READ,
-        DATA_WRITE
-    } state = State::IDLE;
+    mutable enum class State : std::uint8_t { IDLE, ADDR_WRITE, REG_ADDR, ADDR_READ, DATA_READ, DATA_WRITE } state = State::IDLE;
     mutable std::uint8_t reg_addr = 0;
     mutable int data_offset = 0;
 
@@ -157,8 +151,8 @@ struct MockI2CGpio {
         // During ACK phase after write_byte, return !slave_ack
         // During read phase, return bits from memory
         if (state == State::DATA_READ) {
-            std::uint8_t byte = memory[reg_addr + data_offset];
-            bool bit = (byte & (1u << bit_index)) != 0;
+            std::uint8_t const byte = memory[reg_addr + data_offset];
+            bool const bit = (byte & (1U << bit_index)) != 0;
             return bit;
         }
         return !slave_ack; // ACK = pull low = false
@@ -177,17 +171,17 @@ struct BBI2CField : Field<BBI2CReg, 0, 8> {};
 bool test_bitbang_i2c_gpio_calls(TestContext& t) {
     // Verify write exercises GPIO and multi-byte uses more calls
     MockI2CGpio gpio;
-    BitBangI2cTransport<MockI2CGpio, std::true_type, IgnoreError> transport(gpio, 0xA0);
+    BitBangI2cTransport<MockI2CGpio, std::true_type, IgnoreError> const transport(gpio, 0xA0);
 
     gpio.call_count = 0;
-    std::uint8_t data1[] = {0x42};
-    transport.raw_write(static_cast<std::uint8_t>(0x20), data1, 1);
-    int single_byte_calls = gpio.call_count;
+    std::array<std::uint8_t, 1> data1 = {0x42};
+    transport.raw_write(static_cast<std::uint8_t>(0x20), data1.data(), 1);
+    int const single_byte_calls = gpio.call_count;
 
     gpio.call_count = 0;
-    std::uint8_t data4[] = {0x11, 0x22, 0x33, 0x44};
-    transport.raw_write(static_cast<std::uint8_t>(0x20), data4, 4);
-    int multi_byte_calls = gpio.call_count;
+    std::array<std::uint8_t, 4> data4 = {0x11, 0x22, 0x33, 0x44};
+    transport.raw_write(static_cast<std::uint8_t>(0x20), data4.data(), 4);
+    int const multi_byte_calls = gpio.call_count;
 
     bool ok = true;
     ok &= t.assert_gt(single_byte_calls, 0);
@@ -198,15 +192,15 @@ bool test_bitbang_i2c_gpio_calls(TestContext& t) {
 bool test_bitbang_i2c_start_stop_sequence(TestContext& t) {
     // Verify START condition is generated (SDA falls while SCL high)
     MockI2CGpio gpio;
-    BitBangI2cTransport<MockI2CGpio, std::true_type, IgnoreError> transport(gpio, 0xA0);
+    BitBangI2cTransport<MockI2CGpio, std::true_type, IgnoreError> const transport(gpio, 0xA0);
 
     // After init, both lines should be idle (high)
     bool ok = true;
     ok &= t.assert_true(gpio.scl_state, "SCL should start high");
     ok &= t.assert_true(gpio.sda_state, "SDA should start high");
 
-    std::uint8_t data[] = {0x00};
-    transport.raw_write(static_cast<std::uint8_t>(0x00), data, 1);
+    std::array<std::uint8_t, 1> data = {0x00};
+    transport.raw_write(static_cast<std::uint8_t>(0x00), data.data(), 1);
 
     // After write completes with STOP, both lines should return high
     ok &= t.assert_true(gpio.sda_state, "SDA should be high after STOP");
@@ -215,10 +209,10 @@ bool test_bitbang_i2c_start_stop_sequence(TestContext& t) {
 
 bool test_bitbang_i2c_write_lines_idle_after(TestContext& t) {
     MockI2CGpio gpio;
-    BitBangI2cTransport<MockI2CGpio, std::true_type, IgnoreError> transport(gpio, 0xA0);
+    BitBangI2cTransport<MockI2CGpio, std::true_type, IgnoreError> const transport(gpio, 0xA0);
 
-    std::uint8_t data[] = {0x11, 0x22, 0x33, 0x44};
-    transport.raw_write(static_cast<std::uint8_t>(0x00), data, 4);
+    std::array<std::uint8_t, 4> data = {0x11, 0x22, 0x33, 0x44};
+    transport.raw_write(static_cast<std::uint8_t>(0x00), data.data(), 4);
 
     // After STOP, both lines should be idle (high)
     bool ok = true;
@@ -245,12 +239,12 @@ struct MockSpiPins {
     mutable std::array<std::uint8_t, 256> memory{};
 
     // Bit-level tracking for address/data reconstruction
-    mutable int total_bits = 0;         // bits clocked since CS low
-    mutable std::uint8_t addr_byte = 0; // captured address byte
-    mutable bool addr_done = false;     // address byte fully received
-    mutable bool is_read = false;       // read command detected
+    mutable int total_bits = 0;           // bits clocked since CS low
+    mutable std::uint8_t addr_byte = 0;   // captured address byte
+    mutable bool addr_done = false;       // address byte fully received
+    mutable bool is_read = false;         // read command detected
     mutable std::uint8_t write_accum = 0; // accumulator for write data byte
-    mutable int data_byte_idx = 0;      // current data byte offset
+    mutable int data_byte_idx = 0;        // current data byte offset
 
     void cs_low() const {
         cs_state = false;
@@ -269,12 +263,12 @@ struct MockSpiPins {
     void sck_high() const {
         sck_state = true;
         // On rising edge, capture MOSI bit
-        int bit_in_byte = 7 - (total_bits % 8);
+        int const bit_in_byte = 7 - (total_bits % 8);
 
         if (!addr_done) {
             // Accumulate address byte
             if (mosi_state) {
-                addr_byte |= static_cast<std::uint8_t>(1u << bit_in_byte);
+                addr_byte |= static_cast<std::uint8_t>(1U << bit_in_byte);
             }
             if (bit_in_byte == 0) {
                 // Address byte complete
@@ -284,11 +278,11 @@ struct MockSpiPins {
         } else if (!is_read) {
             // Write phase: accumulate data bits
             if (mosi_state) {
-                write_accum |= static_cast<std::uint8_t>(1u << bit_in_byte);
+                write_accum |= static_cast<std::uint8_t>(1U << bit_in_byte);
             }
             if (bit_in_byte == 0) {
                 // Data byte complete, store to memory
-                std::uint8_t reg_addr = addr_byte & 0x7F;
+                std::uint8_t const reg_addr = addr_byte & 0x7F;
                 memory[reg_addr + data_byte_idx] = write_accum;
                 write_accum = 0;
                 data_byte_idx++;
@@ -305,13 +299,13 @@ struct MockSpiPins {
     /// so use total_bits - 1 for the current bit position.
     bool miso_read() const {
         if (addr_done && is_read) {
-            std::uint8_t reg_addr = addr_byte & 0x7F;
-            int current_bit = total_bits - 1; // undo sck_high increment
-            int data_bits = current_bit - 8;  // bits after address byte
-            int byte_idx = data_bits / 8;
-            int bit_in_byte = 7 - (data_bits % 8);
-            std::uint8_t byte = memory[reg_addr + byte_idx];
-            return (byte & (1u << bit_in_byte)) != 0;
+            std::uint8_t const reg_addr = addr_byte & 0x7F;
+            int const current_bit = total_bits - 1; // undo sck_high increment
+            int const data_bits = current_bit - 8;  // bits after address byte
+            int const byte_idx = data_bits / 8;
+            int const bit_in_byte = 7 - (data_bits % 8);
+            std::uint8_t const byte = memory[reg_addr + byte_idx];
+            return (byte & (1U << bit_in_byte)) != 0;
         }
         return false;
     }
@@ -328,11 +322,11 @@ struct BBSPIField : Field<BBSPIReg, 0, 8> {};
 
 bool test_bitbang_spi_write_roundtrip(TestContext& t) {
     MockSpiPins pins;
-    BitBangSpiTransport<MockSpiPins> transport(pins);
+    BitBangSpiTransport<MockSpiPins> const transport(pins);
 
     // Write 4 bytes at address 0x10
-    std::uint8_t tx[] = {0xAB, 0xCD, 0xEF, 0x01};
-    transport.raw_write(static_cast<std::uint8_t>(0x10), tx, 4);
+    std::array<std::uint8_t, 4> tx = {0xAB, 0xCD, 0xEF, 0x01};
+    transport.raw_write(static_cast<std::uint8_t>(0x10), tx.data(), 4);
 
     // Verify mock memory received the data
     bool ok = true;
@@ -345,13 +339,13 @@ bool test_bitbang_spi_write_roundtrip(TestContext& t) {
 
 bool test_bitbang_spi_cs_control(TestContext& t) {
     MockSpiPins pins;
-    BitBangSpiTransport<MockSpiPins> transport(pins);
+    BitBangSpiTransport<MockSpiPins> const transport(pins);
 
     bool ok = true;
     ok &= t.assert_true(pins.cs_state, "CS should start high (deasserted)");
 
-    std::uint8_t data[] = {0x00};
-    transport.raw_write(static_cast<std::uint8_t>(0x00), data, 1);
+    std::array<std::uint8_t, 1> data = {0x00};
+    transport.raw_write(static_cast<std::uint8_t>(0x00), data.data(), 1);
 
     // After transfer, CS should return high
     ok &= t.assert_true(pins.cs_state, "CS should be high after transfer");
@@ -360,7 +354,7 @@ bool test_bitbang_spi_cs_control(TestContext& t) {
 
 bool test_bitbang_spi_read_roundtrip(TestContext& t) {
     MockSpiPins pins;
-    BitBangSpiTransport<MockSpiPins> transport(pins);
+    BitBangSpiTransport<MockSpiPins> const transport(pins);
 
     // Pre-load memory for read
     pins.memory[0x10] = 0xAB;
@@ -368,8 +362,8 @@ bool test_bitbang_spi_read_roundtrip(TestContext& t) {
     pins.memory[0x12] = 0xEF;
     pins.memory[0x13] = 0x01;
 
-    std::uint8_t rx[4]{};
-    transport.raw_read(static_cast<std::uint8_t>(0x10), rx, 4);
+    std::array<std::uint8_t, 4> rx{};
+    transport.raw_read(static_cast<std::uint8_t>(0x10), rx.data(), 4);
 
     // Verify read data matches pre-loaded memory
     bool ok = true;
@@ -394,17 +388,19 @@ struct LocalMockI2C {
     };
 
     Result write(std::uint8_t /*dev_addr*/, std::span<const std::uint8_t> data) const {
-        if (data.size() < 2)
+        if (data.size() < 2) {
             return {false};
-        std::uint8_t reg_addr = data[0];
+        }
+        std::uint8_t const reg_addr = data[0];
         std::memcpy(&memory[reg_addr], data.data() + 1, data.size() - 1);
         return {true};
     }
 
     Result write_read(std::uint8_t /*dev_addr*/, std::span<const std::uint8_t> tx, std::span<std::uint8_t> rx) const {
-        if (tx.empty())
+        if (tx.empty()) {
             return {false};
-        std::uint8_t reg_addr = tx[0];
+        }
+        std::uint8_t const reg_addr = tx[0];
         std::memcpy(rx.data(), &memory[reg_addr], rx.size());
         return {true};
     }
@@ -415,10 +411,8 @@ struct EndianDevice : Device<RW, I2CTransportTag> {};
 struct EndianReg32 : Register<EndianDevice, 0x10, bits32, RW, 0> {};
 
 // Type aliases for long template names
-using I2cLE = I2cTransport<LocalMockI2C, std::true_type, AssertOnError,
-                           std::uint8_t, Endian::BIG, Endian::LITTLE>;
-using I2cBE = I2cTransport<LocalMockI2C, std::true_type, AssertOnError,
-                           std::uint8_t, Endian::BIG, Endian::BIG>;
+using I2cLE = I2cTransport<LocalMockI2C, std::true_type, AssertOnError, std::uint8_t, Endian::BIG, Endian::LITTLE>;
+using I2cBE = I2cTransport<LocalMockI2C, std::true_type, AssertOnError, std::uint8_t, Endian::BIG, Endian::BIG>;
 
 // =============================================================================
 // ByteAdapter endian tests
@@ -426,9 +420,9 @@ using I2cBE = I2cTransport<LocalMockI2C, std::true_type, AssertOnError,
 
 bool test_i2c_endian_little(TestContext& t) {
     LocalMockI2C i2c;
-    I2cLE transport(i2c, 0x50);
+    I2cLE const transport(i2c, 0x50);
 
-    transport.write(EndianReg32::value(0x04030201u));
+    transport.write(EndianReg32::value(0x04030201U));
 
     // In little-endian: byte[0]=0x01, byte[1]=0x02, byte[2]=0x03, byte[3]=0x04
     bool ok = true;
@@ -441,9 +435,9 @@ bool test_i2c_endian_little(TestContext& t) {
 
 bool test_i2c_endian_big(TestContext& t) {
     LocalMockI2C i2c;
-    I2cBE transport(i2c, 0x50);
+    I2cBE const transport(i2c, 0x50);
 
-    transport.write(EndianReg32::value(0x04030201u));
+    transport.write(EndianReg32::value(0x04030201U));
 
     // In big-endian: byte[0]=0x04, byte[1]=0x03, byte[2]=0x02, byte[3]=0x01
     bool ok = true;
@@ -456,11 +450,11 @@ bool test_i2c_endian_big(TestContext& t) {
 
 bool test_i2c_endian_big_roundtrip(TestContext& t) {
     LocalMockI2C i2c;
-    I2cBE transport(i2c, 0x50);
+    I2cBE const transport(i2c, 0x50);
 
-    transport.write(EndianReg32::value(0xDEAD'BEEFu));
+    transport.write(EndianReg32::value(0xDEAD'BEEFU));
     auto val = transport.read(EndianReg32{});
-    return t.assert_eq(val, 0xDEAD'BEEFu);
+    return t.assert_eq(val, 0xDEAD'BEEFU);
 }
 
 // =============================================================================
@@ -472,7 +466,7 @@ struct Field16High : Field<Reg16, 8, 8> {};
 
 bool test_i2c_16bit_register(TestContext& t) {
     LocalMockI2C i2c;
-    I2cTransport<LocalMockI2C> transport(i2c, 0x50);
+    I2cTransport<LocalMockI2C> const transport(i2c, 0x50);
 
     transport.write(Reg16::value(static_cast<uint16_t>(0xABCD)));
     auto val = transport.read(Reg16{});
@@ -481,7 +475,7 @@ bool test_i2c_16bit_register(TestContext& t) {
 
 bool test_i2c_16bit_field_high_byte(TestContext& t) {
     LocalMockI2C i2c;
-    I2cTransport<LocalMockI2C> transport(i2c, 0x50);
+    I2cTransport<LocalMockI2C> const transport(i2c, 0x50);
 
     transport.write(Reg16::value(static_cast<uint16_t>(0xAB00)));
     auto val = transport.read(Field16High{});
@@ -497,7 +491,7 @@ struct Field64Low : Field<Reg64, 0, 32> {};
 
 bool test_i2c_64bit_register(TestContext& t) {
     LocalMockI2C i2c;
-    I2cTransport<LocalMockI2C> transport(i2c, 0x50);
+    I2cTransport<LocalMockI2C> const transport(i2c, 0x50);
 
     transport.write(Reg64::value(0x0102030405060708ULL));
     auto val = transport.read(Reg64{});
@@ -506,11 +500,11 @@ bool test_i2c_64bit_register(TestContext& t) {
 
 bool test_i2c_64bit_low_field(TestContext& t) {
     LocalMockI2C i2c;
-    I2cTransport<LocalMockI2C> transport(i2c, 0x50);
+    I2cTransport<LocalMockI2C> const transport(i2c, 0x50);
 
     transport.write(Reg64::value(0xAAAABBBBCCCCDDDDULL));
     auto val = transport.read(Field64Low{});
-    return t.assert_eq(val, 0xCCCCDDDDu);
+    return t.assert_eq(val, 0xCCCCDDDDU);
 }
 
 // =============================================================================
@@ -521,16 +515,14 @@ struct IgnoreReg : Register<EndianDevice, 0x00, bits32, RW, 0> {};
 
 bool test_ignore_error_policy(TestContext& t) {
     LocalMockI2C i2c;
-    I2cTransport<LocalMockI2C, std::false_type, IgnoreError> transport(i2c, 0x50);
+    I2cTransport<LocalMockI2C, std::false_type, IgnoreError> const transport(i2c, 0x50);
 
-    transport.write(IgnoreReg::value(0x12345678u));
+    transport.write(IgnoreReg::value(0x12345678U));
     auto val = transport.read(IgnoreReg{});
-    return t.assert_eq(val, 0x12345678u);
+    return t.assert_eq(val, 0x12345678U);
 }
 
 } // namespace
-
-void run_spi_bitbang_tests(umi::test::Suite& suite);
 
 void run_spi_bitbang_tests(umi::test::Suite& suite) {
     umi::test::Suite::section("SPI transport (mock)");

@@ -4,6 +4,7 @@
 /// @details Triggers static_assert "Cannot read from write-only register".
 
 #include <cstdint>
+
 #include <umimmio/register.hh>
 
 namespace {
