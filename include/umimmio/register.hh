@@ -284,6 +284,8 @@ class RegOps {
     template <class D, typename C, typename E, typename A, Endian DE>
     friend class ByteAdapter;
     RegOps() = default;
+    RegOps(const RegOps&) = default;
+    RegOps& operator=(const RegOps&) = default;
 
   public:
     RegOps(RegOps&&) = delete;
@@ -291,8 +293,6 @@ class RegOps {
 
   protected:
     ~RegOps() = default;
-    RegOps(const RegOps&) = default;
-    RegOps& operator=(const RegOps&) = default;
     auto& self() { return static_cast<Derived&>(*this); }
     [[nodiscard]] const auto& self() const { return static_cast<const Derived&>(*this); }
 
@@ -472,8 +472,8 @@ class RegOps {
             reg_val = (reg_val & ~RegionType::mask()) | ((V::value << RegionType::shift) & RegionType::mask());
         } else {
             check_dynamic_range_if_enabled<RegionType>(value.assigned_value, "Field value out of range");
-            reg_val = (reg_val & ~RegionType::mask()) |
-                      ((value.assigned_value << RegionType::shift) & RegionType::mask());
+            reg_val =
+                (reg_val & ~RegionType::mask()) | ((value.assigned_value << RegionType::shift) & RegionType::mask());
         }
         self().reg_write(ParentRegType{}, reg_val);
     }
@@ -482,7 +482,7 @@ class RegOps {
     template <typename RegionType, std::uint64_t Val>
     void check_range_if_enabled(const char* msg) const noexcept {
         if constexpr (CheckPolicy::value) {
-            if constexpr (RegionType::bit_width < sizeof(Val) * bits8) {
+            if constexpr (RegionType::bit_width < sizeof(std::uint64_t) * bits8) {
                 constexpr auto max_value = (1ULL << RegionType::bit_width) - 1;
                 if (Val > max_value) {
                     ErrorPolicy::on_range_error(msg);
@@ -579,6 +579,10 @@ template <class Derived,
           Endian DataEndian = Endian::LITTLE>
 class ByteAdapter : private RegOps<Derived, CheckPolicy, ErrorPolicy> {
     friend class RegOps<Derived, CheckPolicy, ErrorPolicy>;
+
+  private:
+    friend Derived;
+    ByteAdapter() = default;
 
   protected:
     static_assert(std::is_integral_v<AddressTypeT>, "AddressType must be an integral type");
