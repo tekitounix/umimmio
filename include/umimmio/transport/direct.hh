@@ -34,6 +34,7 @@ class DirectTransport : private RegOps<DirectTransport<CheckPolicy, ErrorPolicy>
     template <typename Reg>
     [[nodiscard]] auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
         using T = typename Reg::RegValueType;
+        // NOLINTNEXTLINE(performance-no-int-to-ptr,clang-analyzer-core.FixedAddressDereference)
         return *reinterpret_cast<volatile const T*>(Reg::address);
     }
 
@@ -49,6 +50,7 @@ class DirectTransport : private RegOps<DirectTransport<CheckPolicy, ErrorPolicy>
             static_assert((Reg::address % alignof(T)) == 0, "Misaligned register access");
         }
 
+        // NOLINTNEXTLINE(performance-no-int-to-ptr,clang-analyzer-core.FixedAddressDereference)
         *reinterpret_cast<volatile T*>(Reg::address) = value;
     }
 };
