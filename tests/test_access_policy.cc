@@ -17,10 +17,10 @@ using umi::test::TestContext;
 
 bool test_bit_constants(TestContext& t) {
     bool ok = true;
-    ok &= t.assert_eq(bits8, 8u);
-    ok &= t.assert_eq(bits16, 16u);
-    ok &= t.assert_eq(bits32, 32u);
-    ok &= t.assert_eq(bits64, 64u);
+    ok &= t.assert_eq(bits8, 8U);
+    ok &= t.assert_eq(bits16, 16U);
+    ok &= t.assert_eq(bits32, 32U);
+    ok &= t.assert_eq(bits64, 64U);
     return ok;
 }
 
@@ -76,7 +76,7 @@ bool test_nested_blocks(TestContext& t) {
     bool ok = true;
     // 0 + 0x1000 + 0x200 + 0x10 = 0x1210
     ok &= t.assert_eq(DeepReg::address, static_cast<Addr>(0x1210));
-    ok &= t.assert_eq(DeepReg::bit_width, 16u);
+    ok &= t.assert_eq(DeepReg::bit_width, 16U);
     // Inherits RW from TopDevice
     ok &= t.assert_true(DeepReg::AccessType::can_read && DeepReg::AccessType::can_write);
     return ok;
@@ -119,14 +119,14 @@ using ParityEven = Value<UartCtrlParity, static_cast<uint8_t>(Parity::EVEN)>;
 using ParityOdd = Value<UartCtrlParity, static_cast<uint8_t>(Parity::ODD)>;
 
 bool test_uart_device_init(TestContext& t) {
-    MockTransport hw;
+    MockTransport const hw;
 
     // Configure UART: 115200 baud, 8N1, RX+TX enabled
-    hw.write(UartBaud::value(115200u));
+    hw.write(UartBaud::value(115200U));
     hw.write(UartCtrlEn::Set{}, UartCtrlTxEn::Set{}, UartCtrlRxEn::Set{}, ParityNone{});
 
     bool ok = true;
-    ok &= t.assert_eq(hw.read(UartBaud{}), 115200u);
+    ok &= t.assert_eq(hw.read(UartBaud{}), 115200U);
     ok &= t.assert_eq(hw.read(UartCtrlEn{}), static_cast<uint8_t>(1));
     ok &= t.assert_eq(hw.read(UartCtrlTxEn{}), static_cast<uint8_t>(1));
     ok &= t.assert_eq(hw.read(UartCtrlRxEn{}), static_cast<uint8_t>(1));
@@ -138,8 +138,8 @@ bool test_uart_device_init(TestContext& t) {
     ok &= t.assert_eq(hw.read(UartCtrlEn{}), static_cast<uint8_t>(1));
 
     // Write data
-    hw.write(UartData::value(0x41u)); // 'A'
-    ok &= t.assert_eq(hw.read(UartData{}), 0x41u);
+    hw.write(UartData::value(0x41U)); // 'A'
+    ok &= t.assert_eq(hw.read(UartData{}), 0x41U);
 
     return ok;
 }

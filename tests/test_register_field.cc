@@ -17,26 +17,26 @@ using umi::test::TestContext;
 // =============================================================================
 
 bool test_register_write_and_read(TestContext& t) {
-    MockTransport hw;
+    MockTransport const hw;
 
     // Write a known value and read it back
-    hw.write(DataReg::value(0xDEAD'BEEFu));
+    hw.write(DataReg::value(0xDEAD'BEEFU));
     auto val = hw.read(DataReg{});
 
     return t.assert_eq(val, static_cast<uint32_t>(0xDEAD'BEEF));
 }
 
 bool test_register_write_zero(TestContext& t) {
-    MockTransport hw;
+    MockTransport const hw;
 
-    hw.write(DataReg::value(0xFFFF'FFFFu));
-    hw.write(DataReg::value(0u));
+    hw.write(DataReg::value(0xFFFF'FFFFU));
+    hw.write(DataReg::value(0U));
 
     return t.assert_eq(hw.read(DataReg{}), static_cast<uint32_t>(0));
 }
 
 bool test_register_16bit(TestContext& t) {
-    MockTransport hw;
+    MockTransport const hw;
 
     hw.write(CtrlReg::value(static_cast<uint16_t>(0x1234)));
     auto val = hw.read(CtrlReg{});
@@ -49,7 +49,7 @@ bool test_register_16bit(TestContext& t) {
 // =============================================================================
 
 bool test_field_write_single(TestContext& t) {
-    MockTransport hw;
+    MockTransport const hw;
 
     // Write just the enable bit
     hw.write(ConfigEnable::Set{});
@@ -57,7 +57,7 @@ bool test_field_write_single(TestContext& t) {
     bool ok = true;
     // Enable bit should be set (bit 0)
     auto reg_val = hw.read(ConfigReg{});
-    ok &= t.assert_true((reg_val & 1u) == 1u, "enable bit set");
+    ok &= t.assert_true((reg_val & 1U) == 1U, "enable bit set");
     // Also verify via field read
     ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
     return ok;
@@ -70,10 +70,10 @@ bool test_field_read_extraction(TestContext& t) {
     // bits 0: enable = 1
     // bits 1-2: mode = 0b10 (LOW_POWER)
     // bits 8-15: prescaler = 0xAB
-    uint32_t raw = 0u;
-    raw |= 1u;           // enable
-    raw |= (2u << 1);    // mode = 2
-    raw |= (0xABu << 8); // prescaler = 0xAB
+    uint32_t raw = 0U;
+    raw |= 1U;           // enable
+    raw |= (2U << 1);    // mode = 2
+    raw |= (0xABU << 8); // prescaler = 0xAB
     hw.poke<uint32_t>(0x04, raw);
 
     bool ok = true;
@@ -88,10 +88,10 @@ bool test_field_read_ctrl_reg(TestContext& t) {
 
     // CtrlReg at 0x0C, 16-bit
     // bit 0: start, bit 1: irq_en, bits 4-7: channel
-    uint16_t raw = 0u;
-    raw |= 1u;           // start
-    raw |= (1u << 1);    // irq_en
-    raw |= (0x0Fu << 4); // channel = 15
+    uint16_t raw = 0U;
+    raw |= 1U;           // start
+    raw |= (1U << 1);    // irq_en
+    raw |= (0x0FU << 4); // channel = 15
     hw.poke<uint16_t>(0x0C, raw);
 
     bool ok = true;
@@ -109,7 +109,7 @@ bool test_modify_single_field(TestContext& t) {
     MockTransport hw;
 
     // Set initial config: prescaler = 0x10, mode = NORMAL, enable = 0
-    uint32_t init = (0x10u << 8);
+    uint32_t const init = (0x10U << 8);
     hw.poke<uint32_t>(0x04, init);
 
     // Modify only enable — prescaler and mode should be preserved
@@ -126,7 +126,7 @@ bool test_modify_preserves_other_fields(TestContext& t) {
     MockTransport hw;
 
     // Initial: all fields set
-    uint32_t init = 1u | (3u << 1) | (0xFFu << 8);
+    uint32_t const init = 1U | (3U << 1) | (0xFFU << 8);
     hw.poke<uint32_t>(0x04, init);
 
     // Modify just prescaler to 0x42
@@ -143,14 +143,14 @@ bool test_modify_multiple_fields(TestContext& t) {
     MockTransport hw;
 
     // Start from known state
-    hw.poke<uint32_t>(0x04, 0u);
+    hw.poke<uint32_t>(0x04, 0U);
 
     // Modify both enable and mode in one RMW operation
     hw.modify(ConfigEnable::Set{}, ModeFast{});
 
     bool ok = true;
     ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(ConfigMode{}), static_cast<uint8_t>(static_cast<uint8_t>(ModeVal::FAST)));
+    ok &= t.assert_eq(hw.read(ConfigMode{}), static_cast<uint8_t>(ModeVal::FAST));
     ok &= t.assert_eq(hw.read(ConfigPrescaler{}), static_cast<uint8_t>(0));
     return ok;
 }
@@ -160,14 +160,14 @@ bool test_modify_multiple_fields(TestContext& t) {
 // =============================================================================
 
 bool test_multi_field_write(TestContext& t) {
-    MockTransport hw;
+    MockTransport const hw;
 
     // Write multiple fields at once — starts from reset value
     hw.write(ConfigEnable::Set{}, ModeTest{}, ConfigPrescaler::value(static_cast<uint8_t>(0x55)));
 
     bool ok = true;
     ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(ConfigMode{}), static_cast<uint8_t>(static_cast<uint8_t>(ModeVal::TEST)));
+    ok &= t.assert_eq(hw.read(ConfigMode{}), static_cast<uint8_t>(ModeVal::TEST));
     ok &= t.assert_eq(hw.read(ConfigPrescaler{}), static_cast<uint8_t>(0x55));
     return ok;
 }
@@ -177,7 +177,7 @@ bool test_multi_field_write(TestContext& t) {
 // =============================================================================
 
 bool test_enum_value_write_and_check(TestContext& t) {
-    MockTransport hw;
+    MockTransport const hw;
 
     hw.write(ConfigEnable::Set{}, ModeLowPower{});
 
@@ -190,7 +190,7 @@ bool test_enum_value_write_and_check(TestContext& t) {
 }
 
 bool test_dynamic_value_is(TestContext& t) {
-    MockTransport hw;
+    MockTransport const hw;
 
     hw.write(ConfigPrescaler::value(static_cast<uint8_t>(100)));
 
@@ -206,7 +206,7 @@ bool test_dynamic_value_is(TestContext& t) {
 
 bool test_flip_1bit_field(TestContext& t) {
     MockTransport hw;
-    hw.poke<uint32_t>(0x04, 0u);
+    hw.poke<uint32_t>(0x04, 0U);
 
     bool ok = true;
     // Initially disabled
@@ -226,7 +226,7 @@ bool test_flip_preserves_other_bits(TestContext& t) {
     MockTransport hw;
 
     // Set prescaler, mode, but enable = 0
-    uint32_t init = (2u << 1) | (0x42u << 8);
+    uint32_t const init = (2U << 1) | (0x42U << 8);
     hw.poke<uint32_t>(0x04, init);
 
     hw.flip(ConfigEnable{});
@@ -243,7 +243,7 @@ bool test_flip_preserves_other_bits(TestContext& t) {
 // =============================================================================
 
 bool test_peripheral_init_sequence(TestContext& t) {
-    MockTransport hw;
+    MockTransport const hw;
 
     // Step 1: Configure prescaler and mode (peripheral is disabled)
     hw.write(ConfigPrescaler::value(static_cast<uint8_t>(0x10)), ModeFast{});

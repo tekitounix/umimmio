@@ -135,7 +135,7 @@ class BitBangSpiTransport : public ByteAdapter<BitBangSpiTransport<Pins,
     std::uint8_t transfer_byte(std::uint8_t tx, [[maybe_unused]] std::uint8_t* rx) const noexcept {
         std::uint8_t value = 0;
         for (int i = 7; i >= 0; --i) {
-            if ((tx & static_cast<std::uint8_t>(1u << i)) != 0) {
+            if ((tx & static_cast<std::uint8_t>(1U << i)) != 0) {
                 pins.mosi_high();
             } else {
                 pins.mosi_low();
@@ -143,7 +143,7 @@ class BitBangSpiTransport : public ByteAdapter<BitBangSpiTransport<Pins,
             pins.sck_high();
             pins.delay();
             if (pins.miso_read()) {
-                value |= static_cast<std::uint8_t>(1u << i);
+                value |= static_cast<std::uint8_t>(1U << i);
             }
             pins.sck_low();
             pins.delay();

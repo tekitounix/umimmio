@@ -32,7 +32,7 @@ class DirectTransport : private RegOps<DirectTransport<CheckPolicy, ErrorPolicy>
     /// @tparam Reg Register type (provides address and RegValueType).
     /// @return Current register value.
     template <typename Reg>
-    auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
+    [[nodiscard]] auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
         using T = typename Reg::RegValueType;
         return *reinterpret_cast<volatile const T*>(Reg::address);
     }

@@ -285,8 +285,14 @@ class RegOps {
     friend class ByteAdapter;
     RegOps() = default;
 
+  public:
+    RegOps(RegOps&&) = delete;
+    RegOps& operator=(RegOps&&) = delete;
+
   protected:
     ~RegOps() = default;
+    RegOps(const RegOps&) = default;
+    RegOps& operator=(const RegOps&) = default;
     auto& self() { return static_cast<Derived&>(*this); }
     [[nodiscard]] const auto& self() const { return static_cast<const Derived&>(*this); }
 
@@ -336,7 +342,8 @@ class RegOps {
     /// @tparam RegOrField Register or Field type to read.
     /// @return For registers: the full register value. For fields: the extracted field value.
     template <typename RegOrField>
-    auto read(RegOrField /*reg_or_field*/) const noexcept {
+    [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] auto
+    read(RegOrField /*reg_or_field*/) const noexcept {
         check_transport_allowed<RegOrField>();
         static_assert(RegOrField::AccessType::can_read, "Cannot read from write-only register");
 
@@ -607,7 +614,8 @@ class ByteAdapter : private RegOps<Derived, CheckPolicy, ErrorPolicy> {
     /// @tparam Reg Register type (provides address and RegValueType).
     /// @return Current register value.
     template <typename Reg>
-    auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
+    [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] auto
+    reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
         using T = typename Reg::RegValueType;
         static_assert(sizeof(T) <= 8, "Register size must be <= 64 bits");
         static_assert(Reg::address <= static_cast<Addr>(std::numeric_limits<AddressTypeT>::max()),
