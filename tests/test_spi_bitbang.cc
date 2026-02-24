@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
 /// @file
 /// @brief Tests for SPI transport, bit-bang I2C, and bit-bang SPI transports.
 

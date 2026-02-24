@@ -11,6 +11,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <tuple>
 #include <type_traits>
@@ -78,7 +79,7 @@ struct AssertOnError {
 };
 
 struct TrapOnError {
-    [[noreturn]] static void on_range_error([[maybe_unused]] const char* msg) noexcept { __builtin_trap(); }
+    [[noreturn]] static void on_range_error([[maybe_unused]] const char* msg) noexcept { std::abort(); }
 };
 
 struct IgnoreError {
