@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
 /// @file
 /// @brief Shared test definitions for umimmio tests.
 /// @details Provides MockTransport and device/register definitions that simulate

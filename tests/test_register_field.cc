@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
 /// @file
 /// @brief Register/Field/Value operations — practical workflow tests.
 /// @details Simulates real-world register operations on a mock device:

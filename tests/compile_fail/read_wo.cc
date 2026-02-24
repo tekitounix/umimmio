@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
 /// @file
 /// @brief Negative compile test: reading from a write-only register must fail.
 /// @details Triggers static_assert "Cannot read from write-only register".

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
 /// @file
 /// @brief Transport layer tests — MockTransport, ByteAdapter with mock I2C.
 /// @details Tests both direct (RAM-backed) and byte-oriented transports.

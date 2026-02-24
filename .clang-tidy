@@ -1,0 +1,15 @@
+# MMIO transport layer: register access via fixed-address volatile pointers.
+# int-to-ptr casts and fixed-address dereferences are the core abstraction.
+# Inherits from project-wide .clang-tidy
+
+InheritParentConfig: true
+
+Checks: >
+  -performance-no-int-to-ptr,
+  -clang-analyzer-core.FixedAddressDereference
+
+# performance-no-int-to-ptr: MMIO register access requires int-to-ptr cast from
+#   compile-time constant addresses (Reg::address is constexpr but not a literal
+#   in Clang AST due to template indirection).
+# clang-analyzer-core.FixedAddressDereference: MMIO dereferences at peripheral
+#   base addresses are the intended behavior.
