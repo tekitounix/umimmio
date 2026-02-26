@@ -30,6 +30,3 @@ target("umimmio")
 
 -- Host tests + ARM embedded targets
 includes("tests")
-
--- WASM target
-includes("platforms/wasm")
