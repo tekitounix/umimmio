@@ -2,6 +2,7 @@
 // Copyright (c) 2026, tekitounix
 /// @file
 /// @brief Negative compile test: writing to a read-only register must fail.
+/// @author Shota Moriguchi @tekitounix
 /// @details Triggers static_assert "Cannot write to read-only register".
 
 #include <cstdint>

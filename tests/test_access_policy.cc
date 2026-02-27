@@ -2,6 +2,7 @@
 // Copyright (c) 2026, tekitounix
 /// @file
 /// @brief Access policy and error policy tests.
+/// @author Shota Moriguchi @tekitounix
 /// @details Verifies Bit constants, Endian enum, Block hierarchy, and
 ///          compile-time properties of the MMIO framework.
 
