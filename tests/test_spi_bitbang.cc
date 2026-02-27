@@ -2,6 +2,7 @@
 // Copyright (c) 2026, tekitounix
 /// @file
 /// @brief Tests for SPI transport, bit-bang I2C, and bit-bang SPI transports.
+/// @author Shota Moriguchi @tekitounix
 
 #include <array>
 #include <cstdint>

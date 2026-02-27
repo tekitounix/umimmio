@@ -2,6 +2,7 @@
 // Copyright (c) 2026, tekitounix
 /// @file
 /// @brief Shared test definitions for umimmio tests.
+/// @author Shota Moriguchi @tekitounix
 /// @details Provides MockTransport and device/register definitions that simulate
 ///          a real hardware register map for host-based testing.
 #pragma once

@@ -2,6 +2,7 @@
 // Copyright (c) 2026, tekitounix
 /// @file
 /// @brief RAM-backed mock transport for host-side register testing.
+/// @author Shota Moriguchi @tekitounix
 
 #include <array>
 #include <cstdio>
@@ -13,11 +14,21 @@
 // Mock transport: RAM-backed register I/O for testing
 // =============================================================================
 
+using namespace umi::mmio;
+
 /// @brief A trivial RAM-backed transport suitable for host-side testing.
-class MockTransport {
-    std::array<std::uint8_t, 256> ram{};
+class MockTransport : private RegOps<MockTransport> {
+    friend class RegOps<MockTransport>;
 
   public:
+    using RegOps<MockTransport>::write;
+    using RegOps<MockTransport>::read;
+    using RegOps<MockTransport>::modify;
+    using RegOps<MockTransport>::is;
+    using TransportTag = DirectTransportTag;
+
+    MockTransport() { std::memset(ram.data(), 0, ram.size()); }
+
     template <typename Reg>
     auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
         using T = typename Reg::RegValueType;
@@ -27,41 +38,44 @@ class MockTransport {
     }
 
     template <typename Reg>
-    void reg_write(Reg /*reg*/, typename Reg::RegValueType value) noexcept {
+    void reg_write(Reg /*reg*/, typename Reg::RegValueType value) const noexcept {
         using T = typename Reg::RegValueType;
-        std::memcpy(&ram[Reg::address], &value, sizeof(T));
+        std::memcpy(const_cast<uint8_t*>(&ram[Reg::address]), &value, sizeof(T));
     }
 
-    template <typename Reg>
-    void reg_modify(Reg r, typename Reg::RegValueType clear_mask, typename Reg::RegValueType set_mask) noexcept {
-        auto val = reg_read(r);
-        val = (val & ~clear_mask) | set_mask;
-        reg_write(r, val);
-    }
+  private:
+    mutable std::array<std::uint8_t, 256> ram{};
 };
 
 // =============================================================================
 // Device register definitions
 // =============================================================================
 
-using CtrlReg = umi::mmio::Region<0x00, std::uint8_t>;
-using StatusReg = umi::mmio::Region<0x01, std::uint8_t>;
+struct MockDevice : Device<RW, DirectTransportTag> {};
 
-using Enable = umi::mmio::Field<CtrlReg, 0, 1>;
-using Speed = umi::mmio::Field<CtrlReg, 1, 2>;
-using Ready = umi::mmio::Field<StatusReg, 0, 1>;
+struct CtrlReg : Register<MockDevice, 0x00, bits8> {};
+struct StatusReg : Register<MockDevice, 0x01, bits8, RO> {};
+
+struct Enable : Field<CtrlReg, 0, 1> {};
+struct Speed : Field<CtrlReg, 1, 2> {};
+struct Ready : Field<StatusReg, 0, 1> {};
+
+// Named values for Speed
+using SpeedFast = Value<Speed, 2>;
 
 int main() {
-    MockTransport io;
+    MockTransport const io;
 
-    // Write full register
-    io.reg_write(CtrlReg{}, std::uint8_t{0x00});
+    // Write Enable=1, Speed=2 using typed API
+    io.write(Enable::Set{}, SpeedFast{});
 
-    // Read-modify-write: set Enable=1, Speed=2
-    io.reg_modify(CtrlReg{}, Enable::mask | Speed::mask, Enable::mask | static_cast<std::uint8_t>(2u << Speed::offset));
+    auto val = io.read(CtrlReg{});
+    std::printf("CtrlReg = 0x%02X (expect Enable=1, Speed=2 -> 0x05)\n", val);
 
-    auto val = io.reg_read(CtrlReg{});
-    std::printf("CtrlReg = 0x%02X (expect Enable=1, Speed=2 → 0x05)\n", val);
+    // Verify using field read
+    auto enable_val = io.read(Enable{});
+    auto speed_val = io.read(Speed{});
+    std::printf("Enable = %u, Speed = %u\n", enable_val, speed_val);
 
     return (val == 0x05) ? 0 : 1;
 }

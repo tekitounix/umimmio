@@ -2,6 +2,7 @@
 // Copyright (c) 2026, tekitounix
 /// @file
 /// @brief Register/Field/Value operations — practical workflow tests.
+/// @author Shota Moriguchi @tekitounix
 /// @details Simulates real-world register operations on a mock device:
 ///          reading, writing, read-modify-write, field extraction, multi-field
 ///          writes, and 1-bit field operations.
