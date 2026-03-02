@@ -11,7 +11,7 @@ if standalone_repo then
     add_rules("plugin.compile_commands.autoupdate", {outputdir = ".", lsp = "clangd"})
     set_warnings("all", "extra", "error")
 
-    add_requires("arm-embedded", {optional = true})
+    add_requires("umibuild", {optional = true})
     add_requires("umitest", {optional = true})
 end
 
