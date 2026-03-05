@@ -1,7 +1,8 @@
 # umimmio リファクタリング設計書
 
 **作成日:** 2026-03-05
-**ステータス:** 計画 — レビュー待ち
+**ステータス:** ✅ 完了 — commit `515eaf4` (2026-03-05)
+**テスト結果:** 34/34 pass (59 runtime + 9 compile-fail)
 
 ---
 
@@ -378,18 +379,18 @@ concept TransportLike = RegTransportLike<T> || ByteTransportLike<T>;
 
 ## 5. 実装順序
 
-| Step | 内容 | 検証 |
-|------|------|------|
-| 1 | `detail::make_checked_dynamic_value` 追加 + 3箇所委譲 | xmake test |
-| 2 | `transport/detail.hh` 新規作成 + `encode_address` / `encode_spi_address` 追加 + 4ファイル修正 | xmake test |
-| 3 | RegOps::is() を RegisterReader::is() に委譲 | xmake test |
-| 4 | 未使用メンバー 3件削除 | xmake test |
-| 5 | transport_mock.cc 修正 (RegOps\<\> + friend 削除) | ビルド確認 |
-| 6 | transfer_byte rx 削除 | xmake test |
-| 7 | TransportLike 概念から DirectTransportLike 除去 | xmake test |
-| 8 | ドキュメント修正 (.raw() → .bits(): COMPARISON 3箇所 + IMPROVEMENTS 11箇所) | 目視 |
+| Step | 内容 | 検証 | 状況 |
+|------|------|------|:----:|
+| 1 | `detail::make_checked_dynamic_value` 追加 + 3箇所委譲 | xmake test | ✅ |
+| 2 | `transport/detail.hh` 新規作成 + `encode_address` / `encode_spi_address` 追加 + 4ファイル修正 | xmake test | ✅ |
+| 3 | RegOps::is() を RegisterReader::is() に委譲 | xmake test | ✅ |
+| 4 | 未使用メンバー 3件削除 | xmake test | ✅ |
+| 5 | transport_mock.cc 修正 (RegOps\<\> + friend 削除) | ビルド確認 | ✅ |
+| 6 | transfer_byte rx 削除 | xmake test | ✅ |
+| 7 | TransportLike 概念から DirectTransportLike 除去 | xmake test | ✅ |
+| 8 | ドキュメント修正 (.raw() → .bits(): COMPARISON 3箇所 + IMPROVEMENTS 11箇所) | 目視 | ✅ |
 
-各 Step は独立にコミット可能。Step 1-3 がコア改善、4-8 は付随的クリーンアップ。
+全ステップ完了。1コミットにまとめて適用 (`515eaf4`)。
 
 ---
 
