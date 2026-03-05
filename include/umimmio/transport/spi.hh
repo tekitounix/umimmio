@@ -49,7 +49,7 @@ class SpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
     void raw_write(AddressWidth reg_addr, const void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressWidth);
 
-        std::array<std::uint8_t, addr_size + 8> tx_buf{};
+        std::array<std::uint8_t, addr_size + max_reg_bytes> tx_buf{};
         detail::encode_spi_address<AddrEndian, AddressWidth, WriteBit, CmdMask>(reg_addr, tx_buf.data());
         std::memcpy(tx_buf.data() + addr_size, data, size);
 
@@ -60,8 +60,8 @@ class SpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
     void raw_read(AddressWidth reg_addr, void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressWidth);
 
-        std::array<std::uint8_t, addr_size + 8> tx_buf{};
-        std::array<std::uint8_t, addr_size + 8> rx_buf{};
+        std::array<std::uint8_t, addr_size + max_reg_bytes> tx_buf{};
+        std::array<std::uint8_t, addr_size + max_reg_bytes> rx_buf{};
         detail::encode_spi_address<AddrEndian, AddressWidth, ReadBit, CmdMask>(reg_addr, tx_buf.data());
 
         spi.transfer(tx_buf.data(), rx_buf.data(), addr_size + size);

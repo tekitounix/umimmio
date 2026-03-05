@@ -46,7 +46,7 @@ class I2cTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
     void raw_write(AddressWidth reg_addr, const void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressWidth);
 
-        std::array<std::uint8_t, addr_size + 8> buf{};
+        std::array<std::uint8_t, addr_size + max_reg_bytes> buf{};
         detail::encode_address<AddrEndian>(reg_addr, buf.data());
         std::memcpy(&buf[addr_size], data, size);
 

@@ -58,9 +58,9 @@ class BitBangSpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, Address
     void raw_write(AddressType reg_addr, const void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressType);
         static_assert(addr_size == 1 || addr_size == 2, "AddressType must be 8 or 16 bit");
-        assert(size <= 8 && "Register size must be <= 64 bits");
+        assert(size <= max_reg_bytes && "Register size must be <= 64 bits");
 
-        std::array<std::uint8_t, 2 + 8> tx_buf{};
+        std::array<std::uint8_t, addr_size + max_reg_bytes> tx_buf{};
         detail::encode_spi_address<AddrEndian, AddressType, WriteBit, CmdMask>(reg_addr, tx_buf.data());
         std::memcpy(tx_buf.data() + addr_size, data, size);
 
@@ -78,9 +78,9 @@ class BitBangSpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, Address
     void raw_read(AddressType reg_addr, void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressType);
         static_assert(addr_size == 1 || addr_size == 2, "AddressType must be 8 or 16 bit");
-        assert(size <= 8 && "Register size must be <= 64 bits");
+        assert(size <= max_reg_bytes && "Register size must be <= 64 bits");
 
-        std::array<std::uint8_t, 2 + 8> tx_buf{};
+        std::array<std::uint8_t, addr_size + max_reg_bytes> tx_buf{};
         detail::encode_spi_address<AddrEndian, AddressType, ReadBit, CmdMask>(reg_addr, tx_buf.data());
 
         pins.cs_low();
