@@ -1,0 +1,31 @@
+# Renode script for umimmio tests on STM32F4
+#
+# Usage:
+#   cd /path/to/umi
+#   renode --console --disable-xwt -e "i @lib/umimmio/renode/test_umimmio.resc"
+#
+# Expected USART2 output:
+#   umimmio: NN/NN passed
+
+using sysbus
+
+mach create "umimmio_test"
+machine LoadPlatformDescription @lib/umimmio/renode/stm32f4_test.repl
+
+sysbus LoadELF @build/umimmio_stm32f4_renode/release/umimmio_stm32f4_renode.elf
+sysbus WriteDoubleWord 0xE000ED08 0x08000000
+
+logLevel -1 usart2
+showAnalyzer usart2
+
+echo ""
+echo "============================================"
+echo "  umimmio — Renode ARM Verification"
+echo "============================================"
+echo ""
+
+emulation RunFor "5"
+
+echo ""
+echo "=== Emulation finished (5s virtual time) ==="
+quit

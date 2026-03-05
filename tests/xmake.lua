@@ -10,7 +10,7 @@ target("test_umimmio")
 target("test_umimmio_compile_fail")
     set_kind("phony")
     set_default(false)
-    add_tests("write_ro", "read_wo", "value_typesafe", "modify_w1c", "value_signed", "write_ro_value", "flip_w1c", "field_overflow", "read_field_eq_int")
+    add_tests("write_ro", "read_wo", "value_typesafe", "modify_w1c", "value_signed", "write_ro_value", "flip_w1c", "field_overflow", "read_field_eq_int", "modify_wo", "flip_ro", "flip_wo", "clear_non_w1c", "cross_register_write")
 
     on_test(function()
         import("lib.detect.find_tool")
@@ -21,7 +21,7 @@ target("test_umimmio_compile_fail")
         local include_dir = path.join(os.scriptdir(), "..", "include")
         local umitest_include = path.join(os.scriptdir(), "..", "..", "umitest", "include")
 
-        local test_cases = {"write_ro", "read_wo", "value_typesafe", "modify_w1c", "value_signed", "write_ro_value", "flip_w1c", "field_overflow", "read_field_eq_int"}
+        local test_cases = {"write_ro", "read_wo", "value_typesafe", "modify_w1c", "value_signed", "write_ro_value", "flip_w1c", "field_overflow", "read_field_eq_int", "modify_wo", "flip_ro", "flip_wo", "clear_non_w1c", "cross_register_write"}
         for _, name in ipairs(test_cases) do
             local source = path.join(os.scriptdir(), "compile_fail", name .. ".cc")
             local object = os.tmpfile() .. ".o"

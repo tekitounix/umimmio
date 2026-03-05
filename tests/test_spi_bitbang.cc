@@ -384,6 +384,61 @@ bool test_bitbang_spi_read_roundtrip(TestContext& t) {
 }
 
 // =============================================================================
+// Bit-bang I2C read roundtrip — verifies data actually reads correctly
+// =============================================================================
+
+/// @brief Minimal I2C GPIO mock that supports read data return.
+///
+/// sda_read() is called exactly 3 times for ACKs (one per write_byte in
+/// the raw_read sequence: device_addr_w, reg_addr, device_addr_r), then
+/// 8 times per data byte for MSB-first bit reads.
+struct MockI2CGpioReadable {
+    mutable std::array<std::uint8_t, 256> memory{};
+    mutable bool sda_state = true;
+    mutable int sda_read_count = 0;
+    std::uint8_t expected_reg_addr; // set by test before calling raw_read
+
+    void scl_high() const {}
+    void scl_low() const {}
+    void sda_high() const { sda_state = true; }
+    void sda_low() const { sda_state = false; }
+    void delay() const {}
+
+    bool sda_read() const {
+        int const idx = sda_read_count++;
+        if (idx < 3) {
+            return false; // ACK for 3 write_bytes
+        }
+        int const data_idx = idx - 3;
+        int const byte_idx = data_idx / 8;
+        int const bit_pos = 7 - (data_idx % 8); // MSB first
+        return (memory[expected_reg_addr + byte_idx] & (1U << bit_pos)) != 0;
+    }
+};
+
+bool test_bitbang_i2c_read_roundtrip(TestContext& t) {
+    MockI2CGpioReadable gpio;
+    gpio.expected_reg_addr = 0x20;
+    BitBangI2cTransport<MockI2CGpioReadable, std::true_type, IgnoreError> transport(gpio, 0xA0);
+
+    // Pre-load data into slave memory
+    gpio.memory[0x20] = 0xDE;
+    gpio.memory[0x21] = 0xAD;
+    gpio.memory[0x22] = 0xBE;
+    gpio.memory[0x23] = 0xEF;
+
+    std::array<std::uint8_t, 4> rx{};
+    transport.raw_read(static_cast<std::uint8_t>(0x20), rx.data(), 4);
+
+    bool ok = true;
+    ok &= t.assert_eq(rx[0], static_cast<uint8_t>(0xDE));
+    ok &= t.assert_eq(rx[1], static_cast<uint8_t>(0xAD));
+    ok &= t.assert_eq(rx[2], static_cast<uint8_t>(0xBE));
+    ok &= t.assert_eq(rx[3], static_cast<uint8_t>(0xEF));
+    return ok;
+}
+
+// =============================================================================
 // I2C mock (shared by endian, 16-bit, 64-bit, and error policy tests)
 // =============================================================================
 
@@ -546,6 +601,7 @@ void run_spi_bitbang_tests(umi::test::Suite& suite) {
     suite.run("GPIO call count", test_bitbang_i2c_gpio_calls);
     suite.run("START/STOP sequence", test_bitbang_i2c_start_stop_sequence);
     suite.run("lines idle after write", test_bitbang_i2c_write_lines_idle_after);
+    suite.run("read roundtrip", test_bitbang_i2c_read_roundtrip);
 
     umi::test::Suite::section("Bit-bang SPI");
     suite.run("write roundtrip", test_bitbang_spi_write_roundtrip);

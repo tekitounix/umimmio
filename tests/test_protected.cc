@@ -26,9 +26,14 @@ bool test_protected_nolock(TestContext& t) {
 }
 
 bool test_protected_structural(TestContext& t) {
-    // Protected::inner is private — direct access is impossible.
-    // This is a structural pattern verification only.
-    return t.assert_true(true, "structural guarantee");
+    // Protected<T, Policy> exposes only lock() — no other public accessors.
+    // Verify that lock() returns a Guard that provides operator->().
+    static_assert(requires(Protected<MockTransport, NoLockPolicy> p) { p.lock(); },
+                  "lock() must be accessible");
+    // Guard must provide operator->
+    static_assert(requires(Guard<MockTransport, NoLockPolicy> g) { g.operator->(); },
+                  "Guard must provide operator->");
+    return t.assert_true(true, "only lock()/Guard are public");
 }
 
 bool test_protected_no_size_overhead(TestContext& t) {

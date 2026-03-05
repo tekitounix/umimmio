@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file
-/// @brief Negative compile test: raw value() on safe (non-Numeric) field must fail.
+/// @brief Negative compile test: flip() on read-only field must fail.
 /// @author Shota Moriguchi @tekitounix
-/// @details Fields without mm::Numeric trait do not expose value().
-///          Only named Value<> types are allowed.
+/// @details flip() requires ReadWritable — RO fields do not satisfy this.
 
 #include <umimmio/ops.hh>
 
@@ -13,16 +12,12 @@ namespace {
 using namespace umi::mmio;
 
 struct TestDevice : Device<RW, DirectTransportTag> {};
-struct CtrlReg : Register<TestDevice, 0x00, bits32, RW, 0> {};
+struct SReg : Register<TestDevice, 0x00, bits32, RO, 0> {};
+struct Flag : Field<SReg, 0, 1> {};
 
-// Field without Numeric — safe by default, raw value() must be rejected
-struct MODE : Field<CtrlReg, 4, 2> {};
-
-/// @brief Mock transport for compile-time test.
 struct MockTransport : private RegOps<> {
   public:
-    using RegOps<>::write;
-    using RegOps<>::modify;
+    using RegOps<>::flip;
     using TransportTag = DirectTransportTag;
 
     template <typename Reg>
@@ -36,9 +31,8 @@ struct MockTransport : private RegOps<> {
 
 } // namespace
 
-/// @brief Compile-fail test entrypoint.
 int main() {
     MockTransport hw;
-    hw.modify(MODE::value(1)); // ERROR: value() unavailable on non-Numeric field
+    hw.flip(Flag{}); // ERROR: ReadWritable not satisfied (RO field)
     return 0;
 }
