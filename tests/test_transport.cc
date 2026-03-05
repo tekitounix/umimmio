@@ -261,7 +261,7 @@ struct Overloaded : Ts... {
 template <class... Ts>
 Overloaded(Ts...) -> Overloaded<Ts...>;
 
-bool test_read_variant(TestContext& t) {
+bool test_read_variant_match(TestContext& t) {
     MockTransport hw;
 
     // Mode = FAST (bits 1-2 = 01) → value at offset 0x04 = 0x02
@@ -302,8 +302,10 @@ bool test_read_variant_unknown(TestContext& t) {
 // CustomErrorHandler test
 // =============================================================================
 
-static bool custom_handler_called = false;
-static void custom_handler(const char* /*msg*/) noexcept { custom_handler_called = true; }
+bool custom_handler_called = false;
+void custom_handler(const char* /*msg*/) noexcept {
+    custom_handler_called = true;
+}
 
 /// @brief MockTransport variant that uses CustomErrorHandler for range errors.
 struct CustomErrTransport : private RegOps<std::true_type, CustomErrorHandler<custom_handler>> {
@@ -326,7 +328,7 @@ struct CustomErrTransport : private RegOps<std::true_type, CustomErrorHandler<cu
     }
 };
 
-bool test_custom_error_handler(TestContext& t) {
+bool test_custom_error_handler_callback(TestContext& t) {
     CustomErrTransport hw;
     // ConfigPrescaler is 8-bit (bits 8-15). Value 256 exceeds max (255).
     custom_handler_called = false;
@@ -410,11 +412,11 @@ void run_transport_tests(umi::test::Suite& suite) {
     suite.run("W1C clear()", test_w1c_clear);
     suite.run("register reset()", test_register_reset);
     suite.run("W1C modify() safety", test_w1c_modify_safety);
-    suite.run("read_variant() match", test_read_variant);
+    suite.run("read_variant() match", test_read_variant_match);
     suite.run("read_variant() unknown", test_read_variant_unknown);
 
     umi::test::Suite::section("CustomErrorHandler");
-    suite.run("callback invoked on range error", test_custom_error_handler);
+    suite.run("callback invoked on range error", test_custom_error_handler_callback);
 
     umi::test::Suite::section("Multi-field modify with W1C");
     suite.run("W1C bits masked in multi-modify", test_w1c_modify_multi_field);

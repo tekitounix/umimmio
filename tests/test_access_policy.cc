@@ -17,7 +17,7 @@ using umi::test::TestContext;
 // Bit width constants
 // =============================================================================
 
-bool test_bit_constants(TestContext& t) {
+bool test_bit_constants_width_values(TestContext& t) {
     bool ok = true;
     ok &= t.assert_eq(bits8, 8U);
     ok &= t.assert_eq(bits16, 16U);
@@ -76,7 +76,7 @@ struct SubBlock1 : Block<TopDevice, 0x1000> {};
 struct SubBlock2 : Block<SubBlock1, 0x200> {};
 struct DeepReg : Register<SubBlock2, 0x10, bits16> {};
 
-bool test_nested_blocks(TestContext& t) {
+bool test_nested_blocks_address_calc(TestContext& t) {
     bool ok = true;
     // 0 + 0x1000 + 0x200 + 0x10 = 0x1210
     ok &= t.assert_eq(DeepReg::address, static_cast<Addr>(0x1210));
@@ -152,13 +152,13 @@ bool test_uart_device_init(TestContext& t) {
 
 void run_access_policy_tests(umi::test::Suite& suite) {
     umi::test::Suite::section("Bit constants");
-    suite.run("width values", test_bit_constants);
+    suite.run("width values", test_bit_constants_width_values);
     suite.run("W1C policy", test_w1c_policy);
 
     umi::test::Suite::section("Block hierarchy");
     suite.run("address calculation", test_block_address_calculation);
     suite.run("access inheritance", test_block_access_inheritance);
-    suite.run("nested blocks", test_nested_blocks);
+    suite.run("nested blocks", test_nested_blocks_address_calc);
 
     umi::test::Suite::section("Register masks");
     suite.run("full-width masks", test_register_mask_full_width);

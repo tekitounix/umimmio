@@ -50,20 +50,10 @@ Field values are range-checked at compile time when possible:
 3. `value()` requires `std::unsigned_integral` — signed values are a compile error.
 4. `BitRegion` has 5 `static_assert`s validating offset, width, and register-width consistency.
 
-### 2.5 Dependency Boundaries
+### 2.5 Dependencies
 
-Layering is strict:
-
-1. `umimmio` depends only on C++23 standard library headers.
-2. `umibench/platforms` depends on `umimmio` for DWT/CoreSight register access.
-3. `tests/` depends on `umitest` for assertions.
-
-Reference dependency graph:
-
-```text
-umibench/platforms/* -> umimmio
-umimmio/tests        -> umitest
-```
+`umimmio` depends only on C++23 standard library headers.
+Tests depend on `umitest` for assertions.
 
 ---
 
@@ -77,8 +67,7 @@ lib/umimmio/
 │   ├── INDEX.md
 │   ├── DESIGN.md
 │   ├── TESTING.md
-│   ├── ja/
-│   └── plans/
+│   └── ja/
 ├── examples/
 │   ├── minimal.cc
 │   ├── register_map.cc
@@ -116,48 +105,9 @@ lib/umimmio/
 
 ---
 
-## 4. Growth Layout
+## 4. Programming Model
 
-```text
-lib/umimmio/
-├── include/umimmio/
-│   ├── mmio.hh
-│   ├── policy.hh
-│   ├── region.hh
-│   ├── ops.hh
-│   ├── protected.hh
-│   └── transport/
-│       ├── direct.hh
-│       ├── i2c.hh
-│       ├── spi.hh
-│       ├── bitbang_i2c.hh
-│       ├── bitbang_spi.hh
-│       └── uart.hh           # Future: UART register transport
-├── examples/
-│   ├── minimal.cc
-│   ├── register_map.cc
-│   ├── transport_mock.cc
-│   └── multi_transport.cc    # Future: same map, different transports
-└── tests/
-    ├── test_main.cc
-    ├── test_*.cc
-    ├── compile_fail/
-    │   └── *.cc
-    └── xmake.lua
-```
-
-Notes:
-
-1. Public headers stay under `include/umimmio/`.
-2. New transports are added as separate headers under `transport/`.
-3. Core headers (`policy.hh` → `region.hh` → `ops.hh`) form a strict dependency chain and should remain stable.
-4. Transport-specific error policies may be added per transport.
-
----
-
-## 5. Programming Model
-
-### 5.0 API Reference
+### 4.0 API Reference
 
 Public entrypoint: `include/umimmio/mmio.hh`
 
@@ -174,7 +124,6 @@ Core types:
 | `FieldValue<F>` | Return type of `read(Field{})` and `get(Field{})` — type-safe, use `.bits()` for raw |
 | `UnknownValue<Reg>` | Sentinel type for `read_variant()` when no named value matches |
 | `Numeric` | Trait: enables raw `value()` on a Field |
-| `raw<Field>(val)` | Escape hatch: raw value for any Field |
 | `WriteBehavior` | Enum: `NORMAL` or `ONE_TO_CLEAR` |
 
 Transport types:
@@ -221,7 +170,7 @@ Concurrency types:
 
 `CriticalSectionPolicy` (ARM Cortex-M `cpsid`/`cpsie`) is provided by `umiport` — see `<umiport/platform/embedded/critical_section.hh>`.
 
-### 5.1 Minimal Path
+### 4.1 Minimal Path
 
 Required minimal flow for direct MMIO:
 
@@ -231,7 +180,7 @@ Required minimal flow for direct MMIO:
 4. Construct `DirectTransport`.
 5. Call `transport.write(Field::Set{})` or `transport.read(Field{})`.
 
-### 5.2 Register Map Organization
+### 4.2 Register Map Organization
 
 Typical device register map structure:
 
@@ -268,17 +217,18 @@ struct EOC : mm::Field<SR, 1, 1, mm::W1C> {};
 struct READY : mm::Field<SR, 8, 1> {};  // Normal RW field
 ```
 
-### 5.2.1 Field Type Safety Model
+### 4.2.1 Field Type Safety Model
 
-Fields are **safe by default**: only named `Value<>` types and the `raw<>()` escape hatch are accepted.
+Fields are **safe by default**: only named `Value<>` types are accepted.
 The `Numeric` trait opts a field into raw `value()` access.
+Use `FieldValue::bits()` or `RegisterReader::bits()` for raw value extraction on the read side.
 
-| Field kind | `value()` | `Value<>` types | `raw<>()`  |
-|-----------|:---------:|:---------------:|:----------:|
-| Default (safe) | Blocked | Yes | Yes |
-| With `Numeric` | Yes (unsigned only) | Yes | Yes |
-| 1-bit RW | — | `Set` / `Reset` auto | Yes |
-| 1-bit W1C | — | `Clear` auto | Yes |
+| Field kind | `value()` | `Value<>` types |
+|-----------|:---------:|:---------------:|
+| Default (safe) | Blocked | Yes |
+| With `Numeric` | Yes (unsigned only) | Yes |
+| 1-bit RW | — | `Set` / `Reset` auto |
+| 1-bit W1C | — | `Clear` auto |
 
 **`Field<Reg, BitOffset, BitWidth, ...Traits>`** — variadic traits pattern:
 - Traits can include access policy (`RW`, `RO`, `WO`, `W1C`) and/or `Numeric`, in any order.
@@ -286,12 +236,7 @@ The `Numeric` trait opts a field into raw `value()` access.
 - 1-bit RW fields automatically provide `Set` and `Reset` type aliases.
 - 1-bit W1C fields automatically provide `Clear` type alias.
 
-**`raw<Field>(val)`** — escape hatch:
-- Creates a `DynamicValue` for any field, bypassing type safety.
-- Analogous to `const_cast` — the name signals deliberate bypassing.
-- Range-checked at compile time when `val` is a literal.
-
-### 5.3 Transport Selection
+### 4.3 Transport Selection
 
 Transport is selected by constructing the appropriate type:
 
@@ -303,7 +248,7 @@ umi::mmio::SpiTransport<MySpi> spi(hal_spi);            // HAL SPI
 
 All transports expose the same `write()`, `read()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()` API.
 
-### 5.4 Advanced Path
+### 4.4 Advanced Path
 
 Advanced usage includes:
 
@@ -319,9 +264,9 @@ Advanced usage includes:
 
 ---
 
-## 6. Core Abstraction Hierarchy
+## 5. Core Abstraction Hierarchy
 
-### 6.1 BitRegion
+### 5.1 BitRegion
 
 Unified compile-time base for both registers and fields:
 
@@ -330,7 +275,7 @@ Unified compile-time base for both registers and fields:
 - 5 `static_assert`s validate: bit width > 0, offset + width ≤ register width,
   register width is power of 2, register width ≥ 8, no zero-width register.
 
-### 6.2 RegOps (deducing this)
+### 5.2 RegOps (deducing this)
 
 Provides type-safe `write()`, `read()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()`, `read_variant()` methods.
 Uses C++23 deducing this (P0847R7) — no CRTP `Derived` parameter.
@@ -351,20 +296,20 @@ Concept constraints:
 | `WritableValue<V>` | Value/DynamicValue | Parent region is writable |
 | `ModifiableValue<V>` | Value/DynamicValue | Writable AND parent is not W1C |
 
-### 6.3 ByteAdapter (deducing this)
+### 5.3 ByteAdapter (deducing this)
 
 Converts RegOps' typed register operations into `raw_read()` / `raw_write()` byte operations.
 Uses C++23 deducing this — no CRTP parameter.
 Handles endian conversion between host CPU and wire format using `std::byteswap` (`<bit>`).
 Endianness is expressed with `std::endian` (no custom `Endian` enum).
 
-### 6.4 Value and DynamicValue
+### 5.4 Value and DynamicValue
 
 - `Value<RegionT, EnumValue>`: compile-time constant with shifted representation.
   Uses `RegionType` (not `FieldType`) as the primary type reference.
 - `DynamicValue<RegionT, T>`: runtime value with deferred range check.
 
-### 6.5 Field Trait System
+### 5.5 Field Trait System
 
 `Field<Reg, BitOffset, BitWidth, ...Traits>` uses a variadic parameter pack for traits:
 
@@ -384,7 +329,7 @@ struct D : mm::Field<REG, 0, 8> {};                        // Inherit, safe
 struct E : mm::Field<SR, 0, 1, mm::W1C> {};                // W1C: Clear alias
 ```
 
-### 6.6 RegisterReader
+### 5.6 RegisterReader
 
 `read(Register{})` returns `RegisterReader<Reg>`, not a raw value.
 This enables fluent chained access:
@@ -404,9 +349,9 @@ auto en_raw = en.bits();             // Raw field value (escape hatch)
 
 ---
 
-## 7. Error Handling Model
+## 6. Error Handling Model
 
-### 7.1 Compile-Time Errors
+### 6.1 Compile-Time Errors
 
 1. Access policy violations → `requires` clause failure with clear concept names.
 2. Value out of range in `consteval` context → `mmio_compile_time_error_value_out_of_range`.
@@ -418,7 +363,7 @@ auto en_raw = en.bits();             // Raw field value (escape hatch)
 8. W1C field in `flip()` → `NotW1C` concept rejects W1C.
 9. `FieldValue == integer` → no matching `operator==` (use `.bits()` for raw access).
 
-### 7.2 Runtime Error Policies
+### 6.2 Runtime Error Policies
 
 Policy-based via `ErrorPolicy` template parameter:
 
@@ -431,75 +376,13 @@ Policy-based via `ErrorPolicy` template parameter:
 
 ---
 
-## 8. Test Strategy
+## 7. Test Strategy
 
-1. Tests split by concern: access policy, register/field, transport, protected access.
-2. Compile-fail tests verify API contract enforcement (8 test files).
-3. Transport tests use RAM-backed mock implementing `reg_read` / `reg_write`.
-4. Hardware-level MMIO tests require actual hardware and are out of scope for host tests.
-5. CI runs host tests and compile-fail checks.
-
-### 8.1 Test Layout
-
-- `tests/test_main.cc`: test entrypoint
-- `tests/test_access_policy.cc`: RW/RO/WO/W1C policy enforcement, WriteBehavior
-- `tests/test_register_field.cc`: BitRegion, Register, Field, Value, mask/shift, RegisterReader
-- `tests/test_transport.cc`: RAM-backed mock transport for read/write/modify/is/flip/clear/reset/read_variant
-- `tests/test_spi_bitbang.cc`: SPI, I2C, BitBang transports, ByteAdapter endian tests
-- `tests/test_protected.cc`: Protected<T, LockPolicy> with NoLockPolicy
-- `tests/compile_fail/read_wo.cc`: reading a write-only register
-- `tests/compile_fail/write_ro.cc`: writing a read-only register
-- `tests/compile_fail/write_ro_value.cc`: writing a read-only register via value
-- `tests/compile_fail/value_typesafe.cc`: `value()` on non-Numeric field
-- `tests/compile_fail/value_signed.cc`: `value()` with signed integer
-- `tests/compile_fail/modify_w1c.cc`: `modify()` on W1C field
-- `tests/compile_fail/flip_w1c.cc`: `flip()` on W1C field
-- `tests/compile_fail/field_overflow.cc`: BitRegion overflow (offset + width > reg width)
-
-### 8.2 Running Tests
-
-```bash
-xmake test                              # all targets
-xmake test 'test_umimmio/*'             # host only
-xmake test 'test_umimmio_compile_fail/*'  # compile-fail only
-```
-
-### 8.3 Quality Gates
-
-- All host tests pass (59 tests)
-- All compile-fail contract tests pass (8 tests)
-- Transport mock tests cover single and multi-field write, modify, is, flip, clear, reset, read_variant
-- W1C compile-fail tests pass (modify, flip)
-- BitRegion overflow compile-fail test passes
-- Embedded cross-build passes in CI (gcc-arm)
+See [TESTING.md](TESTING.md) for test layout, run commands, and quality gates.
 
 ---
 
-## 9. Example Strategy
-
-Examples represent learning stages:
-
-1. `minimal`: basic register and field definition with compile-time checks.
-2. `register_map`: realistic SPI peripheral register map layout.
-3. `transport_mock`: RAM-backed mock transport for host-side testing.
-
----
-
-## 10. Near-Term Improvement Plan
-
-1. Add UART transport header.
-2. Add multi-transport example (same register map, different buses).
-3. Document register map generation workflow for vendor SVD/CMSIS files.
-4. Add batch register dump utility for debugging.
-5. **Constrain byte-transport template parameters with HAL concepts.**
-   Currently, `I2cTransport<I2C>` and `SpiTransport<SpiDevice>` accept any type
-   as the HAL driver parameter (duck typing). Adding explicit `requires` clauses
-   would produce clear concept-mismatch errors instead of deep template failures.
-6. **Resolve naming collision between `umi::hal` and `umi::mmio` Transport types.**
-
----
-
-## 11. Design Principles
+## 8. Design Principles
 
 1. Zero-cost abstraction — all dispatch resolved at compile time.
 2. Type-safe — access violations are compile errors, not runtime bugs.
@@ -509,9 +392,9 @@ Examples represent learning stages:
 
 ---
 
-## 12. write() / modify() Semantics Guide
+## 9. write() / modify() Semantics Guide
 
-### 12.1 Semantic Difference
+### 9.1 Semantic Difference
 
 | Operation | Base Value | Semantics | Safety |
 |-----------|-----------|-----------|:------:|
@@ -519,7 +402,7 @@ Examples represent learning stages:
 | `modify(v1, v2, ...)` | Current value (RMW) | Change specific fields, preserving others | ✅ |
 | `write(single_v)` | `reset_value()` | Initialize register — other fields reset | ⚠️ |
 
-### 12.2 Usage Rules
+### 9.2 Usage Rules
 
 1. **Initialization**: Use `write()` with all relevant fields specified.
 2. **Runtime change**: Use `modify()` to change specific fields.
@@ -527,7 +410,7 @@ Examples represent learning stages:
    This is intentional for single-field registers or full reset.
    Use `modify()` for runtime single-field changes.
 
-### 12.3 W1C Fields
+### 9.3 W1C Fields
 
 W1C fields must use `clear()`:
 
@@ -541,7 +424,7 @@ During `modify()`, W1C bits in the parent register are automatically masked to 0
 before write-back via `Register::w1c_mask`. This prevents accidental clearing
 of W1C status bits during read-modify-write operations on other fields.
 
-### 12.4 Atomicity
+### 9.4 Atomicity
 
 `modify()` performs read-modify-write and is **never atomic**.
 For ISR-safe access, use `Protected<Transport, LockPolicy>` with a platform-specific policy:
@@ -558,7 +441,7 @@ guard->modify(ConfigEnable::Set{}); // ISR-safe RMW
 
 On non-ARM platforms, use `MutexPolicy<MutexT>` or `NoLockPolicy` as appropriate.
 
-### 12.5 reset()
+### 9.5 reset()
 
 `reset(Reg{})` writes the register's `reset_value()` directly. This is a pure write
 (not read-modify-write) and is suitable for returning hardware to its initial state.
