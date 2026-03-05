@@ -42,6 +42,9 @@ constexpr std::size_t bits32 = 32U; ///< 32-bit width
 constexpr std::size_t bits64 = 64U; ///< 64-bit width
 /// @}
 
+/// @brief Maximum register size in bytes (64-bit = 8 bytes).
+constexpr std::size_t max_reg_bytes = 8U;
+
 /// @brief Select the smallest unsigned integer type that can hold Bits
 template <std::size_t Bits>
 using UintFit =
@@ -982,7 +985,7 @@ class ByteAdapter : private RegOps<CheckPolicy, ErrorPolicy> {
     template <typename Self, typename Reg>
     [[nodiscard]] auto reg_read(this const Self& self, Reg /*reg*/) noexcept -> typename Reg::RegValueType {
         using T = typename Reg::RegValueType;
-        static_assert(sizeof(T) <= 8, "Register size must be <= 64 bits");
+        static_assert(sizeof(T) <= max_reg_bytes, "Register size must be <= 64 bits");
         static_assert(Reg::address <= static_cast<Addr>(std::numeric_limits<AddressTypeT>::max()),
                       "Register address exceeds address width for byte transport");
 
@@ -995,7 +998,7 @@ class ByteAdapter : private RegOps<CheckPolicy, ErrorPolicy> {
     template <typename Self, typename Reg>
     void reg_write(this const Self& self, Reg /*reg*/, typename Reg::RegValueType value) noexcept {
         using T = typename Reg::RegValueType;
-        static_assert(sizeof(T) <= 8, "Register size must be <= 64 bits");
+        static_assert(sizeof(T) <= max_reg_bytes, "Register size must be <= 64 bits");
         static_assert(Reg::address <= static_cast<Addr>(std::numeric_limits<AddressTypeT>::max()),
                       "Register address exceeds address width for byte transport");
 

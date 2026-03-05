@@ -11,6 +11,11 @@
 namespace umi::mmio {
 
 /// @brief DirectTransport — volatile pointer read/write for memory-mapped peripherals.
+///
+/// All register operations are const because the transport itself is stateless.
+/// Side effects occur on hardware through volatile pointer dereference,
+/// which is not considered mutable object state.
+///
 /// @tparam CheckPolicy  Enable alignment checks (std::true_type or std::false_type).
 /// @tparam ErrorPolicy  Error handler (default: AssertOnError).
 template <typename CheckPolicy = std::true_type, typename ErrorPolicy = AssertOnError>

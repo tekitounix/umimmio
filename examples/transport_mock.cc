@@ -38,7 +38,7 @@ class MockTransport : private RegOps<> {
     template <typename Reg>
     void reg_write(Reg /*reg*/, typename Reg::RegValueType value) const noexcept {
         using T = typename Reg::RegValueType;
-        std::memcpy(const_cast<uint8_t*>(&ram[Reg::address]), &value, sizeof(T));
+        std::memcpy(&ram[Reg::address], &value, sizeof(T));
     }
 
   private:
