@@ -15,42 +15,6 @@ namespace umi::mmio {
 // Lock Policies
 // ===========================================================================
 
-/// @brief Bare-metal critical section via interrupt disable.
-///
-/// ARM (Cortex-M) ターゲット専用。テンプレート遅延インスタンス化により、
-/// ヘッダを include するだけではエラーにならず、実際に lock()/unlock() を
-/// 呼び出した時点で static_assert が発火する。
-/// `__aarch64__` は対象外 (`cpsid i` は A32/T32 命令)。
-struct CriticalSectionPolicy {
-    template <bool IsArm =
-#if defined(__arm__)
-                  true
-#else
-                  false
-#endif
-              >
-    static void lock() noexcept {
-        static_assert(IsArm,
-                      "CriticalSectionPolicy is ARM (Cortex-M) only. "
-                      "Use NoLockPolicy or MutexPolicy on other platforms.");
-        __asm volatile("cpsid i" ::: "memory");
-    }
-
-    template <bool IsArm =
-#if defined(__arm__)
-                  true
-#else
-                  false
-#endif
-              >
-    static void unlock() noexcept {
-        static_assert(IsArm,
-                      "CriticalSectionPolicy is ARM (Cortex-M) only. "
-                      "Use NoLockPolicy or MutexPolicy on other platforms.");
-        __asm volatile("cpsie i" ::: "memory");
-    }
-};
-
 /// @brief RTOS mutex wrapper.
 /// @tparam MutexT Mutex type with lock()/unlock() methods.
 template <typename MutexT>
@@ -115,7 +79,7 @@ class Guard {
 ///       conventions and code review.
 ///
 /// @tparam T          Value type (typically a transport object).
-/// @tparam LockPolicy Lock policy (CriticalSectionPolicy, MutexPolicy, NoLockPolicy).
+/// @tparam LockPolicy Lock policy (e.g., NoLockPolicy, MutexPolicy, or platform-specific).
 template <typename T, typename LockPolicy>
 class Protected {
     T inner;
@@ -128,7 +92,7 @@ class Protected {
         : inner(std::forward<Args>(args)...), policy(std::move(p)) {}
 
     /// @brief Construct with default-constructed lock policy.
-    ///        Available only when LockPolicy is default-constructible (e.g., CriticalSectionPolicy).
+    ///        Available only when LockPolicy is default-constructible (e.g., NoLockPolicy).
     template <typename... Args>
         requires std::is_default_constructible_v<LockPolicy>
     explicit Protected(Args&&... args) noexcept : inner(std::forward<Args>(args)...), policy{} {}

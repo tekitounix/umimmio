@@ -211,9 +211,10 @@ lib/umimmio/
 |------|---------|
 | `Protected<T, LockPolicy>` | T をラップし、`lock()` → `Guard` 経由でのみアクセス可能 |
 | `Guard<T, LockPolicy>` | Protected の内部値への RAII スコープ付きアクセス |
-| `CriticalSectionPolicy` | ARM Cortex-M: `cpsid`/`cpsie` |
 | `MutexPolicy<MutexT>` | RTOS ミューテックスラッパー |
 | `NoLockPolicy` | シングルスレッドまたはテスト用の No-op ロック |
+
+`CriticalSectionPolicy`（ARM Cortex-M `cpsid`/`cpsie`）は `umiport` が提供 — `<umiport/platform/embedded/critical_section.hh>` を参照。
 
 ### 5.1 最小パス
 
@@ -309,7 +310,7 @@ umi::mmio::SpiTransport<MySpi> spi(hal_spi);            // HAL SPI
 6. `clear()` による W1C フィールドハンドリング、
 7. `reset()` によるレジスタリセット、
 8. `read_variant()` によるパターンマッチ付きフィールド読み出し、
-9. `Protected<Transport, CriticalSectionPolicy>` による ISR 安全アクセス。
+9. `Protected<Transport, LockPolicy>` による ISR 安全アクセス（プラットフォーム固有のロックポリシーを DI で注入）。
 
 ---
 
@@ -535,9 +536,11 @@ read-modify-write 操作中に W1C ステータスビットが意図せずクリ
 ### 12.4 アトミック性
 
 `modify()` は read-modify-write を実行し、**決してアトミックではない**。
-ISR 安全なアクセスには `Protected<Transport, CriticalSectionPolicy>` を使用：
+ISR 安全なアクセスにはプラットフォーム固有のポリシーを注入した `Protected<Transport, LockPolicy>` を使用：
 
 ```cpp
+// ARM Cortex-M: #include <umiport/platform/embedded/critical_section.hh>
+using umi::port::platform::CriticalSectionPolicy;
 Protected<DirectTransport<>, CriticalSectionPolicy> protected_hw;
 
 auto guard = protected_hw.lock();   // __disable_irq()
