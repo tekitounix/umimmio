@@ -5,14 +5,40 @@
 A type-safe, zero-cost memory-mapped I/O library for C++23.
 Define register maps at compile time and access them through direct MMIO, I2C, or SPI transports with the same API.
 
-## Why umimmio
+## The Problem
 
-- **Safe by default** — fields only accept named `Value<>` types; raw numeric access requires opt-in
-- Type-safe registers — compile-time verified access policies (RW/RO/WO)
-- Zero-cost bit field operations — all dispatch resolved at compile time
-- Multiple transports — Direct MMIO, I2C, SPI, and bitbang variants
-- Policy-based error handling — assert, trap, ignore, or custom callback
-- Compile-fail guards — illegal access is rejected at compile time
+Traditional C/C++ vendor headers (CMSIS, ESP-IDF, Pico SDK) expose registers as raw `uint32_t` pointers and bit-mask macros. This allows bugs that pass compilation silently:
+
+```c
+USART1->SR |= USART_CR1_UE;        // Wrong register — compiles fine
+GPIOA->ODR |= USART_CR1_UE;        // Wrong peripheral — compiles fine
+USART1->SR = 0;                     // Write to RO bits — compiles fine
+```
+
+## How umimmio Solves It
+
+| Safety check | Vendor CMSIS | umimmio |
+|-------------|:----------:|:-------:|
+| Cross-register bit-mask misuse | ❌ | ✅ Type-enforced |
+| Cross-peripheral bit-mask misuse | ❌ | ✅ Type-enforced |
+| Write to read-only register | ❌ | ✅ Compile error |
+| Read from write-only register | ❌ | ✅ Compile error |
+| Field width range check | ❌ | ✅ `if consteval` + runtime policy |
+| Named value type safety | ❌ (macros) | ✅ NTTP `Value<F, V>` |
+| W1C (Write-1-to-Clear) safety | ❌ | ✅ Field-level `W1C` policy |
+
+## Features
+
+- **Safe by default** — fields only accept named `Value<>` types; raw numeric access requires opt-in via `Numeric` trait
+- **Type-safe registers** — compile-time verified access policies (RW/RO/WO/W1C)
+- **Zero-cost** — all dispatch resolved at compile time, no vtable, no heap
+- **Multiple transports** — same register map works across Direct MMIO, I2C, SPI, and bitbang variants
+- **Policy-based error handling** — `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
+- **Compile-fail guards** — 9 compile-fail tests verify illegal access is rejected at compile time
+- **RegisterReader** — single bus read, multiple field extraction via `read(Reg{}).get(Field{})`
+- **Pattern matching** — `read_variant()` with `std::variant` + `std::visit` for exhaustive field matching
+- **Concurrency** — `Protected<T, LockPolicy>` with RAII Guard ensures lock-only access
+- **C++23** — deducing this (no CRTP), `if consteval`, `std::byteswap`
 
 ## Quick Start
 
@@ -43,11 +69,30 @@ io.write(EN::Set{});            // set bit 0
 io.write(EN::Reset{});          // clear bit 0
 io.write(MODE::Output{});       // write named value
 io.write(PLLN::value(336));     // write raw numeric (Numeric fields only)
-io.write(raw<MODE>(0b11));      // escape hatch for any field
-auto val = io.read(EN{});       // read bit 0 → FieldValue<EN>
-auto raw_val = val.bits();      // escape hatch for raw access
-io.flip(EN{});                  // toggle bit 0
+io.modify(EN::Set{});           // read-modify-write (preserves other fields)
+
+// Reading
+auto val = io.read(EN{});       // → FieldValue<EN>
+auto raw = val.bits();          // escape hatch for raw access
+bool is_out = io.is(MODE::Output{});  // named value comparison
+io.flip(EN{});                  // toggle 1-bit field
+
+// RegisterReader — one bus read, multiple field access
+auto cfg = io.read(CTRL{});     // → RegisterReader<CTRL>
+auto en  = cfg.get(EN{});       // extract field — no additional bus access
+bool fast = cfg.is(MODE::AltFunc{});
 ```
+
+## Field Type Safety
+
+| Field kind | `value()` (write) | `Value<>` types | `read()` returns |
+|-----------|:---------:|:---------------:|:----------------:|
+| Default (safe) | Blocked | Yes | `FieldValue<F>` |
+| `Numeric` trait | Yes (unsigned only) | Yes | `FieldValue<F>` |
+| 1-bit RW | — | `Set` / `Reset` auto | `FieldValue<F>` |
+| 1-bit W1C | — | `Clear` auto | `FieldValue<F>` |
+
+`FieldValue<F>` supports `==` with `Value<F,V>` and `DynamicValue<F,T>` only — raw integer comparison is a compile error. Use `.bits()` to extract the underlying value.
 
 ## Build and Test
 
@@ -58,18 +103,11 @@ xmake test
 ## Public API
 
 - Entrypoint: `include/umimmio/mmio.hh`
-- Core: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `FieldValue`, `Numeric`, `raw<>()`
+- Core: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `FieldValue`, `RegisterReader`, `Numeric`
+- Operations: `read()`, `write()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()`, `read_variant()`
 - Transports: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
-
-## Field Type Safety
-
-| Field kind | `value()` (write) | `Value<>` types | `raw<>()` | `read()` returns |
-|-----------|:---------:|:---------------:|:---------:|:----------------:|
-| Default (safe) | Blocked | Yes | Yes | `FieldValue<F>` |
-| `Numeric` trait | Yes | Yes | Yes | `FieldValue<F>` |
-| 1-bit | — | `Set` / `Reset` auto | Yes | `FieldValue<F>` |
-
-`FieldValue<F>` supports `==` with `Value<F,V>` and `DynamicValue<F,T>` only — raw integer comparison is a compile error. Use `.bits()` to extract the underlying value.
+- Concurrency: `Protected<T, LockPolicy>`, `Guard`, `MutexPolicy`, `NoLockPolicy`
+- Error policies: `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
 
 ## Examples
 
@@ -80,9 +118,8 @@ xmake test
 ## Documentation
 
 - [Design & API](docs/DESIGN.md)
-- [Common Guides](../docs/INDEX.md)
-- API docs: `doxygen Doxyfile` → `build/doxygen/html/index.html`
+- [Testing](docs/TESTING.md)
 
 ## License
 
-MIT — See [LICENSE](../../LICENSE)
+MIT — See [LICENSE](LICENSE)
