@@ -5,13 +5,40 @@
 C++23 向けの型安全、ゼロコストメモリマップド I/O ライブラリです。
 レジスタマップをコンパイル時に定義し、同一の API で Direct MMIO、I2C、SPI トランスポート経由でアクセスできます。
 
+## 課題
+
+従来の C/C++ ベンダーヘッダー（CMSIS、ESP-IDF、Pico SDK等）はレジスタを `uint32_t` ポインタとビットマスクマクロで公開しています。以下のようなバグがコンパイルを通過します：
+
+```c
+USART1->SR |= USART_CR1_UE;        // 間違ったレジスタ — コンパイル通過
+GPIOA->ODR |= USART_CR1_UE;        // 間違ったペリフェラル — コンパイル通過
+USART1->SR = 0;                     // RO ビットへの書き込み — コンパイル通過
+```
+
+## umimmio の解決策
+
+| 安全チェック | ベンダー CMSIS | umimmio |
+|-------------|:----------:|:-------:|
+| クロスレジスタのビットマスク誤用 | ❌ | ✅ 型で防止 |
+| クロスペリフェラルのビットマスク誤用 | ❌ | ✅ 型で防止 |
+| 読み出し専用レジスタへの書き込み | ❌ | ✅ コンパイルエラー |
+| 書き込み専用レジスタからの読み出し | ❌ | ✅ コンパイルエラー |
+| フィールド幅のレンジチェック | ❌ | ✅ `if consteval` + ランタイムポリシー |
+| 名前付き値の型安全性 | ❌ (マクロ) | ✅ NTTP `Value<F, V>` |
+| W1C (Write-1-to-Clear) 安全性 | ❌ | ✅ フィールドレベル `W1C` ポリシー |
+
 ## 特徴
 
-- 型安全レジスタ — コンパイル時検証アクセスポリシー (RW/RO/WO)
-- ゼロコストビットフィールド操作 — 全ディスパッチはコンパイル時に解決
-- 複数トランスポート — Direct MMIO、I2C、SPI、ビットバング対応
-- ポリシーベースエラーハンドリング — assert、trap、ignore、カスタムコールバック
-- compile-fail ガード — 不正アクセスはコンパイル時に拒否
+- **デフォルトで安全** — フィールドは名前付き `Value<>` 型のみ受け付け、raw 数値アクセスは `Numeric` トレイトでオプトイン
+- **型安全レジスタ** — コンパイル時検証アクセスポリシー (RW/RO/WO/W1C)
+- **ゼロコスト** — 全ディスパッチはコンパイル時に解決、vtable なし、ヒープなし
+- **複数トランスポート** — 同一レジスタマップを Direct MMIO、I2C、SPI、ビットバングで共有
+- **ポリシーベースエラーハンドリング** — `AssertOnError`、`TrapOnError`、`IgnoreError`、`CustomErrorHandler`
+- **compile-fail ガード** — 9 個の compile-fail テストで不正アクセスの拒否を検証
+- **RegisterReader** — 1 回のバス読み出しで複数フィールドを `read(Reg{}).get(Field{})` で抽出
+- **パターンマッチ** — `read_variant()` で `std::variant` + `std::visit` による網羅的分岐
+- **並行性** — `Protected<T, LockPolicy>` + RAII Guard でロック経由アクセスのみ許可
+- **C++23** — deducing this (CRTP 不要)、`if consteval`、`std::byteswap`
 
 ## クイックスタート
 
@@ -24,13 +51,45 @@ struct MyDevice : Device<RW> {
 };
 
 using CTRL = Register<MyDevice, 0x00, 32>;
-using EN   = Field<CTRL, 0, 1>;
+
+// 1 ビットフィールド — Set/Reset 自動生成
+struct EN : Field<CTRL, 0, 1> {};
+
+// 2 ビットフィールド（名前付き値）— デフォルトで安全
+struct MODE : Field<CTRL, 1, 2> {
+    using Output  = Value<MODE, 0b01>;
+    using AltFunc = Value<MODE, 0b10>;
+};
+
+// 9 ビット数値フィールド — Numeric トレイトで raw value() 有効
+struct PLLN : Field<CTRL, 6, 9, Numeric> {};
 
 DirectTransport<> io;
-io.write(EN::Set{});          // ビット0をセット
-auto val = io.read(EN{});     // ビット0を読み取り
-io.flip(EN{});                // ビット0をトグル
+io.write(EN::Set{});            // ビット 0 をセット
+io.write(MODE::Output{});       // 名前付き値を書き込み
+io.write(PLLN::value(336));     // raw 数値書き込み (Numeric のみ)
+io.modify(EN::Set{});           // read-modify-write (他フィールド保持)
+
+// 読み出し
+auto val = io.read(EN{});       // → FieldValue<EN>
+auto raw = val.bits();          // raw 値のエスケープハッチ
+io.flip(EN{});                  // 1 ビットフィールドのトグル
+
+// RegisterReader — 1 回のバスアクセスで複数フィールド取得
+auto cfg = io.read(CTRL{});     // → RegisterReader<CTRL>
+auto en  = cfg.get(EN{});       // フィールド抽出（追加バスアクセスなし）
 ```
+
+## フィールド型安全性
+
+| フィールド種別 | `value()` (書込) | `Value<>` 型 | `read()` 戻り値 |
+|-----------|:---------:|:---------------:|:----------------:|
+| デフォルト（安全） | ブロック | Yes | `FieldValue<F>` |
+| `Numeric` トレイト | Yes（符号なしのみ） | Yes | `FieldValue<F>` |
+| 1 ビット RW | — | `Set` / `Reset` 自動 | `FieldValue<F>` |
+| 1 ビット W1C | — | `Clear` 自動 | `FieldValue<F>` |
+
+`FieldValue<F>` は `Value<F,V>` および `DynamicValue<F,T>` との `==` のみサポート — 整数との直接比較はコンパイルエラー。`.bits()` で raw 値を取得。
 
 ## ビルドとテスト
 
@@ -38,11 +97,20 @@ io.flip(EN{});                // ビット0をトグル
 xmake test
 ```
 
+## パブリック API
+
+- エントリポイント: `include/umimmio/mmio.hh`
+- コア: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `FieldValue`, `RegisterReader`, `Numeric`
+- 操作: `read()`, `write()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()`, `read_variant()`
+- トランスポート: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
+- 並行性: `Protected<T, LockPolicy>`, `Guard`, `MutexPolicy`, `NoLockPolicy`
+- エラーポリシー: `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
+
 ## ドキュメント
 
-- [設計 & API](../DESIGN.md)
-- [共通ガイド](../../docs/INDEX.md)
+- [設計 & API](DESIGN.md)
+- [テスト](TESTING.md)
 
 ## ライセンス
 
-MIT — [LICENSE](../../../LICENSE) を参照
+MIT — [LICENSE](../../LICENSE) を参照

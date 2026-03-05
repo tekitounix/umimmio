@@ -2,13 +2,13 @@
 
 [日本語](ja/INDEX.md)
 
-This page is the canonical documentation entry for both GitHub and Doxygen.
+Documentation entry for the umimmio library.
 
 ## Read in This Order
 
-1. [Testing](TESTING.md)
-2. [Design](DESIGN.md)
-3. [Implementation Plans](plans/)
+1. [README](../README.md) — Overview, quick start, comparison
+2. [Testing](TESTING.md) — Test strategy, runtime & compile-fail tests
+3. [Design](DESIGN.md) — Architecture, API design, error handling
 
 ## API Reference Map
 
@@ -26,24 +26,4 @@ This page is the canonical documentation entry for both GitHub and Doxygen.
   - `include/umimmio/transport/bitbang_i2c.hh` — BitBangI2cTransport (GPIO)
   - `include/umimmio/transport/bitbang_spi.hh` — BitBangSpiTransport (GPIO)
 
-## Local Generation
 
-```bash
-xmake doxygen -P . -o build/doxygen .
-```
-
-Generated entrypoint:
-
-- `build/doxygen/html/index.html`
-
-## Release Metadata
-
-- Version file: `VERSION`
-- Changelog: `CHANGELOG.md`
-- Release policy: `RELEASE.md`
-
-GitHub automation:
-
-- Workflow file: `.github/workflows/umimmio-ci.yml`
-- Pull requests: host test + compile-fail execution
-- `main` branch push: CI validation
