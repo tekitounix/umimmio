@@ -8,7 +8,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include <umimmio/register.hh>
+#include <umimmio/ops.hh>
 
 // =============================================================================
 // Mock transport: RAM-backed register I/O for testing

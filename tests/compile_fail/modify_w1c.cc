@@ -5,7 +5,7 @@
 /// @author Shota Moriguchi @tekitounix
 /// @details W1C field does not satisfy ModifiableValue concept.
 
-#include <umimmio/register.hh>
+#include <umimmio/ops.hh>
 
 namespace {
 

@@ -6,8 +6,6 @@
 /// @brief RegOps and ByteAdapter — type-safe register operation layer.
 /// @author Shota Moriguchi @tekitounix
 
-#include "region.hh"
-
 #include <array>
 #include <bit>
 #include <cstring>
@@ -15,6 +13,8 @@
 #include <tuple>
 #include <utility>
 #include <variant>
+
+#include "region.hh"
 
 namespace umi::mmio {
 

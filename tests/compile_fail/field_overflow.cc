@@ -5,7 +5,7 @@
 /// @author Shota Moriguchi @tekitounix
 /// @details BitRegion static_assert: "Field bit range exceeds register width".
 
-#include <umimmio/register.hh>
+#include <umimmio/region.hh>
 
 using namespace umi::mmio;
 

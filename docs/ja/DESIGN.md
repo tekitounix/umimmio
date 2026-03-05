@@ -85,7 +85,9 @@ lib/umimmio/
 │   └── transport_mock.cc
 ├── include/umimmio/
 │   ├── mmio.hh              # アンブレラヘッダー
-│   ├── register.hh          # コア: RegOps, ByteAdapter, BitRegion, Field, Value, concepts
+│   ├── policy.hh            # 基盤: AccessPolicy、トランスポートタグ、エラーポリシー
+│   ├── region.hh            # データモデル: Device, Register, Field, Value, concepts
+│   ├── ops.hh               # 操作: RegOps, ByteAdapter, RegisterReader
 │   ├── protected.hh         # Protected<T, LockPolicy>, Guard, ロックポリシー
 │   └── transport/
 │       ├── direct.hh        # DirectTransport (volatile ポインタ)
@@ -120,7 +122,9 @@ lib/umimmio/
 lib/umimmio/
 ├── include/umimmio/
 │   ├── mmio.hh
-│   ├── register.hh
+│   ├── policy.hh
+│   ├── region.hh
+│   ├── ops.hh
 │   ├── protected.hh
 │   └── transport/
 │       ├── direct.hh
@@ -146,7 +150,7 @@ lib/umimmio/
 
 1. パブリックヘッダーは `include/umimmio/` 配下に配置。
 2. 新しいトランスポートは `transport/` 配下に個別ヘッダーとして追加。
-3. `register.hh` はコアであり、安定を維持すべき。
+3. コアヘッダー (`policy.hh` → `region.hh` → `ops.hh`) は厳密な依存チェーンを形成し、安定を維持すべき。
 4. トランスポート固有のエラーポリシーをトランスポートごとに追加する可能性がある。
 
 ---

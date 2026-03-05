@@ -6,7 +6,7 @@
 /// @details Fields without mm::Numeric trait do not expose value().
 ///          Only named Value<> types or mm::raw<>() escape are allowed.
 
-#include <umimmio/register.hh>
+#include <umimmio/ops.hh>
 
 namespace {
 

@@ -7,7 +7,7 @@
 /// @author Shota Moriguchi @tekitounix
 
 #include "protected.hh"             // IWYU pragma: export
-#include "register.hh"              // IWYU pragma: export
+#include "ops.hh"                  // IWYU pragma: export
 #include "transport/bitbang_i2c.hh" // IWYU pragma: export
 #include "transport/bitbang_spi.hh" // IWYU pragma: export
 #include "transport/direct.hh"      // IWYU pragma: export

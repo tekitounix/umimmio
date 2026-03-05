@@ -5,7 +5,7 @@
 /// @author Shota Moriguchi @tekitounix
 /// @details Triggers requires clause failure: Readable<Reg> not satisfied.
 
-#include <umimmio/register.hh>
+#include <umimmio/ops.hh>
 
 namespace {
 

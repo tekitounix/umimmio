@@ -6,13 +6,13 @@
 /// @brief MMIO data model: Device, Register, Field, Value types with access concepts.
 /// @author Shota Moriguchi @tekitounix
 
-#include "policy.hh"
-
 #include <cassert>
 #include <concepts>
 #include <cstdint>
 #include <tuple>
 #include <type_traits>
+
+#include "policy.hh"
 
 namespace umi::mmio {
 

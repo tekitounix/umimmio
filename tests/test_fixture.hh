@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <cstring>
 
-#include <umimmio/register.hh>
+#include <umimmio/ops.hh>
 #include <umitest/test.hh>
 
 namespace umimmio::test {

@@ -85,7 +85,9 @@ lib/umimmio/
 │   └── transport_mock.cc
 ├── include/umimmio/
 │   ├── mmio.hh              # Umbrella header
-│   ├── register.hh          # Core: RegOps, ByteAdapter, BitRegion, Field, Value, concepts
+│   ├── policy.hh            # Foundation: AccessPolicy, transport tags, error policies
+│   ├── region.hh            # Data model: Device, Register, Field, Value, concepts
+│   ├── ops.hh               # Operations: RegOps, ByteAdapter, RegisterReader
 │   ├── protected.hh         # Protected<T, LockPolicy>, Guard, lock policies
 │   └── transport/
 │       ├── direct.hh        # DirectTransport (volatile pointer)
@@ -120,7 +122,9 @@ lib/umimmio/
 lib/umimmio/
 ├── include/umimmio/
 │   ├── mmio.hh
-│   ├── register.hh
+│   ├── policy.hh
+│   ├── region.hh
+│   ├── ops.hh
 │   ├── protected.hh
 │   └── transport/
 │       ├── direct.hh
@@ -146,7 +150,7 @@ Notes:
 
 1. Public headers stay under `include/umimmio/`.
 2. New transports are added as separate headers under `transport/`.
-3. `register.hh` is the core and should remain stable.
+3. Core headers (`policy.hh` → `region.hh` → `ops.hh`) form a strict dependency chain and should remain stable.
 4. Transport-specific error policies may be added per transport.
 
 ---

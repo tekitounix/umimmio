@@ -5,7 +5,7 @@
 /// @author Shota Moriguchi @tekitounix
 /// @details Triggers WritableValue concept failure on RO register.
 
-#include <umimmio/register.hh>
+#include <umimmio/ops.hh>
 
 namespace {
 

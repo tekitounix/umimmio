@@ -13,8 +13,10 @@
 ## API リファレンスマップ
 
 - パブリックエントリポイント: `include/umimmio/mmio.hh`
-- コアレジスタ抽象化:
-  - `include/umimmio/register.hh` — BitRegion, Register, Field, Value, RegOps, ByteAdapter, RegisterReader, concepts
+- コアレジスタ抽象化 (厳密なレイヤリング: policy → region → ops):
+  - `include/umimmio/policy.hh` — Addr, AccessPolicy, トランスポートタグ, エラーポリシー
+  - `include/umimmio/region.hh` — Device, Register, Field, Value, FieldValue, RegisterReader, concepts
+  - `include/umimmio/ops.hh` — RegOps, ByteAdapter
 - 並行性:
   - `include/umimmio/protected.hh` — Protected, Guard, MutexPolicy, NoLockPolicy
 - トランスポート実装:

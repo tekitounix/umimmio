@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <cstring>
 
-#include "../register.hh"
+#include "../ops.hh"
 #include "detail.hh"
 
 namespace umi::mmio {

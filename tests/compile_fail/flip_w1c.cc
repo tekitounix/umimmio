@@ -5,7 +5,7 @@
 /// @author Shota Moriguchi @tekitounix
 /// @details NotW1C constraint prevents flip on W1C fields.
 
-#include <umimmio/register.hh>
+#include <umimmio/ops.hh>
 
 namespace {
 

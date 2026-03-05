@@ -7,7 +7,7 @@
 ///          no operator== with integer types. Use .bits() for explicit escape,
 ///          or compare with named Value<F, V> types.
 
-#include <umimmio/register.hh>
+#include <umimmio/region.hh>
 
 namespace {
 
