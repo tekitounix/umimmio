@@ -103,8 +103,8 @@ struct ConfigEnable : Field<ConfigReg, 0, 1> {};
 /// @brief Mode field (bits 1-2, 2-bit)
 struct ConfigMode : Field<ConfigReg, 1, 2> {};
 
-/// @brief Prescaler field (bits 8-15, 8-bit)
-struct ConfigPrescaler : Field<ConfigReg, 8, 8> {};
+/// @brief Prescaler field (bits 8-15, 8-bit, Numeric — raw value() enabled)
+struct ConfigPrescaler : Field<ConfigReg, 8, 8, Numeric> {};
 
 // --- Fields within CtrlReg ---
 
@@ -114,8 +114,8 @@ struct CtrlStart : Field<CtrlReg, 0, 1> {};
 /// @brief IRQ enable bit (bit 1, 1-bit)
 struct CtrlIrqEn : Field<CtrlReg, 1, 1> {};
 
-/// @brief Channel select (bits 4-7, 4-bit)
-struct CtrlChannel : Field<CtrlReg, 4, 4> {};
+/// @brief Channel select (bits 4-7, 4-bit, Numeric — raw value() enabled)
+struct CtrlChannel : Field<CtrlReg, 4, 4, Numeric> {};
 
 // --- Enum values for Mode ---
 

@@ -10,7 +10,7 @@ target("test_umimmio")
 target("test_umimmio_compile_fail")
     set_kind("phony")
     set_default(false)
-    add_tests("write_ro", "read_wo")
+    add_tests("write_ro", "read_wo", "value_typesafe")
 
     on_test(function()
         import("lib.detect.find_tool")
@@ -21,7 +21,7 @@ target("test_umimmio_compile_fail")
         local include_dir = path.join(os.scriptdir(), "..", "include")
         local umitest_include = path.join(os.scriptdir(), "..", "..", "umitest", "include")
 
-        local test_cases = {"write_ro", "read_wo"}
+        local test_cases = {"write_ro", "read_wo", "value_typesafe"}
         for _, name in ipairs(test_cases) do
             local source = path.join(os.scriptdir(), "compile_fail", name .. ".cc")
             local object = os.tmpfile() .. ".o"

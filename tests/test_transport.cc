@@ -155,7 +155,7 @@ struct I2CDevice : Device<RW, I2CTransportTag> {};
 
 /// @brief Register on I2C device at offset 0x10
 struct I2CReg : Register<I2CDevice, 0x10, bits32, RW, 0> {};
-struct I2CField : Field<I2CReg, 0, 8> {};
+struct I2CField : Field<I2CReg, 0, 8, Numeric> {};
 
 bool test_i2c_transport_write_read(TestContext& t) {
     MockI2C i2c;

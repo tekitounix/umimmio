@@ -168,42 +168,149 @@ struct BitRegion {
             return Parent::reset_value();
         }
     }
+};
 
-    // Dynamic value creation
+/// @brief Register — top-level BitRegion that always provides value().
+template <class Parent, Addr Offset, std::size_t Bits, class Access = RW, std::uint64_t Reset = 0>
+struct Register : BitRegion<Parent, Offset, Bits, 0, Bits, Access, Reset, true> {
+    /// @brief Create a dynamic value for this register.
     template <std::integral T>
     [[nodiscard("value() result must be used with write(), modify(), or is()")]]
     static constexpr auto value(T val) {
-        if constexpr (bit_width < sizeof(T) * bits8) {
-            constexpr auto max_value = (1ULL << bit_width) - 1;
+        if constexpr (Bits < sizeof(T) * bits8) {
+            constexpr auto max_value = (1ULL << Bits) - 1;
             if consteval {
                 if (static_cast<std::uint64_t>(val) > max_value) {
                     mmio_compile_time_error_value_out_of_range();
                 }
             }
         }
-        // Runtime check deferred to write()/modify() via CheckPolicy + ErrorPolicy
-        return DynamicValue<BitRegion, T>{val};
+        return DynamicValue<Register, T>{val};
     }
 };
-
-/// @brief Register = BitRegion with IsRegister=true
-template <class Parent, Addr Offset, std::size_t Bits, class Access = RW, std::uint64_t Reset = 0>
-using Register = BitRegion<Parent, Offset, Bits, 0, Bits, Access, Reset, true>;
 
 /// @brief Forward declaration for Value
 template <class FieldT, auto EnumValue>
 struct Value;
 
-/// @brief Field = BitRegion with IsRegister=false
-template <class Reg, std::size_t BitOffset, std::size_t BitWidth, class Access = Inherit>
-struct Field : BitRegion<Reg, 0, Reg::reg_bits, BitOffset, BitWidth, Access, 0, false> {};
+/// @brief Numeric domain tag.
+/// When specified as a trait of Field, raw value() is enabled.
+/// Without this tag, Field only accepts named Value<> types (safe by default).
+struct Numeric {};
 
-/// @brief 1-bit field specialization (auto Set/Reset)
-template <class Reg, std::size_t BitOffset, class Access>
-struct Field<Reg, BitOffset, 1, Access> : BitRegion<Reg, 0, Reg::reg_bits, BitOffset, 1, Access, 0, false> {
-    using Set = Value<Field, 1>;
-    using Reset = Value<Field, 0>;
+// ---------------------------------------------------------------------------
+// Trait extraction helpers (internal)
+// ---------------------------------------------------------------------------
+namespace detail {
+
+/// @brief Check if a pack of types contains a specific type.
+template <typename Target, typename... Ts>
+constexpr bool contains_v = (std::is_same_v<Target, Ts> || ...);
+
+/// @brief Extract Access trait from a pack of types. Returns Inherit if not found.
+template <typename... Ts>
+struct ExtractAccess {
+    using type = Inherit;
 };
+template <typename T, typename... Rest>
+    requires(std::is_same_v<T, RW> || std::is_same_v<T, RO> || std::is_same_v<T, WO> || std::is_same_v<T, Inherit>)
+struct ExtractAccess<T, Rest...> {
+    using type = T;
+};
+template <typename T, typename... Rest>
+    requires(!std::is_same_v<T, RW> && !std::is_same_v<T, RO> && !std::is_same_v<T, WO> && !std::is_same_v<T, Inherit>)
+struct ExtractAccess<T, Rest...> {
+    using type = typename ExtractAccess<Rest...>::type;
+};
+
+template <typename... Ts>
+using ExtractAccess_t = typename ExtractAccess<Ts...>::type;
+
+/// @brief Empty base — no 1-bit aliases.
+struct NoOneBitAliases {};
+
+/// @brief Provides Set/Reset type aliases for 1-bit fields via CRTP-like inheritance.
+template <class FieldT>
+struct OneBitAliases {
+    using Set = Value<FieldT, 1>;
+    using Reset = Value<FieldT, 0>;
+};
+
+/// @brief Selects the appropriate base class for 1-bit field aliases.
+template <class FieldT, std::size_t BitWidth>
+using OneBitBase = std::conditional_t<BitWidth == 1, OneBitAliases<FieldT>, NoOneBitAliases>;
+
+} // namespace detail
+
+/// @brief Field — bit-range within a register.
+///
+/// By default, raw value() is **not** available (safe by default).
+/// Add `mm::Numeric` to traits to enable raw value().
+/// 1-bit fields automatically provide Set/Reset type aliases.
+///
+/// @tparam Reg       Parent register type.
+/// @tparam BitOffset Bit position within the register.
+/// @tparam BitWidth  Width in bits.
+/// @tparam Traits    Access policy (RW, RO, WO, Inherit) and/or Numeric, in any order.
+///
+/// Examples:
+/// @code
+///   struct EN   : mm::Field<CR, 0, 1> {};                      // 1-bit: Set/Reset auto
+///   struct HPRE : mm::Field<CFGR, 4, 4> {};                   // safe (no raw value())
+///   struct PLLN : mm::Field<PLLCFGR, 6, 9, mm::Numeric> {};   // raw value() enabled
+///   struct DR   : mm::Field<ADC_DR, 0, 16, mm::RO, mm::Numeric> {};  // read-only + numeric
+/// @endcode
+template <class Reg, std::size_t BitOffset, std::size_t BitWidth, class... Traits>
+struct Field : BitRegion<Reg, 0, Reg::reg_bits, BitOffset, BitWidth, detail::ExtractAccess_t<Traits...>, 0, false>,
+               detail::OneBitBase<Field<Reg, BitOffset, BitWidth, Traits...>, BitWidth> {
+  private:
+    static constexpr bool is_numeric = detail::contains_v<Numeric, Traits...>;
+
+  public:
+    /// @brief Create a dynamic value. Only available for Numeric fields.
+    template <std::integral T>
+        requires(is_numeric)
+    [[nodiscard("value() result must be used with write(), modify(), or is()")]]
+    static constexpr auto value(T val) {
+        if constexpr (BitWidth < sizeof(T) * bits8) {
+            constexpr auto max_value = (1ULL << BitWidth) - 1;
+            if consteval {
+                if (static_cast<std::uint64_t>(val) > max_value) {
+                    mmio_compile_time_error_value_out_of_range();
+                }
+            }
+        }
+        return DynamicValue<Field, T>{val};
+    }
+};
+
+/// @brief Explicit raw value for any field — escape hatch.
+///
+/// Use when you intentionally need to write a numeric value to a field
+/// that does not have Numeric trait. The name `raw` signals deliberate
+/// bypassing of type safety, similar to const_cast.
+///
+/// @tparam FieldT  The Field type to target.
+/// @param  val     The raw numeric value.
+/// @return DynamicValue usable with write(), modify(), is().
+///
+/// @code
+///   io.write(mm::raw<HPRE>(5));     // deliberate escape
+///   io.write(PLLN::value(336));     // normal for Numeric fields
+/// @endcode
+template <class FieldT, std::integral T>
+[[nodiscard("raw() result must be used with write(), modify(), or is()")]]
+constexpr auto raw(T val) {
+    if constexpr (FieldT::bit_width < sizeof(T) * bits8) {
+        constexpr auto max_value = (1ULL << FieldT::bit_width) - 1;
+        if consteval {
+            if (static_cast<std::uint64_t>(val) > max_value) {
+                mmio_compile_time_error_value_out_of_range();
+            }
+        }
+    }
+    return DynamicValue<FieldT, T>{val};
+}
 
 /// @brief Value representation for Fields and Registers
 template <class RegionT, auto EnumValue>
@@ -343,8 +450,7 @@ class RegOps {
     /// @tparam RegOrField Register or Field type to read.
     /// @return For registers: the full register value. For fields: the extracted field value.
     template <typename RegOrField>
-    [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] auto
-    read(RegOrField /*reg_or_field*/) const noexcept {
+    [[nodiscard]] auto read(RegOrField /*reg_or_field*/) const noexcept {
         check_transport_allowed<RegOrField>();
         static_assert(RegOrField::AccessType::can_read, "Cannot read from write-only register");
 
@@ -364,8 +470,9 @@ class RegOps {
         using V = std::decay_t<Value>;
 
         if constexpr (requires { V::value; }) {
-            // Enumerated value
-            return read(typename V::FieldType{}) == V::value;
+            // Enumerated value — cast enum to ValueType for comparison
+            using FieldT = typename V::FieldType;
+            return read(FieldT{}) == static_cast<typename FieldT::ValueType>(V::value);
         } else {
             // Dynamic value with runtime check
             using RegionType = typename V::RegionType;
@@ -638,8 +745,7 @@ class ByteAdapter : private RegOps<Derived, CheckPolicy, ErrorPolicy> {
     /// @tparam Reg Register type (provides address and RegValueType).
     /// @return Current register value.
     template <typename Reg>
-    [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] [[nodiscard]] auto
-    reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
+    [[nodiscard]] auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
         using T = typename Reg::RegValueType;
         static_assert(sizeof(T) <= 8, "Register size must be <= 64 bits");
         static_assert(Reg::address <= static_cast<Addr>(std::numeric_limits<AddressTypeT>::max()),

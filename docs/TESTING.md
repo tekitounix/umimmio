@@ -10,6 +10,7 @@
 - `tests/test_transport.cc`: RAM-backed mock transport for read/write/modify/is/flip
 - `tests/compile_fail/read_wo.cc`: compile-fail guard — reading a write-only register
 - `tests/compile_fail/write_ro.cc`: compile-fail guard — writing a read-only register
+- `tests/compile_fail/value_typesafe.cc`: compile-fail guard — `value()` on non-Numeric field is rejected
 
 ## Run Tests
 
@@ -33,14 +34,14 @@ Since umimmio is primarily a compile-time abstraction library, tests focus on:
 1. **Access policy enforcement** — static_assert fires on illegal access
 2. **Bit arithmetic** — mask, shift, reset values for registers and fields
 3. **Transport correctness** — RAM-backed mock verifies write/read/modify round-trips
-4. **Compile-fail guards** — illegal operations must not compile
+4. **Compile-fail guards** — illegal operations must not compile (read WO, write RO, `value()` on safe fields)
 
 Hardware-level MMIO tests require actual hardware or emulation and are out of scope for host tests.
 
 ## Quality Gates for Release
 
 - All host tests pass
-- Compile-fail contract tests pass (read_wo, write_ro)
+- Compile-fail contract tests pass (read_wo, write_ro, value_typesafe)
 - Transport mock tests cover single and multi-field write, modify, is, flip
 - Embedded cross-build passes in CI (gcc-arm)
 

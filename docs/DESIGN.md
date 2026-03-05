@@ -148,11 +148,13 @@ Core types:
 
 | Type | Purpose |
 |------|---------|
-| `Region<addr, T>` | Register at a fixed address with storage type T |
-| `Field<Region, offset, width>` | Bit field within a Region |
+| `Device<Access, Transports...>` | Device root with base address, access policy, and allowed transports |
+| `Register<Device, Offset, Bits, Access, Reset>` | Register at an offset within a device |
+| `Field<Reg, BitOffset, BitWidth, ...Traits>` | Bit field within a register (variadic traits) |
 | `Value<Field, val>` | Named constant for a Field |
-| `DynamicValue<Field>` | Runtime value for a Field |
-| `Block<addr, Regions...>` | Group of contiguous registers |
+| `DynamicValue<Field, T>` | Runtime value for a Field |
+| `Numeric` | Trait: enables raw `value()` on a Field |
+| `raw<Field>(val)` | Escape hatch: raw value for any Field |
 
 Transport types:
 
@@ -187,14 +189,50 @@ Required minimal flow for direct MMIO:
 Typical device register map structure:
 
 ```cpp
-struct MyDevice : umi::mmio::Device<umi::mmio::RW> {
-    static constexpr umi::mmio::Addr base_address = 0x4000'0000;
+namespace mm = umi::mmio;
+
+struct MyDevice : mm::Device<mm::RW> {
+    static constexpr mm::Addr base_address = 0x4000'0000;
 };
 
-using CTRL = umi::mmio::Register<MyDevice, 0x00, 32>;
-using EN   = umi::mmio::Field<CTRL, 0, 1>;   // 1-bit field at bit 0
-using MODE = umi::mmio::Field<CTRL, 1, 2>;   // 2-bit field at bits 1-2
+using CTRL = mm::Register<MyDevice, 0x00, 32>;
+
+// 1-bit field — Set/Reset auto-generated
+struct EN : mm::Field<CTRL, 0, 1> {};
+
+// 2-bit field with named values — safe by default (no raw value())
+struct MODE : mm::Field<CTRL, 1, 2> {
+    using Output  = mm::Value<MODE, 0b01>;
+    using AltFunc = mm::Value<MODE, 0b10>;
+};
+
+// 9-bit numeric field — raw value() enabled
+struct PLLN : mm::Field<CTRL, 6, 9, mm::Numeric> {};
+
+// Read-only + numeric
+struct DR : mm::Field<CTRL, 0, 16, mm::RO, mm::Numeric> {};
 ```
+
+### 5.2.1 Field Type Safety Model
+
+Fields are **safe by default**: only named `Value<>` types and the `raw<>()` escape hatch are accepted.
+The `Numeric` trait opts a field into raw `value()` access.
+
+| Field kind | `value()` | `Value<>` types | `raw<>()`  |
+|-----------|:---------:|:---------------:|:----------:|
+| Default (safe) | Blocked | Yes | Yes |
+| With `Numeric` | Yes | Yes | Yes |
+| 1-bit | — | `Set` / `Reset` auto | Yes |
+
+**`Field<Reg, BitOffset, BitWidth, ...Traits>`** — variadic traits pattern:
+- Traits can include access policy (`RW`, `RO`, `WO`) and/or `Numeric`, in any order.
+- Default access is `Inherit` (from parent register).
+- 1-bit fields automatically provide `Set` and `Reset` type aliases via CRTP.
+
+**`raw<Field>(val)`** — escape hatch:
+- Creates a `DynamicValue` for any field, bypassing type safety.
+- Analogous to `const_cast` — the name signals deliberate bypassing.
+- Range-checked at compile time when `val` is a literal.
 
 ### 5.3 Transport Selection
 
@@ -242,7 +280,24 @@ Handles endian conversion between host CPU and wire format.
 ### 6.4 Value and DynamicValue
 
 - `Value<Field, EnumValue>`: compile-time constant with shifted representation.
-- `DynamicValue<Region, T>`: runtime value with deferred range check.
+- `DynamicValue<Field, T>`: runtime value with deferred range check.
+
+### 6.5 Field Trait System
+
+`Field<Reg, BitOffset, BitWidth, ...Traits>` uses a variadic parameter pack for traits:
+
+- **Access policy extraction**: `detail::ExtractAccess_t<Traits...>` finds `RW`/`RO`/`WO` in the pack (default: `Inherit`).
+- **Numeric detection**: `detail::contains_v<Numeric, Traits...>` enables `value()`.
+- **OneBitAliases**: 1-bit fields inherit `Set`/`Reset` via `detail::OneBitBase<Field, Width>` (CRTP).
+
+Traits can appear in any order:
+```cpp
+// All equivalent for access:
+struct A : mm::Field<REG, 0, 8, mm::RO, mm::Numeric> {};   // RO + Numeric
+struct B : mm::Field<REG, 0, 8, mm::Numeric, mm::RO> {};   // same
+struct C : mm::Field<REG, 0, 8, mm::Numeric> {};           // Inherit + Numeric
+struct D : mm::Field<REG, 0, 8> {};                        // Inherit, safe
+```
 
 ---
 
@@ -252,7 +307,8 @@ Handles endian conversion between host CPU and wire format.
 
 1. Access policy violations → `static_assert` failure.
 2. Value out of range in `consteval` context → `mmio_compile_time_error_value_out_of_range`.
-3. Transport not allowed for device → `static_assert` failure.
+3. `value()` on non-Numeric field → concept constraint failure (`requires(is_numeric)`).
+4. Transport not allowed for device → `static_assert` failure.
 
 ### 7.2 Runtime Error Policies
 
