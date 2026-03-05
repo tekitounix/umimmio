@@ -69,13 +69,13 @@ int main() {
     // Write Enable=1, Speed=2 using typed API
     io.write(Enable::Set{}, SpeedFast{});
 
-    auto val = io.read(CtrlReg{});
-    std::printf("CtrlReg = 0x%02X (expect Enable=1, Speed=2 -> 0x05)\n", val);
+    auto reader = io.read(CtrlReg{});
+    std::printf("CtrlReg = 0x%02X (expect Enable=1, Speed=2 -> 0x05)\n", reader.bits());
 
     // Verify using field read
-    auto enable_val = io.read(Enable{});
-    auto speed_val = io.read(Speed{});
+    auto enable_val = reader.get(Enable{});
+    auto speed_val = reader.get(Speed{});
     std::printf("Enable = %u, Speed = %u\n", enable_val, speed_val);
 
-    return (val == 0x05) ? 0 : 1;
+    return (reader.bits() == 0x05) ? 0 : 1;
 }
