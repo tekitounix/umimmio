@@ -3,13 +3,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file direct.hh
-/// @brief Direct memory-mapped I/O transport implementation.
+/// @brief DirectTransport — volatile pointer access for memory-mapped peripherals.
 /// @author Shota Moriguchi @tekitounix
 
-#include <concepts>
-#include <type_traits>
-
-#include "../register.hh" // RegOps and DirectTransportTag
+#include "../register.hh"
 
 namespace umi::mmio {
 
@@ -17,20 +14,19 @@ namespace umi::mmio {
 /// @tparam CheckPolicy  Enable alignment checks (std::true_type or std::false_type).
 /// @tparam ErrorPolicy  Error handler (default: AssertOnError).
 template <typename CheckPolicy = std::true_type, typename ErrorPolicy = AssertOnError>
-class DirectTransport : private RegOps<DirectTransport<CheckPolicy, ErrorPolicy>, CheckPolicy, ErrorPolicy> {
-    friend class RegOps<DirectTransport<CheckPolicy, ErrorPolicy>, CheckPolicy, ErrorPolicy>;
-
+class DirectTransport : private RegOps<CheckPolicy, ErrorPolicy> {
   public:
-    using RegOps<DirectTransport<CheckPolicy, ErrorPolicy>, CheckPolicy, ErrorPolicy>::write;
-    using RegOps<DirectTransport<CheckPolicy, ErrorPolicy>, CheckPolicy, ErrorPolicy>::read;
-    using RegOps<DirectTransport<CheckPolicy, ErrorPolicy>, CheckPolicy, ErrorPolicy>::modify;
-    using RegOps<DirectTransport<CheckPolicy, ErrorPolicy>, CheckPolicy, ErrorPolicy>::is;
-    using RegOps<DirectTransport<CheckPolicy, ErrorPolicy>, CheckPolicy, ErrorPolicy>::flip;
+    using RegOps<CheckPolicy, ErrorPolicy>::write;
+    using RegOps<CheckPolicy, ErrorPolicy>::read;
+    using RegOps<CheckPolicy, ErrorPolicy>::modify;
+    using RegOps<CheckPolicy, ErrorPolicy>::is;
+    using RegOps<CheckPolicy, ErrorPolicy>::flip;
+    using RegOps<CheckPolicy, ErrorPolicy>::clear;
+    using RegOps<CheckPolicy, ErrorPolicy>::reset;
+    using RegOps<CheckPolicy, ErrorPolicy>::read_variant;
     using TransportTag = DirectTransportTag;
 
     /// @brief Read a register via volatile pointer dereference.
-    /// @tparam Reg Register type (provides address and RegValueType).
-    /// @return Current register value.
     template <typename Reg>
     [[nodiscard]] auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
         using T = typename Reg::RegValueType;
@@ -38,29 +34,14 @@ class DirectTransport : private RegOps<DirectTransport<CheckPolicy, ErrorPolicy>
     }
 
     /// @brief Write a value to a register via volatile pointer dereference.
-    /// @tparam Reg Register type (provides address and RegValueType).
-    /// @param value Value to write.
     template <typename Reg>
     void reg_write(Reg /*reg*/, typename Reg::RegValueType value) const noexcept {
         using T = typename Reg::RegValueType;
-
-        // Alignment check (compile-time controlled)
         if constexpr (CheckPolicy::value) {
             static_assert((Reg::address % alignof(T)) == 0, "Misaligned register access");
         }
-
         *reinterpret_cast<volatile T*>(Reg::address) = value;
     }
 };
-
-/// @brief Convenience alias for DirectTransport with default policies.
-template <typename CheckPolicy = std::true_type, typename ErrorPolicy = AssertOnError>
-using DirectTransportT = DirectTransport<CheckPolicy, ErrorPolicy>;
-
-/// @brief Concept matching any DirectTransport specialization.
-template <typename T>
-concept DirectTransportType =
-    std::same_as<T, DirectTransport<std::true_type, AssertOnError>> ||
-    std::same_as<T, DirectTransport<std::false_type, AssertOnError>> || std::same_as<T, DirectTransportT<>>;
 
 } // namespace umi::mmio

@@ -10,7 +10,6 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
-#include <type_traits>
 
 #include "../register.hh"
 
@@ -36,24 +35,12 @@ template <typename Pins,
           typename CheckPolicy = std::true_type,
           typename ErrorPolicy = AssertOnError,
           typename AddressType = std::uint8_t,
-          Endian AddrEndian = Endian::BIG,
-          Endian DataEndian = Endian::LITTLE,
+          std::endian AddrEndian = std::endian::big,
+          std::endian DataEndian = std::endian::little,
           std::uint8_t ReadBit = 0x80,
           std::uint8_t CmdMask = 0x7F,
           std::uint8_t WriteBit = 0x00>
-class BitBangSpiTransport : public ByteAdapter<BitBangSpiTransport<Pins,
-                                                                   CheckPolicy,
-                                                                   ErrorPolicy,
-                                                                   AddressType,
-                                                                   AddrEndian,
-                                                                   DataEndian,
-                                                                   ReadBit,
-                                                                   CmdMask,
-                                                                   WriteBit>,
-                                               CheckPolicy,
-                                               ErrorPolicy,
-                                               AddressType,
-                                               DataEndian> {
+class BitBangSpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressType, DataEndian> {
     Pins& pins;
 
   public:
@@ -76,7 +63,7 @@ class BitBangSpiTransport : public ByteAdapter<BitBangSpiTransport<Pins,
         if constexpr (addr_size == 1) {
             tx_buf[0] = (static_cast<std::uint8_t>(reg_addr) & CmdMask) | WriteBit;
         } else {
-            if constexpr (AddrEndian == Endian::LITTLE) {
+            if constexpr (AddrEndian == std::endian::little) {
                 tx_buf[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
                 tx_buf[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
             } else {
@@ -107,7 +94,7 @@ class BitBangSpiTransport : public ByteAdapter<BitBangSpiTransport<Pins,
         if constexpr (addr_size == 1) {
             tx_buf[0] = (static_cast<std::uint8_t>(reg_addr) & CmdMask) | ReadBit;
         } else {
-            if constexpr (AddrEndian == Endian::LITTLE) {
+            if constexpr (AddrEndian == std::endian::little) {
                 tx_buf[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
                 tx_buf[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
             } else {
