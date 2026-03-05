@@ -2,7 +2,7 @@
 #
 # Usage:
 #   cd /path/to/umi
-#   renode --console --disable-xwt -e "i @lib/umimmio/renode/test_umimmio.resc"
+#   renode --console --disable-xwt -e "i @lib/umimmio/tests/renode/test_umimmio.resc"
 #
 # Expected USART2 output:
 #   umimmio: NN/NN passed
@@ -10,7 +10,7 @@
 using sysbus
 
 mach create "umimmio_test"
-machine LoadPlatformDescription @lib/umimmio/renode/stm32f4_test.repl
+machine LoadPlatformDescription @lib/umimmio/tests/renode/stm32f4_test.repl
 
 sysbus LoadELF @build/umimmio_stm32f4_renode/release/umimmio_stm32f4_renode.elf
 sysbus WriteDoubleWord 0xE000ED08 0x08000000
