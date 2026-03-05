@@ -11,6 +11,7 @@
 #include <cstring>
 #include <span>
 
+#include "detail.hh"
 #include "../register.hh"
 
 namespace umi::mmio {
@@ -46,15 +47,7 @@ class I2cTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
         constexpr std::size_t addr_size = sizeof(AddressWidth);
 
         std::array<std::uint8_t, addr_size + 8> buf{};
-        if constexpr (addr_size == 1) {
-            buf[0] = static_cast<std::uint8_t>(reg_addr);
-        } else if constexpr (AddrEndian == std::endian::big) {
-            buf[0] = static_cast<std::uint8_t>(reg_addr >> 8);
-            buf[1] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-        } else {
-            buf[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-            buf[1] = static_cast<std::uint8_t>(reg_addr >> 8);
-        }
+        detail::encode_address<AddrEndian>(reg_addr, buf.data());
         std::memcpy(&buf[addr_size], data, size);
 
         i2c.write(device_addr, std::span<const std::uint8_t>{buf.data(), addr_size + size});
@@ -65,15 +58,7 @@ class I2cTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
         constexpr std::size_t addr_size = sizeof(AddressWidth);
 
         std::array<std::uint8_t, addr_size> addr_buf{};
-        if constexpr (addr_size == 1) {
-            addr_buf[0] = static_cast<std::uint8_t>(reg_addr);
-        } else if constexpr (AddrEndian == std::endian::big) {
-            addr_buf[0] = static_cast<std::uint8_t>(reg_addr >> 8);
-            addr_buf[1] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-        } else {
-            addr_buf[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-            addr_buf[1] = static_cast<std::uint8_t>(reg_addr >> 8);
-        }
+        detail::encode_address<AddrEndian>(reg_addr, addr_buf.data());
 
         i2c.write_read(device_addr,
                        std::span<const std::uint8_t>{addr_buf.data(), addr_size},
