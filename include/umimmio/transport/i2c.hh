@@ -11,8 +11,8 @@
 #include <cstring>
 #include <span>
 
-#include "detail.hh"
 #include "../register.hh"
+#include "detail.hh"
 
 namespace umi::mmio {
 
