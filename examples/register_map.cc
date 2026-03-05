@@ -6,7 +6,7 @@
 
 #include <cstdio>
 
-#include <umimmio/register.hh>
+#include <umimmio/region.hh>
 
 // =============================================================================
 // Example: SPI peripheral register map (STM32-style)

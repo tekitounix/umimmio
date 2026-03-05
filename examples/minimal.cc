@@ -6,7 +6,7 @@
 
 #include <cstdio>
 
-#include <umimmio/register.hh>
+#include <umimmio/region.hh>
 
 // Define a device with direct transport
 struct MyDevice : umi::mmio::Device<umi::mmio::RW, umi::mmio::DirectTransportTag> {};

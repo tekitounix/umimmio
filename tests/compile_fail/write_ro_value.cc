@@ -6,7 +6,7 @@
 /// @details value() itself succeeds on RO registers (it only creates a value object).
 ///          The write() call is rejected because WritableValue concept is not satisfied.
 
-#include <umimmio/register.hh>
+#include <umimmio/ops.hh>
 
 namespace {
 

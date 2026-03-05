@@ -6,7 +6,7 @@
 /// @brief DirectTransport — volatile pointer access for memory-mapped peripherals.
 /// @author Shota Moriguchi @tekitounix
 
-#include "../register.hh"
+#include "../ops.hh"
 
 namespace umi::mmio {
 

@@ -5,7 +5,7 @@
 /// @author Shota Moriguchi @tekitounix
 /// @details value() requires std::unsigned_integral.
 
-#include <umimmio/register.hh>
+#include <umimmio/ops.hh>
 
 namespace {
 

@@ -13,8 +13,10 @@ This page is the canonical documentation entry for both GitHub and Doxygen.
 ## API Reference Map
 
 - Public entrypoint: `include/umimmio/mmio.hh`
-- Core register abstractions:
-  - `include/umimmio/register.hh` — BitRegion, Register, Field, Value, RegOps, ByteAdapter, RegisterReader, concepts
+- Core register abstractions (strict layering: policy → region → ops):
+  - `include/umimmio/policy.hh` — Addr, AccessPolicy, transport tags, error policies
+  - `include/umimmio/region.hh` — Device, Register, Field, Value, FieldValue, RegisterReader, concepts
+  - `include/umimmio/ops.hh` — RegOps, ByteAdapter
 - Concurrency:
   - `include/umimmio/protected.hh` — Protected, Guard, MutexPolicy, NoLockPolicy
 - Transport implementations:
