@@ -17,14 +17,12 @@
 using namespace umi::mmio;
 
 /// @brief A trivial RAM-backed transport suitable for host-side testing.
-class MockTransport : private RegOps<MockTransport> {
-    friend class RegOps<MockTransport>;
-
+class MockTransport : private RegOps<> {
   public:
-    using RegOps<MockTransport>::write;
-    using RegOps<MockTransport>::read;
-    using RegOps<MockTransport>::modify;
-    using RegOps<MockTransport>::is;
+    using RegOps<>::write;
+    using RegOps<>::read;
+    using RegOps<>::modify;
+    using RegOps<>::is;
     using TransportTag = DirectTransportTag;
 
     MockTransport() { std::memset(ram.data(), 0, ram.size()); }

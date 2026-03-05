@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "detail.hh"
 #include "../register.hh"
 
 namespace umi::mmio {
@@ -49,18 +50,7 @@ class SpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
         constexpr std::size_t addr_size = sizeof(AddressWidth);
 
         std::array<std::uint8_t, addr_size + 8> tx_buf{};
-        if constexpr (addr_size == 1) {
-            tx_buf[0] = (static_cast<std::uint8_t>(reg_addr) & CmdMask) | WriteBit;
-        } else {
-            if constexpr (AddrEndian == std::endian::little) {
-                tx_buf[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-                tx_buf[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
-            } else {
-                tx_buf[0] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
-                tx_buf[1] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-            }
-            tx_buf[0] = (tx_buf[0] & CmdMask) | WriteBit;
-        }
+        detail::encode_spi_address<AddrEndian, AddressWidth, WriteBit, CmdMask>(reg_addr, tx_buf.data());
         std::memcpy(tx_buf.data() + addr_size, data, size);
 
         spi.transfer(tx_buf.data(), nullptr, addr_size + size);
@@ -72,18 +62,7 @@ class SpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
 
         std::array<std::uint8_t, addr_size + 8> tx_buf{};
         std::array<std::uint8_t, addr_size + 8> rx_buf{};
-        if constexpr (addr_size == 1) {
-            tx_buf[0] = (static_cast<std::uint8_t>(reg_addr) & CmdMask) | ReadBit;
-        } else {
-            if constexpr (AddrEndian == std::endian::little) {
-                tx_buf[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-                tx_buf[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
-            } else {
-                tx_buf[0] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
-                tx_buf[1] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-            }
-            tx_buf[0] = (tx_buf[0] & CmdMask) | ReadBit;
-        }
+        detail::encode_spi_address<AddrEndian, AddressWidth, ReadBit, CmdMask>(reg_addr, tx_buf.data());
 
         spi.transfer(tx_buf.data(), rx_buf.data(), addr_size + size);
         std::memcpy(data, rx_buf.data() + addr_size, size);

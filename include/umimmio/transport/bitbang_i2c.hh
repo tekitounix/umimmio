@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "detail.hh"
 #include "../register.hh"
 
 namespace umi::mmio {
@@ -56,17 +57,7 @@ class BitBangI2cTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, Address
         assert(size <= 8 && "Register size must be <= 64 bits");
 
         std::array<std::uint8_t, 2> addr_bytes{};
-        if constexpr (addr_size == 1) {
-            addr_bytes[0] = static_cast<std::uint8_t>(reg_addr);
-        } else {
-            if constexpr (AddrEndian == std::endian::little) {
-                addr_bytes[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-                addr_bytes[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
-            } else {
-                addr_bytes[0] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
-                addr_bytes[1] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-            }
-        }
+        detail::encode_address<AddrEndian>(reg_addr, addr_bytes.data());
 
         start();
         if (!write_byte((device_addr >> 1) << 1)) {
@@ -102,17 +93,7 @@ class BitBangI2cTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, Address
         assert(size <= 8 && "Register size must be <= 64 bits");
 
         std::array<std::uint8_t, 2> addr_bytes{};
-        if constexpr (addr_size == 1) {
-            addr_bytes[0] = static_cast<std::uint8_t>(reg_addr);
-        } else {
-            if constexpr (AddrEndian == std::endian::little) {
-                addr_bytes[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-                addr_bytes[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
-            } else {
-                addr_bytes[0] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
-                addr_bytes[1] = static_cast<std::uint8_t>(reg_addr & 0xFF);
-            }
-        }
+        detail::encode_address<AddrEndian>(reg_addr, addr_bytes.data());
 
         start();
         if (!write_byte((device_addr >> 1) << 1)) {

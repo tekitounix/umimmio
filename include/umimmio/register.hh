@@ -110,6 +110,29 @@ struct CustomErrorHandler {
 /// @note Called in `if consteval` block to trigger compile error
 void mmio_compile_time_error_value_out_of_range();
 
+namespace detail {
+
+/// @brief Range-checked DynamicValue construction (compile-time + runtime).
+///
+/// Consolidates the identical range-check + construct pattern used by
+/// Register::value(), Field::value(), and raw<F>().
+template <typename Region, std::unsigned_integral T>
+constexpr auto make_checked_dynamic_value(T val) {
+    if constexpr (Region::bit_width < sizeof(T) * bits8) {
+        constexpr auto max_value = (1ULL << Region::bit_width) - 1;
+        if consteval {
+            if (static_cast<std::uint64_t>(val) > max_value) {
+                mmio_compile_time_error_value_out_of_range();
+            }
+        } else {
+            assert(static_cast<std::uint64_t>(val) <= max_value && "Value out of range for region");
+        }
+    }
+    return DynamicValue<Region, T>{val};
+}
+
+} // namespace detail
+
 /// @brief Helper type for transport concepts
 struct TransportConceptReg {
     using RegValueType = std::uint32_t;
@@ -240,17 +263,7 @@ struct Register : BitRegion<Parent, Offset, Bits, 0, Bits, Access, Reset, true> 
     template <std::unsigned_integral T>
     [[nodiscard("value() result must be used with write(), modify(), or is()")]]
     static constexpr auto value(T val) {
-        if constexpr (Bits < sizeof(T) * bits8) {
-            constexpr auto max_value = (1ULL << Bits) - 1;
-            if consteval {
-                if (static_cast<std::uint64_t>(val) > max_value) {
-                    mmio_compile_time_error_value_out_of_range();
-                }
-            } else {
-                assert(static_cast<std::uint64_t>(val) <= max_value && "Register value out of range");
-            }
-        }
-        return DynamicValue<Register, T>{val};
+        return detail::make_checked_dynamic_value<Register>(val);
     }
 };
 
@@ -365,17 +378,7 @@ struct Field
         requires(is_numeric)
     [[nodiscard("value() result must be used with write(), modify(), or is()")]]
     static constexpr auto value(T val) {
-        if constexpr (BitWidth < sizeof(T) * bits8) {
-            constexpr auto max_value = (1ULL << BitWidth) - 1;
-            if consteval {
-                if (static_cast<std::uint64_t>(val) > max_value) {
-                    mmio_compile_time_error_value_out_of_range();
-                }
-            } else {
-                assert(static_cast<std::uint64_t>(val) <= max_value && "Field value out of range");
-            }
-        }
-        return DynamicValue<Field, T>{val};
+        return detail::make_checked_dynamic_value<Field>(val);
     }
 };
 
@@ -396,17 +399,7 @@ struct Field
 template <class FieldT, std::unsigned_integral T>
 [[nodiscard("raw() result must be used with write(), modify(), or is()")]]
 constexpr auto raw(T val) {
-    if constexpr (FieldT::bit_width < sizeof(T) * bits8) {
-        constexpr auto max_value = (1ULL << FieldT::bit_width) - 1;
-        if consteval {
-            if (static_cast<std::uint64_t>(val) > max_value) {
-                mmio_compile_time_error_value_out_of_range();
-            }
-        } else {
-            assert(static_cast<std::uint64_t>(val) <= max_value && "raw() value out of range");
-        }
-    }
-    return DynamicValue<FieldT, T>{val};
+    return detail::make_checked_dynamic_value<FieldT>(val);
 }
 
 /// @brief Value representation for Fields and Registers
@@ -422,15 +415,11 @@ struct Value {
             return static_cast<typename RegionT::RegValueType>(value);
         }
     }();
-
-    static constexpr auto get() noexcept { return value; }
-    using ValueType = decltype(value);
 };
 
 template <class RegionT, typename T>
 struct [[nodiscard("DynamicValue must be used with write(), modify(), or is()")]] DynamicValue {
     using RegionType = RegionT;
-    using RegionValueType = typename RegionT::ValueType;
     T assigned_value;
 };
 
@@ -520,7 +509,7 @@ concept ByteTransportLike = requires(T& t) {
 };
 
 template <typename T>
-concept TransportLike = DirectTransportLike<T> || ByteTransportLike<T> || RegTransportLike<T>;
+concept TransportLike = RegTransportLike<T> || ByteTransportLike<T>;
 /// @}
 
 /// @brief Sentinel type for unknown field values.
@@ -560,7 +549,7 @@ class FieldValue {
 
     /// @brief Compare with a compile-time named Value.
     template <auto EnumValue>
-    [[nodiscard]] constexpr bool operator==(Value<F, EnumValue>) const noexcept {
+    [[nodiscard]] constexpr bool operator==(Value<F, EnumValue> /*unused*/) const noexcept {
         return val == static_cast<typename F::ValueType>(EnumValue);
     }
 
@@ -682,19 +671,17 @@ class RegOps {
     /// @brief Compare a register/field against an expected value.
     /// @tparam V Value or DynamicValue type.
     /// @return true if the current hardware value matches.
+    ///
+    /// DynamicValue range check is performed here (RegOps layer) since
+    /// RegisterReader intentionally omits it — it holds no ErrorPolicy.
     template <typename Self, ReadableValue V>
     [[nodiscard]] bool is(this const Self& self, V&& value) noexcept {
         using VDecay = std::decay_t<V>;
         using RegionT = typename VDecay::RegionType;
         check_transport_allowed<Self, RegionT>();
 
-        if constexpr (requires { VDecay::value; }) {
-            if constexpr (RegionT::is_register) {
-                return self.read(RegionT{}).bits() == static_cast<typename RegionT::RegValueType>(VDecay::value);
-            } else {
-                return self.read(RegionT{}).bits() == static_cast<typename RegionT::ValueType>(VDecay::value);
-            }
-        } else {
+        // DynamicValue range check (Value has compile-time guarantee, skip)
+        if constexpr (!requires { VDecay::value; }) {
             if constexpr (CheckPolicy::value) {
                 if constexpr (RegionT::bit_width < sizeof(decltype(value.assigned_value)) * bits8) {
                     auto const max_value = (1ULL << RegionT::bit_width) - 1;
@@ -703,11 +690,13 @@ class RegOps {
                     }
                 }
             }
-            if constexpr (RegionT::is_register) {
-                return self.read(RegionT{}).bits() == static_cast<typename RegionT::RegValueType>(value.assigned_value);
-            } else {
-                return self.read(RegionT{}).bits() == static_cast<typename RegionT::ValueType>(value.assigned_value);
-            }
+        }
+
+        // Delegate to RegisterReader::is() which handles both Value/DynamicValue
+        if constexpr (RegionT::is_register) {
+            return self.read(RegionT{}).is(std::forward<V>(value));
+        } else {
+            return self.read(typename RegionT::ParentRegType{}).is(std::forward<V>(value));
         }
     }
 
