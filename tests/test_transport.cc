@@ -180,7 +180,7 @@ bool test_i2c_transport_field_operations(TestContext& t) {
 
     // Read field
     auto field_val = transport.read(I2CField{});
-    return t.assert_eq(field_val, static_cast<uint8_t>(0x42));
+    return t.assert_eq(field_val.bits(), static_cast<uint8_t>(0x42));
 }
 
 bool test_i2c_transport_modify(TestContext& t) {

@@ -44,7 +44,8 @@ io.write(EN::Reset{});          // clear bit 0
 io.write(MODE::Output{});       // write named value
 io.write(PLLN::value(336));     // write raw numeric (Numeric fields only)
 io.write(raw<MODE>(0b11));      // escape hatch for any field
-auto val = io.read(EN{});       // read bit 0
+auto val = io.read(EN{});       // read bit 0 → FieldValue<EN>
+auto raw_val = val.bits();      // escape hatch for raw access
 io.flip(EN{});                  // toggle bit 0
 ```
 
@@ -57,16 +58,18 @@ xmake test
 ## Public API
 
 - Entrypoint: `include/umimmio/mmio.hh`
-- Core: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `Numeric`, `raw<>()`
+- Core: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `FieldValue`, `Numeric`, `raw<>()`
 - Transports: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
 
 ## Field Type Safety
 
-| Field kind | `value()` | `Value<>` types | `raw<>()` |
-|-----------|:---------:|:---------------:|:---------:|
-| Default (safe) | Blocked | Yes | Yes |
-| `Numeric` trait | Yes | Yes | Yes |
-| 1-bit | — | `Set` / `Reset` auto | Yes |
+| Field kind | `value()` (write) | `Value<>` types | `raw<>()` | `read()` returns |
+|-----------|:---------:|:---------------:|:---------:|:----------------:|
+| Default (safe) | Blocked | Yes | Yes | `FieldValue<F>` |
+| `Numeric` trait | Yes | Yes | Yes | `FieldValue<F>` |
+| 1-bit | — | `Set` / `Reset` auto | Yes | `FieldValue<F>` |
+
+`FieldValue<F>` supports `==` with `Value<F,V>` and `DynamicValue<F,T>` only — raw integer comparison is a compile error. Use `.bits()` to extract the underlying value.
 
 ## Examples
 

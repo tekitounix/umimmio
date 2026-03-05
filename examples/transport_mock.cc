@@ -73,8 +73,8 @@ int main() {
     std::printf("CtrlReg = 0x%02X (expect Enable=1, Speed=2 -> 0x05)\n", reader.bits());
 
     // Verify using field read
-    auto enable_val = reader.get(Enable{});
-    auto speed_val = reader.get(Speed{});
+    auto enable_val = reader.get(Enable{}).bits();
+    auto speed_val = reader.get(Speed{}).bits();
     std::printf("Enable = %u, Speed = %u\n", enable_val, speed_val);
 
     return (reader.bits() == 0x05) ? 0 : 1;

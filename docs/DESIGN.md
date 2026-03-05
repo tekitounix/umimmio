@@ -167,6 +167,7 @@ Core types:
 | `Value<Field, val>` | Named constant for a Field |
 | `DynamicValue<Field, T>` | Runtime value for a Field |
 | `RegisterReader<Reg>` | Return type of `read(Register{})` — provides `bits()`, `get()`, `is()` |
+| `FieldValue<F>` | Return type of `read(Field{})` and `get(Field{})` — type-safe, use `.bits()` for raw |
 | `UnknownValue<Reg>` | Sentinel type for `read_variant()` when no named value matches |
 | `Numeric` | Trait: enables raw `value()` on a Field |
 | `raw<Field>(val)` | Escape hatch: raw value for any Field |
@@ -196,7 +197,7 @@ Operations:
 | Operation | Purpose | Constraint |
 |-----------|---------|------------|
 | `read(Reg{})` | Read register → `RegisterReader<Reg>` | `Readable<Reg>` |
-| `read(Field{})` | Read field → extracted value | `Readable<Field>` |
+| `read(Field{})` | Read field → `FieldValue<F>` (use `.bits()` for raw) | `Readable<Field>` |
 | `write(v1, v2, ...)` | Write values (from reset) | `WritableValue` |
 | `modify(v1, v2, ...)` | Read-modify-write | `ModifiableValue` (excludes W1C) |
 | `is(v)` | Compare field/register value | `ReadableValue` |
@@ -386,16 +387,16 @@ This enables fluent chained access:
 
 ```cpp
 auto cfg = hw.read(ConfigReg{});
-auto en  = cfg.get(ConfigEnable{});   // Extract field value
+auto en  = cfg.get(ConfigEnable{});   // FieldValue<ConfigEnable>
 bool is_fast = cfg.is(ModeFast{});    // Match named value
 uint32_t raw = cfg.bits();           // Raw register value
+auto en_raw = en.bits();             // Raw field value (escape hatch)
 ```
 
 `RegisterReader` stores the raw value and provides:
 - `bits()` — raw register value
-- `get(Field{})` — extract a field value
+- `get(Field{})` — extract a field value as `FieldValue<F>`
 - `is(ValueType{})` — match against a named value
-- Implicit conversion to `RegValueType` for backward compatibility
 
 ---
 
@@ -411,6 +412,7 @@ uint32_t raw = cfg.bits();           // Raw register value
 6. `BitRegion` overflow (offset + width > register width) → `static_assert` failure.
 7. W1C field in `modify()` → `ModifiableValue` concept rejects W1C.
 8. W1C field in `flip()` → `NotW1C` concept rejects W1C.
+9. `FieldValue == integer` → no matching `operator==` (use `.bits()` for raw access).
 
 ### 7.2 Runtime Error Policies
 

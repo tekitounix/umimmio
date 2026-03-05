@@ -77,7 +77,7 @@ bool test_spi_field_read(TestContext& t) {
 
     transport.write(SPIReg32::value(0x000000ABU));
     auto val = transport.read(SPIField8{});
-    return t.assert_eq(val, static_cast<uint8_t>(0xAB));
+    return t.assert_eq(val.bits(), static_cast<uint8_t>(0xAB));
 }
 
 bool test_spi_modify(TestContext& t) {
@@ -100,7 +100,7 @@ bool test_spi_high_field(TestContext& t) {
 
     transport.write(SPIReg32::value(0xAB000000U));
     auto val = transport.read(SPIFieldHigh{});
-    return t.assert_eq(val, static_cast<uint8_t>(0xAB));
+    return t.assert_eq(val.bits(), static_cast<uint8_t>(0xAB));
 }
 
 // =============================================================================
@@ -490,7 +490,7 @@ bool test_i2c_16bit_field_high_byte(TestContext& t) {
 
     transport.write(Reg16::value(static_cast<uint16_t>(0xAB00)));
     auto val = transport.read(Field16High{});
-    return t.assert_eq(val, static_cast<uint8_t>(0xAB));
+    return t.assert_eq(val.bits(), static_cast<uint8_t>(0xAB));
 }
 
 // =============================================================================
@@ -515,7 +515,7 @@ bool test_i2c_64bit_low_field(TestContext& t) {
 
     transport.write(Reg64::value(0xAAAABBBBCCCCDDDDULL));
     auto val = transport.read(Field64Low{});
-    return t.assert_eq(val, 0xCCCCDDDDU);
+    return t.assert_eq(val.bits(), 0xCCCCDDDDU);
 }
 
 // =============================================================================

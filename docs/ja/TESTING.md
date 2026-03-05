@@ -18,6 +18,7 @@
 - `tests/compile_fail/modify_w1c.cc`: compile-fail ガード — W1C フィールドでの `modify()`
 - `tests/compile_fail/flip_w1c.cc`: compile-fail ガード — W1C フィールドでの `flip()`
 - `tests/compile_fail/field_overflow.cc`: compile-fail ガード — BitRegion オーバーフロー（オフセット + 幅 > レジスタ幅）
+- `tests/compile_fail/read_field_eq_int.cc`: compile-fail ガード — `FieldValue == 整数`（raw アクセスは `.bits()` を使用）
 
 ## テスト実行
 
@@ -41,17 +42,17 @@ umimmio は主にコンパイル時抽象化ライブラリであるため、テ
 1. **アクセスポリシー強制** — `requires` 句がコンパイル時に不正アクセスを拒否
 2. **W1C 安全性** — `modify()` と `flip()` が W1C フィールドを拒否、`clear()` が唯一のパス
 3. **ビット算術** — レジスタとフィールドのマスク、シフト、リセット値
-4. **RegisterReader** — `bits()`、`get()`、`is()` フルエント API によるレジスタ読み出し
+4. **RegisterReader と FieldValue** — `bits()`、`get()`、`is()` フルエント API、`FieldValue<F>` が raw 整数比較をブロック
 5. **トランスポート正確性** — RAM バックドモックが write/read/modify ラウンドトリップを検証
 6. **保護付きアクセス** — `Protected<T, NoLockPolicy>` RAII パターンの検証
-7. **Compile-fail ガード** — 不正操作がコンパイルされないことを確認（8 テストファイル）
+7. **Compile-fail ガード** — 不正操作がコンパイルされないことを確認（9 テストファイル）
 
 ハードウェアレベル MMIO テストは実ハードウェアまたはエミュレーションが必要であり、ホストテストの対象外。
 
 ## リリースの品質ゲート
 
 - 全ホストテストパス（59 テスト）
-- 全 compile-fail 契約テストパス（8 テスト）
+- 全 compile-fail 契約テストパス（9 テスト）
 - トランスポートモックテストが単一および複数フィールドの write, modify, is, flip, clear, reset, read_variant をカバー
 - W1C 安全性: modify_w1c, flip_w1c compile-fail テストパス
 - BitRegion オーバーフロー: field_overflow compile-fail テストパス
