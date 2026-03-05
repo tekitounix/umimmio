@@ -16,7 +16,7 @@
 - コアレジスタ抽象化:
   - `include/umimmio/register.hh` — BitRegion, Register, Field, Value, RegOps, ByteAdapter, RegisterReader, concepts
 - 並行性:
-  - `include/umimmio/protected.hh` — Protected, Guard, CriticalSectionPolicy, MutexPolicy, NoLockPolicy
+  - `include/umimmio/protected.hh` — Protected, Guard, MutexPolicy, NoLockPolicy
 - トランスポート実装:
   - `include/umimmio/transport/direct.hh` — DirectTransport (volatile ポインタ)
   - `include/umimmio/transport/i2c.hh` — I2cTransport (HAL ベース)

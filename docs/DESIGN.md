@@ -211,9 +211,10 @@ Concurrency types:
 |------|---------|
 | `Protected<T, LockPolicy>` | Wraps T, only accessible via `lock()` → `Guard` |
 | `Guard<T, LockPolicy>` | RAII scoped access to Protected inner value |
-| `CriticalSectionPolicy` | ARM Cortex-M: `cpsid`/`cpsie` |
 | `MutexPolicy<MutexT>` | RTOS mutex wrapper |
 | `NoLockPolicy` | No-op lock for single-threaded or test contexts |
+
+`CriticalSectionPolicy` (ARM Cortex-M `cpsid`/`cpsie`) is provided by `umiport` — see `<umiport/platform/embedded/critical_section.hh>`.
 
 ### 5.1 Minimal Path
 
@@ -309,7 +310,7 @@ Advanced usage includes:
 6. W1C field handling via `clear()`,
 7. register reset via `reset()`,
 8. pattern-matched field reading via `read_variant()`,
-9. ISR-safe access via `Protected<Transport, CriticalSectionPolicy>`.
+9. ISR-safe access via `Protected<Transport, LockPolicy>` (platform-specific lock policy injected via DI).
 
 ---
 
@@ -537,9 +538,11 @@ of W1C status bits during read-modify-write operations on other fields.
 ### 12.4 Atomicity
 
 `modify()` performs read-modify-write and is **never atomic**.
-For ISR-safe access, use `Protected<Transport, CriticalSectionPolicy>`:
+For ISR-safe access, use `Protected<Transport, LockPolicy>` with a platform-specific policy:
 
 ```cpp
+// ARM Cortex-M: #include <umiport/platform/embedded/critical_section.hh>
+using umi::port::platform::CriticalSectionPolicy;
 Protected<DirectTransport<>, CriticalSectionPolicy> protected_hw;
 
 auto guard = protected_hw.lock();   // __disable_irq()

@@ -16,7 +16,7 @@ This page is the canonical documentation entry for both GitHub and Doxygen.
 - Core register abstractions:
   - `include/umimmio/register.hh` — BitRegion, Register, Field, Value, RegOps, ByteAdapter, RegisterReader, concepts
 - Concurrency:
-  - `include/umimmio/protected.hh` — Protected, Guard, CriticalSectionPolicy, MutexPolicy, NoLockPolicy
+  - `include/umimmio/protected.hh` — Protected, Guard, MutexPolicy, NoLockPolicy
 - Transport implementations:
   - `include/umimmio/transport/direct.hh` — DirectTransport (volatile pointer)
   - `include/umimmio/transport/i2c.hh` — I2cTransport (HAL-based)
