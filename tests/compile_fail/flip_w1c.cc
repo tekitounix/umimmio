@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file
-/// @brief Negative compile test: reading from a write-only register must fail.
+/// @brief Negative compile test: flip() on W1C field must be rejected.
 /// @author Shota Moriguchi @tekitounix
-/// @details Triggers requires clause failure: Readable<Reg> not satisfied.
+/// @details NotW1C constraint prevents flip on W1C fields.
 
 #include <umimmio/register.hh>
 
@@ -12,13 +12,12 @@ namespace {
 using namespace umi::mmio;
 
 struct TestDevice : Device<RW, DirectTransportTag> {};
-struct DataReg : Register<TestDevice, 0x08, bits32, WO, 0> {};
+struct SR : Register<TestDevice, 0x00, bits32, RW, 0, /*W1cMask=*/0x01> {};
+struct OVR : Field<SR, 0, 1, W1C> {};
 
-/// @brief Mock transport for compile-time test.
 struct MockTransport : private RegOps<> {
   public:
-    using RegOps<>::write;
-    using RegOps<>::read;
+    using RegOps<>::flip;
     using TransportTag = DirectTransportTag;
 
     template <typename Reg>
@@ -32,9 +31,8 @@ struct MockTransport : private RegOps<> {
 
 } // namespace
 
-/// @brief Compile-fail test entrypoint.
 int main() {
     MockTransport hw;
-    [[maybe_unused]] auto val = hw.read(DataReg{}); // ERROR: Cannot read from write-only register
+    hw.flip(OVR{}); // ERROR: NotW1C constraint
     return 0;
 }

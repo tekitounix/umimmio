@@ -19,31 +19,31 @@ using umi::test::TestContext;
 // =============================================================================
 
 bool test_register_write_and_read(TestContext& t) {
-    MockTransport const hw;
+    MockTransport hw;
 
     // Write a known value and read it back
     hw.write(DataReg::value(0xDEAD'BEEFU));
     auto val = hw.read(DataReg{});
 
-    return t.assert_eq(val, static_cast<uint32_t>(0xDEAD'BEEF));
+    return t.assert_eq(val.bits(), static_cast<uint32_t>(0xDEAD'BEEF));
 }
 
 bool test_register_write_zero(TestContext& t) {
-    MockTransport const hw;
+    MockTransport hw;
 
     hw.write(DataReg::value(0xFFFF'FFFFU));
     hw.write(DataReg::value(0U));
 
-    return t.assert_eq(hw.read(DataReg{}), static_cast<uint32_t>(0));
+    return t.assert_eq(hw.read(DataReg{}).bits(), static_cast<uint32_t>(0));
 }
 
 bool test_register_16bit(TestContext& t) {
-    MockTransport const hw;
+    MockTransport hw;
 
     hw.write(CtrlReg::value(static_cast<uint16_t>(0x1234)));
     auto val = hw.read(CtrlReg{});
 
-    return t.assert_eq(val, static_cast<uint16_t>(0x1234));
+    return t.assert_eq(val.bits(), static_cast<uint16_t>(0x1234));
 }
 
 // =============================================================================
@@ -51,7 +51,7 @@ bool test_register_16bit(TestContext& t) {
 // =============================================================================
 
 bool test_field_write_single(TestContext& t) {
-    MockTransport const hw;
+    MockTransport hw;
 
     // Write just the enable bit
     hw.write(ConfigEnable::Set{});
@@ -59,7 +59,7 @@ bool test_field_write_single(TestContext& t) {
     bool ok = true;
     // Enable bit should be set (bit 0)
     auto reg_val = hw.read(ConfigReg{});
-    ok &= t.assert_true((reg_val & 1U) == 1U, "enable bit set");
+    ok &= t.assert_true((reg_val.bits() & 1U) == 1U, "enable bit set");
     // Also verify via field read
     ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
     return ok;
@@ -162,7 +162,7 @@ bool test_modify_multiple_fields(TestContext& t) {
 // =============================================================================
 
 bool test_multi_field_write(TestContext& t) {
-    MockTransport const hw;
+    MockTransport hw;
 
     // Write multiple fields at once — starts from reset value
     hw.write(ConfigEnable::Set{}, ModeTest{}, ConfigPrescaler::value(static_cast<uint8_t>(0x55)));
@@ -179,7 +179,7 @@ bool test_multi_field_write(TestContext& t) {
 // =============================================================================
 
 bool test_enum_value_write_and_check(TestContext& t) {
-    MockTransport const hw;
+    MockTransport hw;
 
     hw.write(ConfigEnable::Set{}, ModeLowPower{});
 
@@ -192,7 +192,7 @@ bool test_enum_value_write_and_check(TestContext& t) {
 }
 
 bool test_dynamic_value_is(TestContext& t) {
-    MockTransport const hw;
+    MockTransport hw;
 
     hw.write(ConfigPrescaler::value(static_cast<uint8_t>(100)));
 
@@ -245,7 +245,7 @@ bool test_flip_preserves_other_bits(TestContext& t) {
 // =============================================================================
 
 bool test_peripheral_init_sequence(TestContext& t) {
-    MockTransport const hw;
+    MockTransport hw;
 
     // Step 1: Configure prescaler and mode (peripheral is disabled)
     hw.write(ConfigPrescaler::value(static_cast<uint8_t>(0x10)), ModeFast{});
@@ -273,6 +273,41 @@ bool test_peripheral_init_sequence(TestContext& t) {
     ok &= t.assert_eq(hw.read(CtrlIrqEn{}), static_cast<uint8_t>(1));
     ok &= t.assert_eq(hw.read(CtrlChannel{}), static_cast<uint8_t>(3));
 
+    return ok;
+}
+
+// =============================================================================
+// RegisterReader — get() and is()
+// =============================================================================
+
+bool test_register_reader_get(TestContext& t) {
+    MockTransport hw;
+
+    // Set up register with known bit pattern:
+    // bits 0: enable = 1
+    // bits 1-2: mode = 0b01 (FAST)
+    // bits 8-15: prescaler = 0x12
+    hw.poke<uint32_t>(0x04, 0x0000'1203U);
+    auto cfg = hw.read(ConfigReg{});
+
+    bool ok = true;
+    ok &= t.assert_eq(cfg.get(ConfigEnable{}), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(cfg.get(ConfigMode{}), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(cfg.get(ConfigPrescaler{}), static_cast<uint8_t>(0x12));
+    return ok;
+}
+
+bool test_register_reader_is(TestContext& t) {
+    MockTransport hw;
+
+    // enable=1, mode=FAST(01), prescaler=0x10
+    hw.poke<uint32_t>(0x04, 0x0000'1003U);
+    auto cfg = hw.read(ConfigReg{});
+
+    bool ok = true;
+    ok &= t.assert_true(cfg.is(ConfigEnable::Set{}), "enable bit should be set");
+    ok &= t.assert_true(cfg.is(ModeFast{}), "mode should be FAST");
+    ok &= t.assert_true(!cfg.is(ModeNormal{}), "mode should not be NORMAL");
     return ok;
 }
 
@@ -307,6 +342,10 @@ void run_register_field_tests(umi::test::Suite& suite) {
 
     umi::test::Suite::section("Practical workflow");
     suite.run("peripheral init sequence", test_peripheral_init_sequence);
+
+    umi::test::Suite::section("RegisterReader");
+    suite.run("get() field extraction", test_register_reader_get);
+    suite.run("is() value matching", test_register_reader_is);
 }
 
 } // namespace umimmio::test

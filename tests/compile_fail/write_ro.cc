@@ -3,9 +3,7 @@
 /// @file
 /// @brief Negative compile test: writing to a read-only register must fail.
 /// @author Shota Moriguchi @tekitounix
-/// @details Triggers static_assert "Cannot write to read-only register".
-
-#include <cstdint>
+/// @details Triggers WritableValue concept failure on RO register.
 
 #include <umimmio/register.hh>
 
@@ -17,21 +15,19 @@ struct TestDevice : Device<RW, DirectTransportTag> {};
 struct StatusReg : Register<TestDevice, 0x00, bits32, RO, 0> {};
 
 /// @brief Mock transport for compile-time test.
-class MockTransport : private RegOps<MockTransport> {
-    friend class RegOps<MockTransport>;
-
+struct MockTransport : private RegOps<> {
   public:
-    using RegOps<MockTransport>::write;
-    using RegOps<MockTransport>::read;
+    using RegOps<>::write;
+    using RegOps<>::read;
     using TransportTag = DirectTransportTag;
 
     template <typename Reg>
-    auto reg_read(Reg) const noexcept -> typename Reg::RegValueType {
+    auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
         return 0;
     }
 
     template <typename Reg>
-    void reg_write(Reg, typename Reg::RegValueType) const noexcept {}
+    void reg_write(Reg /*reg*/, typename Reg::RegValueType /*val*/) noexcept {}
 };
 
 } // namespace
@@ -39,6 +35,6 @@ class MockTransport : private RegOps<MockTransport> {
 /// @brief Compile-fail test entrypoint.
 int main() {
     MockTransport hw;
-    hw.write(StatusReg::value(42u)); // ERROR: Cannot write to read-only register
+    hw.write(StatusReg::value(42U)); // ERROR: Cannot write to read-only register
     return 0;
 }

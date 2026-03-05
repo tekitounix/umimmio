@@ -6,8 +6,6 @@
 /// @details Fields without mm::Numeric trait do not expose value().
 ///          Only named Value<> types or mm::raw<>() escape are allowed.
 
-#include <cstdint>
-
 #include <umimmio/register.hh>
 
 namespace {
@@ -21,21 +19,19 @@ struct CtrlReg : Register<TestDevice, 0x00, bits32, RW, 0> {};
 struct MODE : Field<CtrlReg, 4, 2> {};
 
 /// @brief Mock transport for compile-time test.
-class MockTransport : private RegOps<MockTransport> {
-    friend class RegOps<MockTransport>;
-
+struct MockTransport : private RegOps<> {
   public:
-    using RegOps<MockTransport>::write;
-    using RegOps<MockTransport>::modify;
+    using RegOps<>::write;
+    using RegOps<>::modify;
     using TransportTag = DirectTransportTag;
 
     template <typename Reg>
-    auto reg_read(Reg) const noexcept -> typename Reg::RegValueType {
+    auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
         return 0;
     }
 
     template <typename Reg>
-    void reg_write(Reg, typename Reg::RegValueType) const noexcept {}
+    void reg_write(Reg /*reg*/, typename Reg::RegValueType /*val*/) noexcept {}
 };
 
 } // namespace
