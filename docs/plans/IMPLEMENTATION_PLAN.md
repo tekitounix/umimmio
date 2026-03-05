@@ -1,7 +1,7 @@
 # umimmio 実装計画
 
 **作成日:** 2026-03-05
-**ステータス:** Draft
+**ステータス:** ほぼ完了 — 未実装 2件
 **参照:** [UMIMMIO_IMPROVEMENTS.md](../../../docs/design/UMIMMIO_IMPROVEMENTS.md),
 [UMIMMIO_AUDIT_REPORT.md](../../../docs/design/UMIMMIO_AUDIT_REPORT.md)
 
@@ -14,12 +14,19 @@
 
 全変更は以下の 4 Phase に分かれ、Phase 内は独立にコミット可能な Step で構成する。
 
-| Phase | 内容 | 対象ファイル |
-|-------|------|-------------|
-| 1 | 型安全基盤 | register.hh |
-| 2 | API 刷新 | register.hh, transport/*.hh |
-| 3 | 新機能追加 | register.hh, 新規ヘッダ |
-| 4 | テスト・ドキュメント | tests/*, docs/* |
+| Phase | 内容 | 対象ファイル | 状況 |
+|-------|------|-------------|:----:|
+| 1 | 型安全基盤 | register.hh | ✅ 完了 |
+| 2 | API 刷新 | register.hh, transport/*.hh | ⚠️ Step 2.3 未実装 |
+| 3 | 新機能追加 | register.hh, 新規ヘッダ | ✅ 完了 |
+| 4 | テスト・ドキュメント | tests/*, docs/* | ⚠️ Step 4.6 未実施 |
+
+### 未実装項目
+
+| Step | 内容 | 理由 |
+|------|------|------|
+| **2.3** | I2c/SpiTransport NTTP 静的参照化 (`auto& Instance`) | 実使用箇所 (umidevice) がランタイム参照を前提としており、移行に影響範囲の調査が必要 |
+| **4.6** | DESIGN.md / TESTING.md / INDEX.md のドキュメント更新 | コード実装を優先し後回し |
 
 ---
 
