@@ -55,7 +55,7 @@ struct MockSpi {
 // SPI device/register definitions
 struct SPIDevice : Device<RW, SPITransportTag> {};
 struct SPIReg32 : Register<SPIDevice, 0x10, bits32, RW, 0> {};
-struct SPIField8 : Field<SPIReg32, 0, 8> {};
+struct SPIField8 : Field<SPIReg32, 0, 8, Numeric> {};
 struct SPIFieldHigh : Field<SPIReg32, 24, 8> {};
 
 // =============================================================================

@@ -7,6 +7,7 @@ Define register maps at compile time and access them through direct MMIO, I2C, o
 
 ## Why umimmio
 
+- **Safe by default** — fields only accept named `Value<>` types; raw numeric access requires opt-in
 - Type-safe registers — compile-time verified access policies (RW/RO/WO)
 - Zero-cost bit field operations — all dispatch resolved at compile time
 - Multiple transports — Direct MMIO, I2C, SPI, and bitbang variants
@@ -24,12 +25,27 @@ struct MyDevice : Device<RW> {
 };
 
 using CTRL = Register<MyDevice, 0x00, 32>;
-using EN   = Field<CTRL, 0, 1>;
+
+// 1-bit field — Set/Reset auto-generated
+struct EN : Field<CTRL, 0, 1> {};
+
+// 2-bit field with named values (safe — no raw value())
+struct MODE : Field<CTRL, 1, 2> {
+    using Output  = Value<MODE, 0b01>;
+    using AltFunc = Value<MODE, 0b10>;
+};
+
+// 9-bit numeric field — raw value() enabled via Numeric trait
+struct PLLN : Field<CTRL, 6, 9, Numeric> {};
 
 DirectTransport<> io;
-io.write(EN::Set{});          // set bit 0
-auto val = io.read(EN{});     // read bit 0
-io.flip(EN{});                // toggle bit 0
+io.write(EN::Set{});            // set bit 0
+io.write(EN::Reset{});          // clear bit 0
+io.write(MODE::Output{});       // write named value
+io.write(PLLN::value(336));     // write raw numeric (Numeric fields only)
+io.write(raw<MODE>(0b11));      // escape hatch for any field
+auto val = io.read(EN{});       // read bit 0
+io.flip(EN{});                  // toggle bit 0
 ```
 
 ## Build and Test
@@ -41,8 +57,16 @@ xmake test
 ## Public API
 
 - Entrypoint: `include/umimmio/mmio.hh`
-- Core: `Region`, `Field`, `Value`, `Block`, `DirectTransport`
-- Transports: `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
+- Core: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `Numeric`, `raw<>()`
+- Transports: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
+
+## Field Type Safety
+
+| Field kind | `value()` | `Value<>` types | `raw<>()` |
+|-----------|:---------:|:---------------:|:---------:|
+| Default (safe) | Blocked | Yes | Yes |
+| `Numeric` trait | Yes | Yes | Yes |
+| 1-bit | — | `Set` / `Reset` auto | Yes |
 
 ## Examples
 
