@@ -2,18 +2,21 @@
 
 [English](../INDEX.md)
 
-このページは GitHub と Doxygen の両方で使用される正規ドキュメントエントリです。
+このページは GitHub と Doxygen 向けの正式なドキュメントエントリです。
 
 ## 読む順序
 
 1. [テスト](TESTING.md)
 2. [設計](DESIGN.md)
+3. [実装計画](../plans/)
 
 ## API リファレンスマップ
 
 - パブリックエントリポイント: `include/umimmio/mmio.hh`
 - コアレジスタ抽象化:
-  - `include/umimmio/register.hh` — BitRegion, Register, Field, Value, RegOps, ByteAdapter
+  - `include/umimmio/register.hh` — BitRegion, Register, Field, Value, RegOps, ByteAdapter, RegisterReader, concepts
+- 並行性:
+  - `include/umimmio/protected.hh` — Protected, Guard, CriticalSectionPolicy, MutexPolicy, NoLockPolicy
 - トランスポート実装:
   - `include/umimmio/transport/direct.hh` — DirectTransport (volatile ポインタ)
   - `include/umimmio/transport/i2c.hh` — I2cTransport (HAL ベース)
@@ -40,5 +43,5 @@ xmake doxygen -P . -o build/doxygen .
 GitHub 自動化:
 
 - ワークフローファイル: `.github/workflows/umimmio-ci.yml`
-- プルリクエスト: ホストテスト + compile-fail 実行
+- プルリクエスト: ホストテスト + compile-fail の実行
 - `main` ブランチプッシュ: CI 検証

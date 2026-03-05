@@ -8,12 +8,15 @@ This page is the canonical documentation entry for both GitHub and Doxygen.
 
 1. [Testing](TESTING.md)
 2. [Design](DESIGN.md)
+3. [Implementation Plans](plans/)
 
 ## API Reference Map
 
 - Public entrypoint: `include/umimmio/mmio.hh`
 - Core register abstractions:
-  - `include/umimmio/register.hh` — BitRegion, Register, Field, Value, RegOps, ByteAdapter
+  - `include/umimmio/register.hh` — BitRegion, Register, Field, Value, RegOps, ByteAdapter, RegisterReader, concepts
+- Concurrency:
+  - `include/umimmio/protected.hh` — Protected, Guard, CriticalSectionPolicy, MutexPolicy, NoLockPolicy
 - Transport implementations:
   - `include/umimmio/transport/direct.hh` — DirectTransport (volatile pointer)
   - `include/umimmio/transport/i2c.hh` — I2cTransport (HAL-based)
