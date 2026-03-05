@@ -101,6 +101,15 @@ struct CtrlReg : Register<MockDevice, 0x0C, bits16, RW, 0> {};
 /// @brief Write-only command register
 struct CmdReg : Register<MockDevice, 0x10, bits32, WO, 0> {};
 
+/// @brief 8-bit register (read-write, reset = 0xA5)
+struct ByteReg : Register<MockDevice, 0x18, bits8, RW, 0xA5> {};
+
+/// @brief Low nibble field (bits 0-3)
+struct ByteLow : Field<ByteReg, 0, 4, Numeric> {};
+
+/// @brief High nibble field (bits 4-7)
+struct ByteHigh : Field<ByteReg, 4, 4, Numeric> {};
+
 /// @brief Status register with W1C fields (32-bit, read-write, reset = 0)
 struct W1cStatusReg : Register<MockDevice, 0x14, bits32, RW, 0, /*W1cMask=*/0x03> {};
 

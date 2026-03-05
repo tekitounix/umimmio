@@ -298,6 +298,94 @@ bool test_read_variant_unknown(TestContext& t) {
     return t.assert_true(is_unknown, "should be UnknownValue");
 }
 
+// =============================================================================
+// CustomErrorHandler test
+// =============================================================================
+
+static bool custom_handler_called = false;
+static void custom_handler(const char* /*msg*/) noexcept { custom_handler_called = true; }
+
+/// @brief MockTransport variant that uses CustomErrorHandler for range errors.
+struct CustomErrTransport : private RegOps<std::true_type, CustomErrorHandler<custom_handler>> {
+  public:
+    using RegOps<std::true_type, CustomErrorHandler<custom_handler>>::write;
+    using TransportTag = DirectTransportTag;
+
+    std::array<std::uint8_t, 256> mutable memory{};
+
+    template <typename Reg>
+    auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
+        typename Reg::RegValueType val{};
+        std::memcpy(&val, &memory[Reg::address], sizeof(val));
+        return val;
+    }
+
+    template <typename Reg>
+    void reg_write(Reg /*reg*/, typename Reg::RegValueType val) const noexcept {
+        std::memcpy(&memory[Reg::address], &val, sizeof(val));
+    }
+};
+
+bool test_custom_error_handler(TestContext& t) {
+    CustomErrTransport hw;
+    // ConfigPrescaler is 8-bit (bits 8-15). Value 256 exceeds max (255).
+    custom_handler_called = false;
+    hw.write(DynamicValue<ConfigPrescaler, uint16_t>{256});
+    return t.assert_true(custom_handler_called, "custom handler should be called");
+}
+
+// =============================================================================
+// Multi-field modify with W1C register
+// =============================================================================
+
+/// @brief A second non-W1C field in the W1C register (bit 9).
+struct W1cRegMode : Field<W1cStatusReg, 9, 1> {};
+
+bool test_w1c_modify_multi_field(TestContext& t) {
+    MockTransport hw;
+
+    // Set OVR=1, EOC=1, Enable=1, Mode=0
+    hw.poke<uint32_t>(0x14, 0x0103U);
+
+    // Modify both Enable and Mode at once — W1C bits (0,1) must be masked
+    hw.modify(W1cRegEnable::Set{}, W1cRegMode::Set{});
+
+    auto result = hw.peek<uint32_t>(0x14);
+    bool ok = true;
+    ok &= t.assert_true((result & 0x0100U) != 0, "enable bit set");
+    ok &= t.assert_true((result & 0x0200U) != 0, "mode bit set");
+    ok &= t.assert_eq(result & 0x03U, 0U);
+    return ok;
+}
+
+// =============================================================================
+// 8-bit register through RegOps
+// =============================================================================
+
+bool test_8bit_register_ops(TestContext& t) {
+    MockTransport hw;
+
+    // Write full register
+    hw.write(ByteReg::value(static_cast<uint8_t>(0x5A)));
+    bool ok = t.assert_eq(hw.peek<uint8_t>(0x18), static_cast<uint8_t>(0x5A));
+
+    // Read field
+    auto low = hw.read(ByteLow{});
+    ok &= t.assert_eq(low.bits(), static_cast<uint8_t>(0x0A));
+    auto high = hw.read(ByteHigh{});
+    ok &= t.assert_eq(high.bits(), static_cast<uint8_t>(0x05));
+
+    // Modify single field (preserves other nibble)
+    hw.modify(ByteLow::value(static_cast<uint8_t>(0x0F)));
+    ok &= t.assert_eq(hw.peek<uint8_t>(0x18), static_cast<uint8_t>(0x5F));
+
+    // Reset
+    hw.reset(ByteReg{});
+    ok &= t.assert_eq(hw.peek<uint8_t>(0x18), static_cast<uint8_t>(0xA5));
+
+    return ok;
+}
+
 } // namespace
 
 void run_transport_tests(umi::test::Suite& suite) {
@@ -324,6 +412,15 @@ void run_transport_tests(umi::test::Suite& suite) {
     suite.run("W1C modify() safety", test_w1c_modify_safety);
     suite.run("read_variant() match", test_read_variant);
     suite.run("read_variant() unknown", test_read_variant_unknown);
+
+    umi::test::Suite::section("CustomErrorHandler");
+    suite.run("callback invoked on range error", test_custom_error_handler);
+
+    umi::test::Suite::section("Multi-field modify with W1C");
+    suite.run("W1C bits masked in multi-modify", test_w1c_modify_multi_field);
+
+    umi::test::Suite::section("8-bit register");
+    suite.run("write/read/modify/reset", test_8bit_register_ops);
 }
 
 } // namespace umimmio::test

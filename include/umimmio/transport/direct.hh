@@ -35,6 +35,9 @@ class DirectTransport : private RegOps<CheckPolicy, ErrorPolicy> {
     template <typename Reg>
     [[nodiscard]] auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
         using T = typename Reg::RegValueType;
+        if constexpr (CheckPolicy::value) {
+            static_assert((Reg::address % alignof(T)) == 0, "Misaligned register access");
+        }
         return *reinterpret_cast<volatile const T*>(Reg::address);
     }
 

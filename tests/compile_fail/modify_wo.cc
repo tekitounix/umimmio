@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file
-/// @brief Negative compile test: raw value() on safe (non-Numeric) field must fail.
+/// @brief Negative compile test: modify() on write-only register must fail.
 /// @author Shota Moriguchi @tekitounix
-/// @details Fields without mm::Numeric trait do not expose value().
-///          Only named Value<> types are allowed.
+/// @details modify() requires read for RMW — WO registers cannot be read.
 
 #include <umimmio/ops.hh>
 
@@ -13,15 +12,11 @@ namespace {
 using namespace umi::mmio;
 
 struct TestDevice : Device<RW, DirectTransportTag> {};
-struct CtrlReg : Register<TestDevice, 0x00, bits32, RW, 0> {};
+struct WOReg : Register<TestDevice, 0x00, bits32, WO, 0> {};
+struct WOField : Field<WOReg, 0, 8, Numeric> {};
 
-// Field without Numeric — safe by default, raw value() must be rejected
-struct MODE : Field<CtrlReg, 4, 2> {};
-
-/// @brief Mock transport for compile-time test.
 struct MockTransport : private RegOps<> {
   public:
-    using RegOps<>::write;
     using RegOps<>::modify;
     using TransportTag = DirectTransportTag;
 
@@ -36,9 +31,8 @@ struct MockTransport : private RegOps<> {
 
 } // namespace
 
-/// @brief Compile-fail test entrypoint.
 int main() {
     MockTransport hw;
-    hw.modify(MODE::value(1)); // ERROR: value() unavailable on non-Numeric field
+    hw.modify(WOField::value(static_cast<uint8_t>(1))); // ERROR: cannot read WO register for RMW
     return 0;
 }

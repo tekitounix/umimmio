@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file
-/// @brief Negative compile test: raw value() on safe (non-Numeric) field must fail.
+/// @brief Negative compile test: clear() on non-W1C field must fail.
 /// @author Shota Moriguchi @tekitounix
-/// @details Fields without mm::Numeric trait do not expose value().
-///          Only named Value<> types are allowed.
+/// @details clear() requires IsW1C — normal fields do not satisfy this.
 
 #include <umimmio/ops.hh>
 
@@ -13,16 +12,12 @@ namespace {
 using namespace umi::mmio;
 
 struct TestDevice : Device<RW, DirectTransportTag> {};
-struct CtrlReg : Register<TestDevice, 0x00, bits32, RW, 0> {};
+struct CReg : Register<TestDevice, 0x00, bits32, RW, 0> {};
+struct Enable : Field<CReg, 0, 1> {};
 
-// Field without Numeric — safe by default, raw value() must be rejected
-struct MODE : Field<CtrlReg, 4, 2> {};
-
-/// @brief Mock transport for compile-time test.
 struct MockTransport : private RegOps<> {
   public:
-    using RegOps<>::write;
-    using RegOps<>::modify;
+    using RegOps<>::clear;
     using TransportTag = DirectTransportTag;
 
     template <typename Reg>
@@ -36,9 +31,8 @@ struct MockTransport : private RegOps<> {
 
 } // namespace
 
-/// @brief Compile-fail test entrypoint.
 int main() {
     MockTransport hw;
-    hw.modify(MODE::value(1)); // ERROR: value() unavailable on non-Numeric field
+    hw.clear(Enable{}); // ERROR: IsW1C not satisfied (normal field)
     return 0;
 }

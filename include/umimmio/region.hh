@@ -34,7 +34,7 @@ namespace detail {
 /// @brief Range-checked DynamicValue construction (compile-time + runtime).
 ///
 /// Consolidates the identical range-check + construct pattern used by
-/// Register::value(), Field::value(), and raw<F>().
+/// Register::value() and Field::value().
 template <typename Region, std::unsigned_integral T>
 constexpr auto make_checked_dynamic_value(T val) {
     if constexpr (Region::bit_width < sizeof(T) * bits8) {
@@ -304,26 +304,6 @@ struct Field
         return detail::make_checked_dynamic_value<Field>(val);
     }
 };
-
-/// @brief Explicit raw value for any field — escape hatch.
-///
-/// Use when you intentionally need to write a numeric value to a field
-/// that does not have Numeric trait. The name `raw` signals deliberate
-/// bypassing of type safety, similar to const_cast.
-///
-/// @tparam FieldT  The Field type to target.
-/// @param  val     The raw numeric value.
-/// @return DynamicValue usable with write(), modify(), is().
-///
-/// @code
-///   io.write(mm::raw<HPRE>(5u));    // deliberate escape
-///   io.write(PLLN::value(336u));    // normal for Numeric fields
-/// @endcode
-template <class FieldT, std::unsigned_integral T>
-[[nodiscard("raw() result must be used with write(), modify(), or is()")]]
-constexpr auto raw(T val) {
-    return detail::make_checked_dynamic_value<FieldT>(val);
-}
 
 // ===========================================================================
 // Value, DynamicValue — typed value carriers
