@@ -18,6 +18,7 @@
 - `tests/compile_fail/modify_w1c.cc`: compile-fail guard — `modify()` on W1C field
 - `tests/compile_fail/flip_w1c.cc`: compile-fail guard — `flip()` on W1C field
 - `tests/compile_fail/field_overflow.cc`: compile-fail guard — BitRegion overflow (offset + width > reg width)
+- `tests/compile_fail/read_field_eq_int.cc`: compile-fail guard — `FieldValue == integer` (use `.bits()` for raw)
 
 ## Run Tests
 
@@ -41,17 +42,17 @@ Since umimmio is primarily a compile-time abstraction library, tests focus on:
 1. **Access policy enforcement** — `requires` clauses reject illegal access at compile time
 2. **W1C safety** — `modify()` and `flip()` reject W1C fields; `clear()` is the only path
 3. **Bit arithmetic** — mask, shift, reset values for registers and fields
-4. **RegisterReader** — `bits()`, `get()`, `is()` fluent API for register reads
+4. **RegisterReader & FieldValue** — `bits()`, `get()`, `is()` fluent API; `FieldValue<F>` blocks raw integer comparison
 5. **Transport correctness** — RAM-backed mock verifies write/read/modify round-trips
 6. **Protected access** — `Protected<T, NoLockPolicy>` RAII pattern verification
-7. **Compile-fail guards** — illegal operations must not compile (8 test files)
+7. **Compile-fail guards** — illegal operations must not compile (9 test files)
 
 Hardware-level MMIO tests require actual hardware or emulation and are out of scope for host tests.
 
 ## Quality Gates for Release
 
 - All host tests pass (59 tests)
-- All compile-fail contract tests pass (8 tests)
+- All compile-fail contract tests pass (9 tests)
 - Transport mock tests cover single and multi-field write, modify, is, flip, clear, reset, read_variant
 - W1C safety: modify_w1c, flip_w1c compile-fail tests pass
 - BitRegion overflow: field_overflow compile-fail test passes

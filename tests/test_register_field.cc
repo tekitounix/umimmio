@@ -61,7 +61,7 @@ bool test_field_write_single(TestContext& t) {
     auto reg_val = hw.read(ConfigReg{});
     ok &= t.assert_true((reg_val.bits() & 1U) == 1U, "enable bit set");
     // Also verify via field read
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
     return ok;
 }
 
@@ -79,9 +79,9 @@ bool test_field_read_extraction(TestContext& t) {
     hw.poke<uint32_t>(0x04, raw);
 
     bool ok = true;
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(ConfigMode{}), static_cast<uint8_t>(2));
-    ok &= t.assert_eq(hw.read(ConfigPrescaler{}), static_cast<uint8_t>(0xAB));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(2));
+    ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0xAB));
     return ok;
 }
 
@@ -97,9 +97,9 @@ bool test_field_read_ctrl_reg(TestContext& t) {
     hw.poke<uint16_t>(0x0C, raw);
 
     bool ok = true;
-    ok &= t.assert_eq(hw.read(CtrlStart{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(CtrlIrqEn{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(CtrlChannel{}), static_cast<uint8_t>(0x0F));
+    ok &= t.assert_eq(hw.read(CtrlStart{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(CtrlIrqEn{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(CtrlChannel{}).bits(), static_cast<uint8_t>(0x0F));
     return ok;
 }
 
@@ -118,9 +118,9 @@ bool test_modify_single_field(TestContext& t) {
     hw.modify(ConfigEnable::Set{});
 
     bool ok = true;
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(ConfigPrescaler{}), static_cast<uint8_t>(0x10));
-    ok &= t.assert_eq(hw.read(ConfigMode{}), static_cast<uint8_t>(0));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x10));
+    ok &= t.assert_eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(0));
     return ok;
 }
 
@@ -135,9 +135,9 @@ bool test_modify_preserves_other_fields(TestContext& t) {
     hw.modify(ConfigPrescaler::value(static_cast<uint8_t>(0x42)));
 
     bool ok = true;
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(ConfigMode{}), static_cast<uint8_t>(3));
-    ok &= t.assert_eq(hw.read(ConfigPrescaler{}), static_cast<uint8_t>(0x42));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(3));
+    ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x42));
     return ok;
 }
 
@@ -151,9 +151,9 @@ bool test_modify_multiple_fields(TestContext& t) {
     hw.modify(ConfigEnable::Set{}, ModeFast{});
 
     bool ok = true;
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(ConfigMode{}), static_cast<uint8_t>(ModeVal::FAST));
-    ok &= t.assert_eq(hw.read(ConfigPrescaler{}), static_cast<uint8_t>(0));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(ModeVal::FAST));
+    ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0));
     return ok;
 }
 
@@ -168,9 +168,9 @@ bool test_multi_field_write(TestContext& t) {
     hw.write(ConfigEnable::Set{}, ModeTest{}, ConfigPrescaler::value(static_cast<uint8_t>(0x55)));
 
     bool ok = true;
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(ConfigMode{}), static_cast<uint8_t>(ModeVal::TEST));
-    ok &= t.assert_eq(hw.read(ConfigPrescaler{}), static_cast<uint8_t>(0x55));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(ModeVal::TEST));
+    ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x55));
     return ok;
 }
 
@@ -212,15 +212,15 @@ bool test_flip_1bit_field(TestContext& t) {
 
     bool ok = true;
     // Initially disabled
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(0));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(0));
 
     // Flip → should be 1
     hw.flip(ConfigEnable{});
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
 
     // Flip again → should be 0
     hw.flip(ConfigEnable{});
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(0));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(0));
     return ok;
 }
 
@@ -234,9 +234,9 @@ bool test_flip_preserves_other_bits(TestContext& t) {
     hw.flip(ConfigEnable{});
 
     bool ok = true;
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(ConfigMode{}), static_cast<uint8_t>(2));
-    ok &= t.assert_eq(hw.read(ConfigPrescaler{}), static_cast<uint8_t>(0x42));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(2));
+    ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x42));
     return ok;
 }
 
@@ -251,27 +251,27 @@ bool test_peripheral_init_sequence(TestContext& t) {
     hw.write(ConfigPrescaler::value(static_cast<uint8_t>(0x10)), ModeFast{});
 
     bool ok = true;
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(0));
-    ok &= t.assert_eq(hw.read(ConfigPrescaler{}), static_cast<uint8_t>(0x10));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(0));
+    ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x10));
     ok &= t.assert_true(hw.is(ModeFast{}), "mode is FAST");
 
     // Step 2: Enable IRQ and select channel 3
     hw.write(CtrlIrqEn::Set{}, CtrlChannel::value(static_cast<uint8_t>(3)));
-    ok &= t.assert_eq(hw.read(CtrlChannel{}), static_cast<uint8_t>(3));
-    ok &= t.assert_eq(hw.read(CtrlIrqEn{}), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(CtrlChannel{}).bits(), static_cast<uint8_t>(3));
+    ok &= t.assert_eq(hw.read(CtrlIrqEn{}).bits(), static_cast<uint8_t>(1));
 
     // Step 3: Enable peripheral
     hw.modify(ConfigEnable::Set{});
-    ok &= t.assert_eq(hw.read(ConfigEnable{}), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
     // Prescaler and mode should be preserved
-    ok &= t.assert_eq(hw.read(ConfigPrescaler{}), static_cast<uint8_t>(0x10));
+    ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x10));
     ok &= t.assert_true(hw.is(ModeFast{}), "mode still FAST");
 
     // Step 4: Start operation
     hw.modify(CtrlStart::Set{});
-    ok &= t.assert_eq(hw.read(CtrlStart{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(CtrlIrqEn{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(CtrlChannel{}), static_cast<uint8_t>(3));
+    ok &= t.assert_eq(hw.read(CtrlStart{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(CtrlIrqEn{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(CtrlChannel{}).bits(), static_cast<uint8_t>(3));
 
     return ok;
 }
@@ -291,9 +291,9 @@ bool test_register_reader_get(TestContext& t) {
     auto cfg = hw.read(ConfigReg{});
 
     bool ok = true;
-    ok &= t.assert_eq(cfg.get(ConfigEnable{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(cfg.get(ConfigMode{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(cfg.get(ConfigPrescaler{}), static_cast<uint8_t>(0x12));
+    ok &= t.assert_eq(cfg.get(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(cfg.get(ConfigMode{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(cfg.get(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x12));
     return ok;
 }
 

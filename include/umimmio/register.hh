@@ -530,6 +530,48 @@ struct UnknownValue {
 };
 
 // ===========================================================================
+// FieldValue — type-safe wrapper for field read results
+// ===========================================================================
+
+/// @brief Type-safe wrapper for a field value read from hardware.
+///
+/// Blocks raw integer comparison — use `.bits()` for explicit escape.
+/// Comparison with `Value<F, V>` and `DynamicValue<F, T>` is type-safe.
+/// Symmetric with the write side: just as `value()` requires Numeric or
+/// named Value for writes, FieldValue requires `.bits()` or named Value
+/// for reads.
+///
+/// @tparam F  The field type this value was read from.
+template <typename F>
+class FieldValue {
+    typename F::ValueType val;
+
+  public:
+    using FieldType = F;
+
+    explicit constexpr FieldValue(typename F::ValueType v) noexcept : val(v) {}
+
+    /// @brief Get the raw bit value (escape hatch).
+    /// Symmetric with write-side `value()` — explicit opt-in for raw access.
+    [[nodiscard]] constexpr auto bits() const noexcept { return val; }
+
+    /// @brief Compare two FieldValues of the same field.
+    [[nodiscard]] friend constexpr bool operator==(FieldValue, FieldValue) noexcept = default;
+
+    /// @brief Compare with a compile-time named Value.
+    template <auto EnumValue>
+    [[nodiscard]] constexpr bool operator==(Value<F, EnumValue>) const noexcept {
+        return val == static_cast<typename F::ValueType>(EnumValue);
+    }
+
+    /// @brief Compare with a DynamicValue.
+    template <typename T>
+    [[nodiscard]] constexpr bool operator==(DynamicValue<F, T> const& dv) const noexcept {
+        return val == static_cast<typename F::ValueType>(dv.assigned_value);
+    }
+};
+
+// ===========================================================================
 // RegisterReader — immutable view of a register value
 // ===========================================================================
 
@@ -555,11 +597,11 @@ class RegisterReader {
     /// No bus access occurs — this is a pure bit-extraction operation.
     ///
     /// @tparam F Field type. Must belong to this register.
-    /// @return Extracted field value, cast to the field's ValueType.
+    /// @return FieldValue<F> wrapping the extracted value.
     template <typename F>
         requires IsField<F> && std::is_same_v<typename F::ParentRegType, Reg>
-    [[nodiscard]] constexpr auto get(F /*field*/ = {}) const noexcept -> typename F::ValueType {
-        return static_cast<typename F::ValueType>((val & F::mask()) >> F::shift);
+    [[nodiscard]] constexpr auto get(F /*field*/ = {}) const noexcept -> FieldValue<F> {
+        return FieldValue<F>{static_cast<typename F::ValueType>((val & F::mask()) >> F::shift)};
     }
 
     /// @brief Compare the register/field value against an expected Value or DynamicValue.
@@ -578,7 +620,7 @@ class RegisterReader {
             } else {
                 static_assert(std::is_same_v<typename RegionT::ParentRegType, Reg>,
                               "Value field must belong to this register");
-                return get(RegionT{}) == static_cast<typename RegionT::ValueType>(VDecay::value);
+                return get(RegionT{}).bits() == static_cast<typename RegionT::ValueType>(VDecay::value);
             }
         } else {
             if constexpr (RegionT::is_register) {
@@ -588,7 +630,7 @@ class RegisterReader {
             } else {
                 static_assert(std::is_same_v<typename RegionT::ParentRegType, Reg>,
                               "DynamicValue field must belong to this register");
-                return get(RegionT{}) == v.assigned_value;
+                return get(RegionT{}).bits() == static_cast<typename RegionT::ValueType>(v.assigned_value);
             }
         }
     }
@@ -629,10 +671,10 @@ class RegOps {
 
     /// @brief Read a single field value (shortcut for read(Reg).get(Field)).
     /// @tparam F Field type.
-    /// @return Extracted field value.
+    /// @return FieldValue<F> wrapping the extracted value.
     template <typename Self, typename F>
         requires Readable<F> && IsField<F>
-    [[nodiscard]] auto read(this const Self& self, F /*field*/) noexcept -> typename F::ValueType {
+    [[nodiscard]] auto read(this const Self& self, F /*field*/) noexcept -> FieldValue<F> {
         check_transport_allowed<Self, F>();
         return self.read(typename F::ParentRegType{}).get(F{});
     }
@@ -650,7 +692,7 @@ class RegOps {
             if constexpr (RegionT::is_register) {
                 return self.read(RegionT{}).bits() == static_cast<typename RegionT::RegValueType>(VDecay::value);
             } else {
-                return self.read(RegionT{}) == static_cast<typename RegionT::ValueType>(VDecay::value);
+                return self.read(RegionT{}).bits() == static_cast<typename RegionT::ValueType>(VDecay::value);
             }
         } else {
             if constexpr (CheckPolicy::value) {
@@ -664,7 +706,7 @@ class RegOps {
             if constexpr (RegionT::is_register) {
                 return self.read(RegionT{}).bits() == static_cast<typename RegionT::RegValueType>(value.assigned_value);
             } else {
-                return self.read(RegionT{}) == value.assigned_value;
+                return self.read(RegionT{}).bits() == static_cast<typename RegionT::ValueType>(value.assigned_value);
             }
         }
     }
@@ -736,10 +778,10 @@ class RegOps {
         requires Readable<F> && IsField<F>
     [[nodiscard]] auto read_variant(this const Self& self, F field = {}) -> std::variant<Variants..., UnknownValue<F>> {
         auto val = self.read(field);
-        std::variant<Variants..., UnknownValue<F>> result = UnknownValue<F>{val};
+        std::variant<Variants..., UnknownValue<F>> result = UnknownValue<F>{val.bits()};
 
         auto try_match = [&]<typename V>() {
-            if (val == static_cast<typename F::ValueType>(V::value)) {
+            if (val.bits() == static_cast<typename F::ValueType>(V::value)) {
                 result = V{};
             }
         };

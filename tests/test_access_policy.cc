@@ -131,15 +131,15 @@ bool test_uart_device_init(TestContext& t) {
 
     bool ok = true;
     ok &= t.assert_eq(hw.read(UartBaud{}).bits(), 115200U);
-    ok &= t.assert_eq(hw.read(UartCtrlEn{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(UartCtrlTxEn{}), static_cast<uint8_t>(1));
-    ok &= t.assert_eq(hw.read(UartCtrlRxEn{}), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(UartCtrlEn{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(UartCtrlTxEn{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(UartCtrlRxEn{}).bits(), static_cast<uint8_t>(1));
     ok &= t.assert_true(hw.is(ParityNone{}), "parity is NONE");
 
     // Change parity to EVEN via modify (preserve other bits)
     hw.modify(ParityEven{});
     ok &= t.assert_true(hw.is(ParityEven{}), "parity is EVEN");
-    ok &= t.assert_eq(hw.read(UartCtrlEn{}), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(UartCtrlEn{}).bits(), static_cast<uint8_t>(1));
 
     // Write data
     hw.write(UartData::value(0x41U)); // 'A'
