@@ -22,53 +22,59 @@ namespace umimmio::test {
 
 using namespace umi::mmio;
 
-/// @brief RAM-backed mock transport for host testing.
-/// Simulates hardware register access using a flat memory array.
-class MockTransport : private RegOps<MockTransport> {
-    friend class RegOps<MockTransport>;
-
+/// @brief In-memory mock transport for testing.
+///
+/// DirectTransport と同じインターフェース (reg_read/reg_write) を提供する。
+/// CRTP パラメータは不要 (deducing this で RegOps が自動解決)。
+///
+/// @note clear_memory() という名前を使う理由:
+/// RegOps が reset(Reg) メソッドを持つため、reset() では名前衝突する。
+/// clear_memory() はモック固有の「全メモリゼロクリア」を明示する。
+struct MockTransport : private RegOps<> {
   public:
-    using RegOps<MockTransport>::write;
-    using RegOps<MockTransport>::read;
-    using RegOps<MockTransport>::modify;
-    using RegOps<MockTransport>::is;
-    using RegOps<MockTransport>::flip;
+    using RegOps<>::read;
+    using RegOps<>::write;
+    using RegOps<>::modify;
+    using RegOps<>::is;
+    using RegOps<>::flip;
+    using RegOps<>::clear;
+    using RegOps<>::reset;
+    using RegOps<>::read_variant;
+
     using TransportTag = DirectTransportTag;
 
-    MockTransport() { reset(); }
+    std::array<std::uint8_t, 256> mutable memory{};
 
-    void reset() { std::memset(memory.data(), 0, memory.size()); }
+    /// @brief Clear all mock memory to zero.
+    void clear_memory() noexcept { memory.fill(0); }
 
-    /// Direct buffer access for test verification
-    template <typename T>
-    T peek(std::size_t offset) const {
-        T val{};
-        std::memcpy(&val, &memory[offset], sizeof(T));
-        return val;
-    }
-
-    template <typename T>
-    void poke(std::size_t offset, T val) {
-        std::memcpy(&memory[offset], &val, sizeof(T));
-    }
-
-    // RegOps interface
+    /// @brief Read register value from mock memory.
     template <typename Reg>
     auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
-        using T = typename Reg::RegValueType;
-        T val{};
-        std::memcpy(&val, &memory[Reg::address], sizeof(T));
+        typename Reg::RegValueType val{};
+        std::memcpy(&val, &memory[Reg::address], sizeof(val));
         return val;
     }
 
+    /// @brief Write register value to mock memory.
     template <typename Reg>
-    void reg_write(Reg /*reg*/, typename Reg::RegValueType value) const noexcept {
-        using T = typename Reg::RegValueType;
-        std::memcpy(const_cast<uint8_t*>(&memory[Reg::address]), &value, sizeof(T));
+    void reg_write(Reg /*reg*/, typename Reg::RegValueType val) const noexcept {
+        std::memcpy(&memory[Reg::address], &val, sizeof(val));
     }
 
-  private:
-    mutable std::array<std::uint8_t, 256> memory{};
+    /// @brief Peek raw memory at arbitrary address (test helper).
+    template <typename T>
+    T peek(Addr addr) const noexcept {
+        T val{};
+        std::memcpy(&val, &memory[static_cast<std::size_t>(addr)], sizeof(val));
+        return val;
+    }
+
+    /// @brief Poke raw memory at arbitrary address (test helper).
+    template <typename T>
+    void poke(Addr addr, T val) noexcept {
+        std::memcpy(&memory[static_cast<std::size_t>(addr)], &val, sizeof(val));
+    }
 };
 
 // =============================================================================
@@ -94,6 +100,18 @@ struct CtrlReg : Register<MockDevice, 0x0C, bits16, RW, 0> {};
 
 /// @brief Write-only command register
 struct CmdReg : Register<MockDevice, 0x10, bits32, WO, 0> {};
+
+/// @brief Status register with W1C fields (32-bit, read-write, reset = 0)
+struct W1cStatusReg : Register<MockDevice, 0x14, bits32, RW, 0, /*W1cMask=*/0x03> {};
+
+/// @brief W1C overflow flag (bit 0)
+struct W1cOvr : Field<W1cStatusReg, 0, 1, W1C> {};
+
+/// @brief W1C end-of-conversion flag (bit 1)
+struct W1cEoc : Field<W1cStatusReg, 1, 1, W1C> {};
+
+/// @brief Non-W1C enable flag in same register (bit 8)
+struct W1cRegEnable : Field<W1cStatusReg, 8, 1> {};
 
 // --- Fields within ConfigReg ---
 
@@ -134,5 +152,6 @@ void run_register_field_tests(umi::test::Suite& suite);
 void run_transport_tests(umi::test::Suite& suite);
 void run_access_policy_tests(umi::test::Suite& suite);
 void run_spi_bitbang_tests(umi::test::Suite& suite);
+void run_protected_tests(umi::test::Suite& suite);
 
 } // namespace umimmio::test

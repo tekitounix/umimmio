@@ -3,7 +3,7 @@
 /// @file
 /// @brief Access policy and error policy tests.
 /// @author Shota Moriguchi @tekitounix
-/// @details Verifies Bit constants, Endian enum, Block hierarchy, and
+/// @details Verifies Bit constants, Block hierarchy, and
 ///          compile-time properties of the MMIO framework.
 
 #include "test_fixture.hh"
@@ -27,12 +27,14 @@ bool test_bit_constants(TestContext& t) {
 }
 
 // =============================================================================
-// Endian enum
+// W1C access policy
 // =============================================================================
 
-bool test_endian_values(TestContext& t) {
+bool test_w1c_policy(TestContext& t) {
     bool ok = true;
-    ok &= t.assert_ne(static_cast<uint8_t>(Endian::LITTLE), static_cast<uint8_t>(Endian::BIG));
+    ok &= t.assert_true(W1C::can_read && W1C::can_write);
+    ok &= t.assert_eq(static_cast<uint8_t>(W1C::write_behavior), static_cast<uint8_t>(WriteBehavior::ONE_TO_CLEAR));
+    ok &= t.assert_eq(static_cast<uint8_t>(RW::write_behavior), static_cast<uint8_t>(WriteBehavior::NORMAL));
     return ok;
 }
 
@@ -121,14 +123,14 @@ using ParityEven = Value<UartCtrlParity, static_cast<uint8_t>(Parity::EVEN)>;
 using ParityOdd = Value<UartCtrlParity, static_cast<uint8_t>(Parity::ODD)>;
 
 bool test_uart_device_init(TestContext& t) {
-    MockTransport const hw;
+    MockTransport hw;
 
     // Configure UART: 115200 baud, 8N1, RX+TX enabled
     hw.write(UartBaud::value(115200U));
     hw.write(UartCtrlEn::Set{}, UartCtrlTxEn::Set{}, UartCtrlRxEn::Set{}, ParityNone{});
 
     bool ok = true;
-    ok &= t.assert_eq(hw.read(UartBaud{}), 115200U);
+    ok &= t.assert_eq(hw.read(UartBaud{}).bits(), 115200U);
     ok &= t.assert_eq(hw.read(UartCtrlEn{}), static_cast<uint8_t>(1));
     ok &= t.assert_eq(hw.read(UartCtrlTxEn{}), static_cast<uint8_t>(1));
     ok &= t.assert_eq(hw.read(UartCtrlRxEn{}), static_cast<uint8_t>(1));
@@ -141,7 +143,7 @@ bool test_uart_device_init(TestContext& t) {
 
     // Write data
     hw.write(UartData::value(0x41U)); // 'A'
-    ok &= t.assert_eq(hw.read(UartData{}), 0x41U);
+    ok &= t.assert_eq(hw.read(UartData{}).bits(), 0x41U);
 
     return ok;
 }
@@ -151,7 +153,7 @@ bool test_uart_device_init(TestContext& t) {
 void run_access_policy_tests(umi::test::Suite& suite) {
     umi::test::Suite::section("Bit constants");
     suite.run("width values", test_bit_constants);
-    suite.run("endian enum", test_endian_values);
+    suite.run("W1C policy", test_w1c_policy);
 
     umi::test::Suite::section("Block hierarchy");
     suite.run("address calculation", test_block_address_calculation);

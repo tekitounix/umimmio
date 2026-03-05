@@ -8,6 +8,7 @@
 #include <array>
 #include <cstring>
 #include <span>
+#include <variant>
 
 #include <umimmio/transport/i2c.hh>
 
@@ -113,7 +114,7 @@ bool test_mock_transport_peek_poke(TestContext& t) {
     hw.poke<uint16_t>(0x10, uint16_t{0xABCD});
     ok &= t.assert_eq(hw.peek<uint16_t>(0x10), static_cast<uint16_t>(0xABCD));
 
-    hw.reset();
+    hw.clear_memory();
     ok &= t.assert_eq(hw.peek<uint32_t>(0x00), 0U);
     return ok;
 }
@@ -159,7 +160,7 @@ struct I2CField : Field<I2CReg, 0, 8, Numeric> {};
 
 bool test_i2c_transport_write_read(TestContext& t) {
     MockI2C i2c;
-    I2cTransport<MockI2C> const transport(i2c, 0x50);
+    I2cTransport<MockI2C> transport(i2c, 0x50);
 
     // Write a value through I2C transport
     transport.write(I2CReg::value(0xDEAD'BEEFU));
@@ -167,12 +168,12 @@ bool test_i2c_transport_write_read(TestContext& t) {
     // Read it back
     auto val = transport.read(I2CReg{});
 
-    return t.assert_eq(val, static_cast<uint32_t>(0xDEAD'BEEF));
+    return t.assert_eq(val.bits(), static_cast<uint32_t>(0xDEAD'BEEF));
 }
 
 bool test_i2c_transport_field_operations(TestContext& t) {
     MockI2C i2c;
-    I2cTransport<MockI2C> const transport(i2c, 0x50);
+    I2cTransport<MockI2C> transport(i2c, 0x50);
 
     // Write via register
     transport.write(I2CReg::value(0x00000042U));
@@ -184,7 +185,7 @@ bool test_i2c_transport_field_operations(TestContext& t) {
 
 bool test_i2c_transport_modify(TestContext& t) {
     MockI2C i2c;
-    I2cTransport<MockI2C> const transport(i2c, 0x50);
+    I2cTransport<MockI2C> transport(i2c, 0x50);
 
     // Pre-load value
     transport.write(I2CReg::value(0xFF00'0000U));
@@ -195,9 +196,106 @@ bool test_i2c_transport_modify(TestContext& t) {
     bool ok = true;
     auto reg_val = transport.read(I2CReg{});
     // Low byte should be 0xAB, high bytes preserved
-    ok &= t.assert_eq(reg_val & 0xFFU, 0xABU);
-    ok &= t.assert_eq(reg_val & 0xFF00'0000U, 0xFF00'0000U);
+    ok &= t.assert_eq(reg_val.bits() & 0xFFU, 0xABU);
+    ok &= t.assert_eq(reg_val.bits() & 0xFF00'0000U, 0xFF00'0000U);
     return ok;
+}
+
+// =============================================================================
+// W1C clear() test
+// =============================================================================
+
+bool test_w1c_clear(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<uint32_t>(0x14, 0x0103U); // OVR=1, EOC=1, Enable=1
+    hw.clear(W1cOvr{});
+    // clear() writes F::mask() (= 0x01) to the register.
+    // Mock simply overwrites, so value should be 0x01.
+    return t.assert_eq(hw.peek<uint32_t>(0x14), W1cOvr::mask());
+}
+
+// =============================================================================
+// reset() test
+// =============================================================================
+
+bool test_register_reset(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<uint32_t>(0x04, 0xAAAA'AAAA);
+    hw.reset(ConfigReg{});
+    return t.assert_eq(hw.peek<uint32_t>(0x04), static_cast<uint32_t>(0xFF00));
+}
+
+// =============================================================================
+// W1C modify() safety — W1C bits should be masked in RMW
+// =============================================================================
+
+bool test_w1c_modify_safety(TestContext& t) {
+    MockTransport hw;
+
+    // Set OVR=1, EOC=1, Enable=1
+    hw.poke<uint32_t>(0x14, 0x0103U);
+
+    // Modify the Enable field (bit 8) — W1C bits (0,1) should be masked to 0
+    hw.modify(W1cRegEnable::Set{});
+
+    auto result = hw.peek<uint32_t>(0x14);
+    bool ok = true;
+    // Enable (bit 8) should be set
+    ok &= t.assert_true((result & 0x0100U) != 0, "enable bit should be set");
+    // W1C bits (0,1) should be 0 (masked by w1c_mask)
+    ok &= t.assert_eq(result & 0x03U, 0U);
+    return ok;
+}
+
+// =============================================================================
+// read_variant() test
+// =============================================================================
+
+/// @brief Visitor helper for std::visit (C++17 pattern).
+template <class... Ts>
+struct Overloaded : Ts... {
+    using Ts::operator()...;
+};
+template <class... Ts>
+Overloaded(Ts...) -> Overloaded<Ts...>;
+
+bool test_read_variant(TestContext& t) {
+    MockTransport hw;
+
+    // Mode = FAST (bits 1-2 = 01) → value at offset 0x04 = 0x02
+    hw.poke<uint32_t>(0x04, 0x02U);
+    auto mode = hw.read_variant<ConfigMode, ModeNormal, ModeFast, ModeLowPower, ModeTest>();
+
+    bool matched = false;
+    std::visit(Overloaded{
+                   [&](ModeFast) { matched = true; },
+                   [&](auto) { matched = false; },
+               },
+               mode);
+    return t.assert_true(matched, "should match ModeFast");
+}
+
+bool test_read_variant_unknown(TestContext& t) {
+    MockTransport hw;
+
+    // Set mode to a value not in the variant list
+    hw.poke<uint32_t>(0x04, 0x06U); // bits 1-2 = 0b11 = TEST
+    // Only list Normal and Fast — TEST should be UnknownValue
+    auto mode = hw.read_variant<ConfigMode, ModeNormal, ModeFast>();
+
+    bool is_unknown = false;
+    std::visit(Overloaded{
+                   [&](UnknownValue<ConfigMode> u) {
+                       is_unknown = true;
+                       // value should be 3 (TEST)
+                       (void)u;
+                   },
+                   [&](auto) { is_unknown = false; },
+               },
+               mode);
+    return t.assert_true(is_unknown, "should be UnknownValue");
 }
 
 } // namespace
@@ -219,6 +317,13 @@ void run_transport_tests(umi::test::Suite& suite) {
     suite.run("write/read", test_i2c_transport_write_read);
     suite.run("field operations", test_i2c_transport_field_operations);
     suite.run("modify (RMW)", test_i2c_transport_modify);
+
+    umi::test::Suite::section("W1C / reset / read_variant");
+    suite.run("W1C clear()", test_w1c_clear);
+    suite.run("register reset()", test_register_reset);
+    suite.run("W1C modify() safety", test_w1c_modify_safety);
+    suite.run("read_variant() match", test_read_variant);
+    suite.run("read_variant() unknown", test_read_variant_unknown);
 }
 
 } // namespace umimmio::test

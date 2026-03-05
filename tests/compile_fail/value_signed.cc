@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file
-/// @brief Negative compile test: reading from a write-only register must fail.
+/// @brief Negative compile test: signed value must be rejected.
 /// @author Shota Moriguchi @tekitounix
-/// @details Triggers requires clause failure: Readable<Reg> not satisfied.
+/// @details value() requires std::unsigned_integral.
 
 #include <umimmio/register.hh>
 
@@ -12,13 +12,12 @@ namespace {
 using namespace umi::mmio;
 
 struct TestDevice : Device<RW, DirectTransportTag> {};
-struct DataReg : Register<TestDevice, 0x08, bits32, WO, 0> {};
+struct CtrlReg : Register<TestDevice, 0x00, bits32, RW, 0> {};
+struct Prescaler : Field<CtrlReg, 8, 8, Numeric> {};
 
-/// @brief Mock transport for compile-time test.
 struct MockTransport : private RegOps<> {
   public:
     using RegOps<>::write;
-    using RegOps<>::read;
     using TransportTag = DirectTransportTag;
 
     template <typename Reg>
@@ -32,9 +31,8 @@ struct MockTransport : private RegOps<> {
 
 } // namespace
 
-/// @brief Compile-fail test entrypoint.
 int main() {
     MockTransport hw;
-    [[maybe_unused]] auto val = hw.read(DataReg{}); // ERROR: Cannot read from write-only register
+    hw.write(Prescaler::value(-1)); // ERROR: requires unsigned_integral
     return 0;
 }

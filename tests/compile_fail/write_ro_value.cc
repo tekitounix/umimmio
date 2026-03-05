@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file
-/// @brief Negative compile test: reading from a write-only register must fail.
+/// @brief Negative compile test: write() with value on RO register must be rejected.
 /// @author Shota Moriguchi @tekitounix
-/// @details Triggers requires clause failure: Readable<Reg> not satisfied.
+/// @details value() itself succeeds on RO registers (it only creates a value object).
+///          The write() call is rejected because WritableValue concept is not satisfied.
 
 #include <umimmio/register.hh>
 
@@ -12,9 +13,8 @@ namespace {
 using namespace umi::mmio;
 
 struct TestDevice : Device<RW, DirectTransportTag> {};
-struct DataReg : Register<TestDevice, 0x08, bits32, WO, 0> {};
+struct StatusReg : Register<TestDevice, 0x00, bits32, RO, 0> {};
 
-/// @brief Mock transport for compile-time test.
 struct MockTransport : private RegOps<> {
   public:
     using RegOps<>::write;
@@ -32,9 +32,8 @@ struct MockTransport : private RegOps<> {
 
 } // namespace
 
-/// @brief Compile-fail test entrypoint.
 int main() {
     MockTransport hw;
-    [[maybe_unused]] auto val = hw.read(DataReg{}); // ERROR: Cannot read from write-only register
+    hw.write(StatusReg::value(42U)); // ERROR: WritableValue not satisfied (RO register)
     return 0;
 }
