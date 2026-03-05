@@ -10,7 +10,6 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
-#include <type_traits>
 
 #include "../register.hh"
 
@@ -33,14 +32,9 @@ template <typename Gpio,
           typename CheckPolicy = std::true_type,
           typename ErrorPolicy = AssertOnError,
           typename AddressType = std::uint8_t,
-          Endian AddrEndian = Endian::BIG,
-          Endian DataEndian = Endian::LITTLE>
-class BitBangI2cTransport
-    : public ByteAdapter<BitBangI2cTransport<Gpio, CheckPolicy, ErrorPolicy, AddressType, AddrEndian, DataEndian>,
-                         CheckPolicy,
-                         ErrorPolicy,
-                         AddressType,
-                         DataEndian> {
+          std::endian AddrEndian = std::endian::big,
+          std::endian DataEndian = std::endian::little>
+class BitBangI2cTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressType, DataEndian> {
     Gpio& gpio;
     std::uint8_t device_addr;
 
@@ -65,7 +59,7 @@ class BitBangI2cTransport
         if constexpr (addr_size == 1) {
             addr_bytes[0] = static_cast<std::uint8_t>(reg_addr);
         } else {
-            if constexpr (AddrEndian == Endian::LITTLE) {
+            if constexpr (AddrEndian == std::endian::little) {
                 addr_bytes[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
                 addr_bytes[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
             } else {
@@ -111,7 +105,7 @@ class BitBangI2cTransport
         if constexpr (addr_size == 1) {
             addr_bytes[0] = static_cast<std::uint8_t>(reg_addr);
         } else {
-            if constexpr (AddrEndian == Endian::LITTLE) {
+            if constexpr (AddrEndian == std::endian::little) {
                 addr_bytes[0] = static_cast<std::uint8_t>(reg_addr & 0xFF);
                 addr_bytes[1] = static_cast<std::uint8_t>((reg_addr >> 8) & 0xFF);
             } else {
