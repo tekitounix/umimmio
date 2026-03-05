@@ -80,7 +80,7 @@ bool test_spi_field_read(TestContext& t) {
     return t.assert_eq(val.bits(), static_cast<uint8_t>(0xAB));
 }
 
-bool test_spi_modify(TestContext& t) {
+bool test_spi_modify_rmw(TestContext& t) {
     MockSpi spi;
     SpiTransport<MockSpi> transport(spi);
 
@@ -94,7 +94,7 @@ bool test_spi_modify(TestContext& t) {
     return ok;
 }
 
-bool test_spi_high_field(TestContext& t) {
+bool test_spi_high_field_read(TestContext& t) {
     MockSpi spi;
     SpiTransport<MockSpi> transport(spi);
 
@@ -484,7 +484,7 @@ using I2cBE =
 // ByteAdapter endian tests
 // =============================================================================
 
-bool test_i2c_endian_little(TestContext& t) {
+bool test_i2c_endian_little_wire_format(TestContext& t) {
     LocalMockI2C i2c;
     I2cLE transport(i2c, 0x50);
 
@@ -499,7 +499,7 @@ bool test_i2c_endian_little(TestContext& t) {
     return ok;
 }
 
-bool test_i2c_endian_big(TestContext& t) {
+bool test_i2c_endian_big_wire_format(TestContext& t) {
     LocalMockI2C i2c;
     I2cBE transport(i2c, 0x50);
 
@@ -530,7 +530,7 @@ bool test_i2c_endian_big_roundtrip(TestContext& t) {
 struct Reg16 : Register<EndianDevice, 0x20, bits16, RW, 0> {};
 struct Field16High : Field<Reg16, 8, 8> {};
 
-bool test_i2c_16bit_register(TestContext& t) {
+bool test_i2c_16bit_register_roundtrip(TestContext& t) {
     LocalMockI2C i2c;
     I2cTransport<LocalMockI2C> transport(i2c, 0x50);
 
@@ -555,7 +555,7 @@ bool test_i2c_16bit_field_high_byte(TestContext& t) {
 struct Reg64 : Register<EndianDevice, 0x30, bits64, RW, 0> {};
 struct Field64Low : Field<Reg64, 0, 32> {};
 
-bool test_i2c_64bit_register(TestContext& t) {
+bool test_i2c_64bit_register_roundtrip(TestContext& t) {
     LocalMockI2C i2c;
     I2cTransport<LocalMockI2C> transport(i2c, 0x50);
 
@@ -594,8 +594,8 @@ void run_spi_bitbang_tests(umi::test::Suite& suite) {
     umi::test::Suite::section("SPI transport (mock)");
     suite.run("write/read", test_spi_write_read);
     suite.run("field read", test_spi_field_read);
-    suite.run("modify (RMW)", test_spi_modify);
-    suite.run("high field read", test_spi_high_field);
+    suite.run("modify (RMW)", test_spi_modify_rmw);
+    suite.run("high field read", test_spi_high_field_read);
 
     umi::test::Suite::section("Bit-bang I2C");
     suite.run("GPIO call count", test_bitbang_i2c_gpio_calls);
@@ -609,14 +609,14 @@ void run_spi_bitbang_tests(umi::test::Suite& suite) {
     suite.run("read roundtrip", test_bitbang_spi_read_roundtrip);
 
     umi::test::Suite::section("ByteAdapter endian");
-    suite.run("little-endian wire format", test_i2c_endian_little);
-    suite.run("big-endian wire format", test_i2c_endian_big);
+    suite.run("little-endian wire format", test_i2c_endian_little_wire_format);
+    suite.run("big-endian wire format", test_i2c_endian_big_wire_format);
     suite.run("big-endian roundtrip", test_i2c_endian_big_roundtrip);
 
     umi::test::Suite::section("16-bit / 64-bit registers");
-    suite.run("16-bit register", test_i2c_16bit_register);
+    suite.run("16-bit register", test_i2c_16bit_register_roundtrip);
     suite.run("16-bit high-byte field", test_i2c_16bit_field_high_byte);
-    suite.run("64-bit register", test_i2c_64bit_register);
+    suite.run("64-bit register", test_i2c_64bit_register_roundtrip);
     suite.run("64-bit low field", test_i2c_64bit_low_field);
 
     umi::test::Suite::section("Error policy");

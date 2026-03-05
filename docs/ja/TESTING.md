@@ -9,7 +9,7 @@
 - `tests/test_register_field.cc`: BitRegion, Register, Field, Value, マスク/シフト、RegisterReader
 - `tests/test_transport.cc`: read/write/modify/is/flip/clear/reset/read_variant 用 RAM バックドモックトランスポート
 - `tests/test_spi_bitbang.cc`: SPI, I2C, BitBang トランスポート、ByteAdapter エンディアンテスト
-- `tests/test_protected.cc`: NoLockPolicy による Protected<T, LockPolicy>
+- `tests/test_protected.cc`: NoLockPolicy および MutexPolicy による Protected<T, LockPolicy>
 - `tests/compile_fail/read_wo.cc`: compile-fail ガード — 書き込み専用レジスタの読み出し
 - `tests/compile_fail/write_ro.cc`: compile-fail ガード — 読み出し専用レジスタへの書き込み
 - `tests/compile_fail/write_ro_value.cc`: compile-fail ガード — value 経由での読み出し専用レジスタへの書き込み
@@ -44,14 +44,14 @@ umimmio は主にコンパイル時抽象化ライブラリであるため、テ
 3. **ビット算術** — レジスタとフィールドのマスク、シフト、リセット値
 4. **RegisterReader と FieldValue** — `bits()`、`get()`、`is()` フルエント API、`FieldValue<F>` が raw 整数比較をブロック
 5. **トランスポート正確性** — RAM バックドモックが write/read/modify ラウンドトリップを検証
-6. **保護付きアクセス** — `Protected<T, NoLockPolicy>` RAII パターンの検証
+6. **保護付きアクセス** — `Protected<T, LockPolicy>` NoLockPolicy および MutexPolicy の RAII パターン検証
 7. **Compile-fail ガード** — 不正操作がコンパイルされないことを確認（9 テストファイル）
 
 ハードウェアレベル MMIO テストは実ハードウェアまたはエミュレーションが必要であり、ホストテストの対象外。
 
 ## リリースの品質ゲート
 
-- 全ホストテストパス（59 テスト）
+- 全ホストテストパス（68 テスト）
 - 全 compile-fail 契約テストパス（9 テスト）
 - トランスポートモックテストが単一および複数フィールドの write, modify, is, flip, clear, reset, read_variant をカバー
 - W1C 安全性: modify_w1c, flip_w1c compile-fail テストパス

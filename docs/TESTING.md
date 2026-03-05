@@ -9,7 +9,7 @@
 - `tests/test_register_field.cc`: BitRegion, Register, Field, Value, mask/shift, RegisterReader
 - `tests/test_transport.cc`: RAM-backed mock transport for read/write/modify/is/flip/clear/reset/read_variant
 - `tests/test_spi_bitbang.cc`: SPI, I2C, BitBang transports, ByteAdapter endian tests
-- `tests/test_protected.cc`: Protected<T, LockPolicy> with NoLockPolicy
+- `tests/test_protected.cc`: Protected<T, LockPolicy> with NoLockPolicy and MutexPolicy
 - `tests/compile_fail/read_wo.cc`: compile-fail guard — reading a write-only register
 - `tests/compile_fail/write_ro.cc`: compile-fail guard — writing a read-only register
 - `tests/compile_fail/write_ro_value.cc`: compile-fail guard — writing a read-only register via value
@@ -44,14 +44,14 @@ Since umimmio is primarily a compile-time abstraction library, tests focus on:
 3. **Bit arithmetic** — mask, shift, reset values for registers and fields
 4. **RegisterReader & FieldValue** — `bits()`, `get()`, `is()` fluent API; `FieldValue<F>` blocks raw integer comparison
 5. **Transport correctness** — RAM-backed mock verifies write/read/modify round-trips
-6. **Protected access** — `Protected<T, NoLockPolicy>` RAII pattern verification
+6. **Protected access** — `Protected<T, LockPolicy>` RAII pattern with NoLockPolicy and MutexPolicy
 7. **Compile-fail guards** — illegal operations must not compile (9 test files)
 
 Hardware-level MMIO tests require actual hardware or emulation and are out of scope for host tests.
 
 ## Quality Gates for Release
 
-- All host tests pass (59 tests)
+- All host tests pass (68 tests)
 - All compile-fail contract tests pass (9 tests)
 - Transport mock tests cover single and multi-field write, modify, is, flip, clear, reset, read_variant
 - W1C safety: modify_w1c, flip_w1c compile-fail tests pass

@@ -37,7 +37,7 @@ bool test_register_write_zero(TestContext& t) {
     return t.assert_eq(hw.read(DataReg{}).bits(), static_cast<uint32_t>(0));
 }
 
-bool test_register_16bit(TestContext& t) {
+bool test_register_16bit_write_read(TestContext& t) {
     MockTransport hw;
 
     hw.write(CtrlReg::value(static_cast<uint16_t>(0x1234)));
@@ -317,7 +317,7 @@ void run_register_field_tests(umi::test::Suite& suite) {
     umi::test::Suite::section("Register read/write");
     suite.run("write and read back", test_register_write_and_read);
     suite.run("write zero", test_register_write_zero);
-    suite.run("16-bit register", test_register_16bit);
+    suite.run("16-bit register", test_register_16bit_write_read);
 
     umi::test::Suite::section("Field read/write");
     suite.run("write single field", test_field_write_single);
