@@ -7,7 +7,7 @@ Test Timeout      30 seconds
 *** Keywords ***
 Setup
     Execute Command    mach create "umimmio_test"
-    Execute Command    machine LoadPlatformDescription @lib/umimmio/renode/stm32f4_test.repl
+    Execute Command    machine LoadPlatformDescription @lib/umimmio/tests/renode/stm32f4_test.repl
     Execute Command    sysbus LoadELF @build/umimmio_stm32f4_renode/release/umimmio_stm32f4_renode.elf
     Execute Command    sysbus WriteDoubleWord 0xE000ED08 0x08000000
 
