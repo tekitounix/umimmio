@@ -20,10 +20,10 @@ struct MyDevice : Device<> {
 
     /// 8-bit status register at offset 0x00 (read-only)
     struct SR : Register<MyDevice, 0x00, bits8, RO> {
-        struct READY : Field<SR, 0, 1> {};  // bit 0
-        struct ERROR : Field<SR, 1, 1> {};  // bit 1
-        struct MODE : Field<SR, 4, 2> {     // bits 4-5
-            using Idle   = Value<MODE, 0>;
+        struct READY : Field<SR, 0, 1> {}; // bit 0
+        struct ERROR : Field<SR, 1, 1> {}; // bit 1
+        struct MODE : Field<SR, 4, 2> {    // bits 4-5
+            using Idle = Value<MODE, 0>;
             using Active = Value<MODE, 1>;
         };
     };

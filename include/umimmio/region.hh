@@ -86,9 +86,8 @@ struct TransportConceptReg {
 template <class Access = RW, typename... AllowedTransports>
 struct Device {
     using AccessType = Access;
-    using AllowedTransportsType = std::conditional_t<sizeof...(AllowedTransports) == 0,
-                                                     std::tuple<Direct>,
-                                                     std::tuple<AllowedTransports...>>;
+    using AllowedTransportsType =
+        std::conditional_t<sizeof...(AllowedTransports) == 0, std::tuple<Direct>, std::tuple<AllowedTransports...>>;
     static constexpr Addr base_address = 0;
 };
 
@@ -390,7 +389,9 @@ concept ModifiableValue =
 
 template <typename T>
 concept RegTransportLike = requires(T& t) { typename T::TransportTag; } && requires(T& t, std::uint64_t val) {
-    { t.template reg_read<detail::TransportConceptReg>(detail::TransportConceptReg{}) } -> std::convertible_to<std::uint64_t>;
+    {
+        t.template reg_read<detail::TransportConceptReg>(detail::TransportConceptReg{})
+    } -> std::convertible_to<std::uint64_t>;
     { t.template reg_write<detail::TransportConceptReg>(detail::TransportConceptReg{}, val) } -> std::same_as<void>;
 };
 
@@ -398,8 +399,7 @@ template <typename T>
 concept ByteTransportLike = requires(T& t) {
     typename T::TransportTag;
     typename T::AddressType;
-    requires(std::same_as<typename T::TransportTag, I2c> ||
-             std::same_as<typename T::TransportTag, Spi>);
+    requires(std::same_as<typename T::TransportTag, I2c> || std::same_as<typename T::TransportTag, Spi>);
     requires std::is_integral_v<typename T::AddressType>;
 } && requires(T& t, typename T::AddressType addr, void* data, std::size_t size) {
     { t.raw_read(addr, data, size) } -> std::same_as<void>;
@@ -479,8 +479,7 @@ class RegionValue {
             }
         } else {
             if constexpr (RegionT::is_register) {
-                static_assert(std::is_same_v<RegionT, R>,
-                              "DynamicValue register type must match reader register type");
+                static_assert(std::is_same_v<RegionT, R>, "DynamicValue register type must match reader register type");
                 return val == static_cast<typename R::RegValueType>(v.assigned_value);
             } else {
                 static_assert(std::is_same_v<typename RegionT::ParentRegType, R>,

@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <span>
 #include <type_traits>
 
 #include "../ops.hh"
@@ -18,7 +19,7 @@ namespace umi::mmio {
 
 /// @brief SPI transport with runtime driver reference.
 ///
-/// @tparam SpiDevice   SPI device type providing transfer().
+/// @tparam SpiDriver   SPI driver type providing transfer().
 /// @tparam CheckPolicy Enable runtime range checks.
 /// @tparam ErrorPolicy Error handler for range violations.
 /// @tparam AddressWidth Register address width on the bus.
@@ -27,7 +28,7 @@ namespace umi::mmio {
 /// @tparam ReadBit     Bit ORed into address byte for reads (default: 0x80).
 /// @tparam CmdMask     Mask applied to address byte before OR (default: 0x7F).
 /// @tparam WriteBit    Bit ORed into address byte for writes (default: 0x00).
-template <typename SpiDevice,
+template <typename SpiDriver,
           typename CheckPolicy = std::true_type,
           typename ErrorPolicy = AssertOnError,
           typename AddressWidth = std::uint8_t,
@@ -37,14 +38,14 @@ template <typename SpiDevice,
           std::uint8_t CmdMask = 0x7F,
           std::uint8_t WriteBit = 0x00>
 class SpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, DataEndian> {
-    SpiDevice& spi;
+    SpiDriver& spi;
 
   public:
     using TransportTag = Spi;
 
     /// @brief Construct a SPI transport.
-    /// @param dev Reference to SPI device.
-    explicit SpiTransport(SpiDevice& dev) noexcept : spi(dev) {}
+    /// @param dev Reference to SPI driver.
+    explicit SpiTransport(SpiDriver& dev) noexcept : spi(dev) {}
 
     /// @brief Write register data over SPI.
     /// @note If the SPI driver's transfer() returns a type convertible to bool,
@@ -56,10 +57,12 @@ class SpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
         detail::encode_spi_address<AddrEndian, AddressWidth, WriteBit, CmdMask>(reg_addr, tx_buf.data());
         std::memcpy(tx_buf.data() + addr_size, data, size);
 
-        if constexpr (std::is_void_v<decltype(spi.transfer(tx_buf.data(), nullptr, addr_size + size))>) {
-            spi.transfer(tx_buf.data(), nullptr, addr_size + size);
+        auto tx = std::span<const std::uint8_t>{tx_buf.data(), addr_size + size};
+        auto rx = std::span<std::uint8_t>{};
+        if constexpr (std::is_void_v<decltype(spi.transfer(tx, rx))>) {
+            spi.transfer(tx, rx);
         } else {
-            if (!spi.transfer(tx_buf.data(), nullptr, addr_size + size)) {
+            if (!spi.transfer(tx, rx)) {
                 ErrorPolicy::on_transport_error("SPI write failed");
             }
         }
@@ -75,10 +78,12 @@ class SpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
         std::array<std::uint8_t, addr_size + max_reg_bytes> rx_buf{};
         detail::encode_spi_address<AddrEndian, AddressWidth, ReadBit, CmdMask>(reg_addr, tx_buf.data());
 
-        if constexpr (std::is_void_v<decltype(spi.transfer(tx_buf.data(), rx_buf.data(), addr_size + size))>) {
-            spi.transfer(tx_buf.data(), rx_buf.data(), addr_size + size);
+        auto tx = std::span<const std::uint8_t>{tx_buf.data(), addr_size + size};
+        auto rx = std::span<std::uint8_t>{rx_buf.data(), addr_size + size};
+        if constexpr (std::is_void_v<decltype(spi.transfer(tx, rx))>) {
+            spi.transfer(tx, rx);
         } else {
-            if (!spi.transfer(tx_buf.data(), rx_buf.data(), addr_size + size)) {
+            if (!spi.transfer(tx, rx)) {
                 ErrorPolicy::on_transport_error("SPI read failed");
             }
         }

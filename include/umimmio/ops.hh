@@ -150,11 +150,10 @@ class RegOps {
             self.reg_write(ParentRegType{}, F::mask());
         } else {
             // Mixed register: RMW to preserve non-W1C field values.
-            static_assert(Readable<ParentRegType>,
-                          "Mixed W1C+non-W1C register must be readable for safe clear()");
+            static_assert(Readable<ParentRegType>, "Mixed W1C+non-W1C register must be readable for safe clear()");
             auto current = self.reg_read(ParentRegType{});
             current &= ~ParentRegType::w1c_mask; // Zero all W1C bits (no-op in W1C spec)
-            current |= F::mask();                 // Set target W1C bit(s) to 1 (clear them)
+            current |= F::mask();                // Set target W1C bit(s) to 1 (clear them)
             self.reg_write(ParentRegType{}, current);
         }
     }
