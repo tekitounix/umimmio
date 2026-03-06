@@ -39,7 +39,7 @@ class SpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
     SpiDevice& spi;
 
   public:
-    using TransportTag = SPITransportTag;
+    using TransportTag = Spi;
 
     /// @brief Construct a SPI transport.
     /// @param dev Reference to SPI device.

@@ -16,7 +16,7 @@
 using namespace umi::mmio;
 
 // Hierarchical register map — Device contains Register, Register contains Field.
-struct MyDevice : Device<RW, DirectTransportTag> {
+struct MyDevice : Device<> {
 
     /// 8-bit status register at offset 0x00 (read-only)
     struct SR : Register<MyDevice, 0x00, bits8, RO> {

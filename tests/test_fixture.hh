@@ -41,7 +41,7 @@ struct MockTransport : private RegOps<> {
     using RegOps<>::reset;
     using RegOps<>::read_variant;
 
-    using TransportTag = DirectTransportTag;
+    using TransportTag = Direct;
 
     std::array<std::uint8_t, 256> mutable memory{};
 
@@ -82,7 +82,7 @@ struct MockTransport : private RegOps<> {
 // =============================================================================
 
 /// @brief Mock device with direct transport only
-struct MockDevice : Device<RW, DirectTransportTag> {};
+struct MockDevice : Device<> {};
 
 // --- Registers at various offsets ---
 

@@ -29,7 +29,7 @@ class DirectTransport : private RegOps<CheckPolicy, ErrorPolicy> {
     using RegOps<CheckPolicy, ErrorPolicy>::clear;
     using RegOps<CheckPolicy, ErrorPolicy>::reset;
     using RegOps<CheckPolicy, ErrorPolicy>::read_variant;
-    using TransportTag = DirectTransportTag;
+    using TransportTag = Direct;
 
     /// @brief Read a register via volatile pointer dereference.
     template <typename Reg>

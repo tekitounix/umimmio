@@ -6,7 +6,7 @@
 
 - `tests/test_main.cc`: テストエントリポイント
 - `tests/test_access_policy.cc`: RW/RO/WO/W1C ポリシーの強制、WriteBehavior
-- `tests/test_register_field.cc`: BitRegion, Register, Field, Value, マスク/シフト、RegisterReader
+- `tests/test_register_field.cc`: BitRegion, Register, Field, Value, マスク/シフト、RegionValue
 - `tests/test_transport.cc`: read/write/modify/is/flip/clear/reset/read_variant 用 RAM バックドモックトランスポート
 - `tests/test_spi_bitbang.cc`: SPI, I2C, BitBang トランスポート、ByteAdapter エンディアンテスト
 - `tests/test_protected.cc`: NoLockPolicy および MutexPolicy による Protected<T, LockPolicy>
@@ -18,7 +18,7 @@
 - `tests/compile_fail/modify_w1c.cc`: compile-fail ガード — W1C フィールドでの `modify()`
 - `tests/compile_fail/flip_w1c.cc`: compile-fail ガード — W1C フィールドでの `flip()`
 - `tests/compile_fail/field_overflow.cc`: compile-fail ガード — BitRegion オーバーフロー（オフセット + 幅 > レジスタ幅）
-- `tests/compile_fail/read_field_eq_int.cc`: compile-fail ガード — `FieldValue == 整数`（raw アクセスは `.bits()` を使用）
+- `tests/compile_fail/read_field_eq_int.cc`: compile-fail ガード — `RegionValue == 整数`（raw アクセスは `.bits()` を使用）
 
 ## テスト実行
 
@@ -42,7 +42,7 @@ umimmio は主にコンパイル時抽象化ライブラリであるため、テ
 1. **アクセスポリシー強制** — `requires` 句がコンパイル時に不正アクセスを拒否
 2. **W1C 安全性** — `modify()` と `flip()` が W1C フィールドを拒否、`clear()` が唯一のパス
 3. **ビット算術** — レジスタとフィールドのマスク、シフト、リセット値
-4. **RegisterReader と FieldValue** — `bits()`、`get()`、`is()` フルエント API、`FieldValue<F>` が raw 整数比較をブロック
+4. **RegionValue** — `bits()`、`get()`、`is()` フルエント API、`RegionValue<F>` が raw 整数比較をブロック
 5. **トランスポート正確性** — RAM バックドモックが write/read/modify ラウンドトリップを検証
 6. **保護付きアクセス** — `Protected<T, LockPolicy>` NoLockPolicy および MutexPolicy の RAII パターン検証
 7. **Compile-fail ガード** — 不正操作がコンパイルされないことを確認（9 テストファイル）

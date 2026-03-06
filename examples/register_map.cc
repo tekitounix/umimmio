@@ -23,7 +23,7 @@ using namespace umi::mmio;
 
 /// SPI device at base address 0x4001'3000.
 /// Registers, fields, and named values are nested inside the device.
-struct SpiDevice : Device<RW, DirectTransportTag> {
+struct SpiDevice : Device<> {
     static constexpr Addr base_address = 0x4001'3000;
 
     /// CR1: control register 1

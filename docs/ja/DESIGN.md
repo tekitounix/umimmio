@@ -76,7 +76,7 @@ lib/umimmio/
 │   ├── mmio.hh              # アンブレラヘッダー
 │   ├── policy.hh            # 基盤: AccessPolicy、トランスポートタグ、エラーポリシー
 │   ├── region.hh            # データモデル: Device, Register, Field, Value, concepts
-│   ├── ops.hh               # 操作: RegOps, ByteAdapter, RegisterReader
+│   ├── ops.hh               # 操作: RegOps, ByteAdapter, RegionValue
 │   ├── protected.hh         # Protected<T, LockPolicy>, Guard, ロックポリシー
 │   └── transport/
 │       ├── direct.hh        # DirectTransport (volatile ポインタ)
@@ -116,14 +116,15 @@ lib/umimmio/
 | 型 | 用途 |
 |------|---------|
 | `Device<Access, Transports...>` | アクセスポリシーと許可トランスポートを持つデバイスルート。MMIO デバイスは `base_address` をオーバーライド。 |
+| `Block<Parent, BaseAddr, Access>` | Device 内のアドレスサブ領域（親のトランスポートを継承）。 |
 | `Register<Device, Offset, Bits, Access, Reset, W1cMask>` | デバイス内のオフセットにあるレジスタ。`W1cMask` は W1C ビットを指定。 |
 | `Field<Reg, BitOffset, BitWidth, ...Traits>` | レジスタ内のビットフィールド（可変長トレイト） |
 | `Value<Field, val>` | Field の名前付き定数 |
 | `DynamicValue<Field, T>` | Field のランタイム値 |
-| `RegisterReader<Reg>` | `read(Register{})` の戻り値型 — `bits()`、`get()`、`is()` を提供 |
-| `FieldValue<F>` | `read(Field{})` と `get(Field{})` の戻り値型 — 型安全、raw アクセスは `.bits()` |
+| `RegionValue<R>` | `read()` と `get()` の統一戻り値型 — `bits()` は常に利用可能。レジスタ: `get()`, `is()`。フィールド: 型付き `==` のみ |
 | `UnknownValue<Reg>` | `read_variant()` で名前付き値にマッチしない場合のセンチネル型 |
 | `Numeric` | トレイト: Field で raw `value()` を有効化 |
+| `Inherit` | センチネル: Field が親 Register からアクセスポリシーを継承 |
 | `WriteBehavior` | 列挙型: `NORMAL` または `ONE_TO_CLEAR` |
 
 トランスポート型：
@@ -149,8 +150,8 @@ lib/umimmio/
 
 | 操作 | 用途 | 制約 |
 |-----------|---------|------------|
-| `read(Reg{})` | レジスタ読み出し → `RegisterReader<Reg>` | `Readable<Reg>` |
-| `read(Field{})` | フィールド読み出し → `FieldValue<F>`（raw は `.bits()`） | `Readable<Field>` |
+| `read(Reg{})` | レジスタ読み出し → `RegionValue<Reg>` | `Readable<Reg>` |
+| `read(Field{})` | フィールド読み出し → `RegionValue<F>`（raw は `.bits()`） | `Readable<Field>` |
 | `write(v1, v2, ...)` | 値の書き込み（リセット値ベース） | `WritableValue` |
 | `modify(v1, v2, ...)` | Read-modify-write | `ModifiableValue`（W1C 除外） |
 | `is(v)` | フィールド/レジスタ値の比較 | `ReadableValue` |
@@ -159,12 +160,21 @@ lib/umimmio/
 | `reset(Reg{})` | `Reg::reset_value()` の書き込み | `Writable<Reg>` |
 | `read_variant(F{}, V1{}, ..., VN{})` | フィールド値のパターンマッチ → `std::variant` | — |
 
+Register/Field の静的メソッド：
+
+| メソッド | 用途 | 利用可能条件 |
+|--------|---------|-------------|
+| `Reg::value(T)` | 範囲チェック付き `DynamicValue` 生成 | Register（常に） |
+| `Field::value(T)` | 範囲チェック付き `DynamicValue` 生成 | `Numeric` トレイト付き Field |
+| `mask()` | コンパイル時ビットマスク | Register, Field |
+| `reset_value()` | コンパイル時リセット値 | Register, Field（継承） |
+
 並行性型：
 
 | 型 | 用途 |
 |------|---------|
 | `Protected<T, LockPolicy>` | T をラップし、`lock()` → `Guard` 経由でのみアクセス可能 |
-| `Guard<T, LockPolicy>` | Protected の内部値への RAII スコープ付きアクセス |
+| `Guard<T, LockPolicy>` | `operator*()` / `operator->()` による RAII スコープ付きアクセス。破棄時にロック解放。 |
 | `MutexPolicy<MutexT>` | RTOS ミューテックスラッパー |
 | `NoLockPolicy` | シングルスレッドまたはテスト用の No-op ロック |
 
@@ -229,7 +239,7 @@ struct MyDevice : mm::Device<mm::RW> {
 
 フィールドは**デフォルトで安全**: 名前付き `Value<>` 型のみ受け付ける。
 `Numeric` トレイトで raw `value()` アクセスをオプトイン。
-読み出し側の raw 値取得には `FieldValue::bits()` または `RegisterReader::bits()` を使用。
+読み出し側の raw 値取得には `RegionValue::bits()` を使用。
 
 | フィールド種別 | `value()` | `Value<>` 型 |
 |-----------|:---------:|:---------------:|
@@ -337,23 +347,27 @@ struct D : mm::Field<REG, 0, 8> {};                        // Inherit, 安全
 struct E : mm::Field<SR, 0, 1, mm::W1C> {};                // W1C: Clear エイリアス
 ```
 
-### 5.6 RegisterReader
+### 5.6 RegionValue
 
-`read(Register{})` は raw 値ではなく `RegisterReader<Reg>` を返す。
+`read(Register{})` は raw 値ではなく `RegionValue<Reg>` を返す。
+`read(Field{})` は `RegionValue<F>` を返す。どちらも同一の `RegionValue<R>` テンプレートが
+レジスタまたはフィールドに特殊化されたもの。
 これによりフルエントなチェーンアクセスが可能：
 
 ```cpp
 auto cfg = hw.read(ConfigReg{});
-auto en  = cfg.get(ConfigEnable{});   // FieldValue<ConfigEnable>
+auto en  = cfg.get(ConfigEnable{});   // RegionValue<ConfigEnable>
 bool is_fast = cfg.is(ModeFast{});    // 名前付き値とのマッチ
 uint32_t raw = cfg.bits();           // raw レジスタ値
 auto en_raw = en.bits();             // raw フィールド値（エスケープハッチ）
 ```
 
-`RegisterReader` は raw 値を保持し、以下を提供：
-- `bits()` — raw レジスタ値
-- `get(Field{})` — フィールド値の抽出（`FieldValue<F>` を返す）
-- `is(ValueType{})` — 名前付き値とのマッチ
+`RegionValue<R>` は raw 値を保持し、以下を提供：
+- `bits()` — raw 値（常に利用可能）
+- `operator==(RegionValue)` — 同一領域の等値比較（常に利用可能）
+- `get(Field{})` — フィールド値の抽出（`RegionValue<F>` を返す、レジスタのみ）
+- `is(ValueType{})` — 名前付き値とのマッチ（レジスタのみ）
+- `operator==` with `Value`/`DynamicValue` — 型付き比較（フィールドのみ）
 
 ---
 
@@ -369,7 +383,7 @@ auto en_raw = en.bits();             // raw フィールド値（エスケープ
 6. `BitRegion` オーバーフロー（オフセット + 幅 > レジスタ幅） → `static_assert` 失敗。
 7. `modify()` での W1C フィールド → `ModifiableValue` concept が W1C を拒否。
 8. `flip()` での W1C フィールド → `NotW1C` concept が W1C を拒否。
-9. `FieldValue == 整数` → `operator==` なし（raw アクセスは `.bits()` を使用）。
+9. `RegionValue == 整数` → `operator==` なし（raw アクセスは `.bits()` を使用）。
 
 ### 6.2 ランタイムエラーポリシー
 
@@ -378,7 +392,7 @@ auto en_raw = en.bits();             // raw フィールド値（エスケープ
 | ポリシー | 動作 |
 |--------|----------|
 | `AssertOnError` | `assert(false && msg)` (デフォルト) |
-| `TrapOnError` | `__builtin_trap()` |
+| `TrapOnError` | `std::abort()` |
 | `IgnoreError` | サイレント no-op |
 | `CustomErrorHandler<fn>` | ユーザーコールバック |
 

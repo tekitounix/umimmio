@@ -6,7 +6,7 @@
 
 - `tests/test_main.cc`: test entrypoint
 - `tests/test_access_policy.cc`: RW/RO/WO/W1C policy enforcement, WriteBehavior
-- `tests/test_register_field.cc`: BitRegion, Register, Field, Value, mask/shift, RegisterReader
+- `tests/test_register_field.cc`: BitRegion, Register, Field, Value, mask/shift, RegionValue
 - `tests/test_transport.cc`: RAM-backed mock transport for read/write/modify/is/flip/clear/reset/read_variant
 - `tests/test_spi_bitbang.cc`: SPI, I2C, BitBang transports, ByteAdapter endian tests
 - `tests/test_protected.cc`: Protected<T, LockPolicy> with NoLockPolicy and MutexPolicy
@@ -18,7 +18,7 @@
 - `tests/compile_fail/modify_w1c.cc`: compile-fail guard — `modify()` on W1C field
 - `tests/compile_fail/flip_w1c.cc`: compile-fail guard — `flip()` on W1C field
 - `tests/compile_fail/field_overflow.cc`: compile-fail guard — BitRegion overflow (offset + width > reg width)
-- `tests/compile_fail/read_field_eq_int.cc`: compile-fail guard — `FieldValue == integer` (use `.bits()` for raw)
+- `tests/compile_fail/read_field_eq_int.cc`: compile-fail guard — `RegionValue == integer` (use `.bits()` for raw)
 
 ## Run Tests
 
@@ -42,7 +42,7 @@ Since umimmio is primarily a compile-time abstraction library, tests focus on:
 1. **Access policy enforcement** — `requires` clauses reject illegal access at compile time
 2. **W1C safety** — `modify()` and `flip()` reject W1C fields; `clear()` is the only path
 3. **Bit arithmetic** — mask, shift, reset values for registers and fields
-4. **RegisterReader & FieldValue** — `bits()`, `get()`, `is()` fluent API; `FieldValue<F>` blocks raw integer comparison
+4. **RegionValue** — `bits()`, `get()`, `is()` fluent API; `RegionValue<F>` blocks raw integer comparison
 5. **Transport correctness** — RAM-backed mock verifies write/read/modify round-trips
 6. **Protected access** — `Protected<T, LockPolicy>` RAII pattern with NoLockPolicy and MutexPolicy
 7. **Compile-fail guards** — illegal operations must not compile (9 test files)

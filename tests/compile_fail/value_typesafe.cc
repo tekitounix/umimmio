@@ -12,7 +12,7 @@ namespace {
 
 using namespace umi::mmio;
 
-struct TestDevice : Device<RW, DirectTransportTag> {};
+struct TestDevice : Device<> {};
 struct CtrlReg : Register<TestDevice, 0x00, bits32, RW, 0> {};
 
 // Field without Numeric — safe by default, raw value() must be rejected
@@ -23,7 +23,7 @@ struct MockTransport : private RegOps<> {
   public:
     using RegOps<>::write;
     using RegOps<>::modify;
-    using TransportTag = DirectTransportTag;
+    using TransportTag = Direct;
 
     template <typename Reg>
     auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {

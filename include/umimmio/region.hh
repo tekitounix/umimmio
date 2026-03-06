@@ -73,13 +73,13 @@ struct TransportConceptReg {
 /// @tparam AllowedTransports Transport tags permitted for this device.
 ///
 /// @code
-///   // MMIO: override base_address
-///   struct SPI1 : Device<RW, DirectTransportTag> {
+///   // MMIO: override base_address (Direct is the default transport)
+///   struct SPI1 : Device<> {
 ///       static constexpr Addr base_address = 0x4001'3000;
 ///   };
 ///
 ///   // I2C: base_address = 0 is correct (register addrs are offsets)
-///   struct CS43L22 : Device<RW, I2CTransportTag> {
+///   struct CS43L22 : Device<RW, I2c> {
 ///       static constexpr std::uint8_t i2c_address = 0x4A;
 ///   };
 /// @endcode
@@ -87,7 +87,7 @@ template <class Access = RW, typename... AllowedTransports>
 struct Device {
     using AccessType = Access;
     using AllowedTransportsType = std::conditional_t<sizeof...(AllowedTransports) == 0,
-                                                     std::tuple<DirectTransportTag>,
+                                                     std::tuple<Direct>,
                                                      std::tuple<AllowedTransports...>>;
     static constexpr Addr base_address = 0;
 };
@@ -391,7 +391,7 @@ concept ModifiableValue =
 template <typename T>
 concept DirectTransportLike = requires(T& t) {
     typename T::TransportTag;
-    requires std::same_as<typename T::TransportTag, DirectTransportTag>;
+    requires std::same_as<typename T::TransportTag, Direct>;
 } && requires(T& t, std::uint64_t val) {
     { t.template reg_read<TransportConceptReg>(TransportConceptReg{}) } -> std::convertible_to<std::uint64_t>;
     { t.template reg_write<TransportConceptReg>(TransportConceptReg{}, val) } -> std::same_as<void>;
@@ -407,8 +407,8 @@ template <typename T>
 concept ByteTransportLike = requires(T& t) {
     typename T::TransportTag;
     typename T::AddressType;
-    requires(std::same_as<typename T::TransportTag, I2CTransportTag> ||
-             std::same_as<typename T::TransportTag, SPITransportTag>);
+    requires(std::same_as<typename T::TransportTag, I2c> ||
+             std::same_as<typename T::TransportTag, Spi>);
     requires std::is_integral_v<typename T::AddressType>;
 } && requires(T& t, typename T::AddressType addr, void* data, std::size_t size) {
     { t.raw_read(addr, data, size) } -> std::same_as<void>;
@@ -420,7 +420,7 @@ concept TransportLike = RegTransportLike<T> || ByteTransportLike<T>;
 /// @}
 
 // ===========================================================================
-// UnknownValue, FieldValue, RegisterReader — read result types
+// UnknownValue, RegionValue — read result types
 // ===========================================================================
 
 /// @brief Sentinel type for unknown field values.
@@ -429,71 +429,42 @@ struct UnknownValue {
     typename F::ValueType value;
 };
 
-/// @brief Type-safe wrapper for a field value read from hardware.
+/// @brief Immutable snapshot of a register or field value read from hardware.
 ///
-/// Blocks raw integer comparison — use `.bits()` for explicit escape.
-/// Comparison with `Value<F, V>` and `DynamicValue<F, T>` is type-safe.
-/// Symmetric with the write side: just as `value()` requires Numeric or
-/// named Value for writes, FieldValue requires `.bits()` or named Value
-/// for reads.
+/// Unified read-result type — replaces the former RegisterReader/FieldValue pair.
+/// For registers: provides `bits()`, `get(Field)`, `is(Value/DynamicValue)`.
+/// For fields: provides `bits()`, `operator==(Value/DynamicValue)`.
+/// Raw integer comparison is always blocked — use `.bits()` for explicit escape.
 ///
-/// @tparam F  The field type this value was read from.
-template <typename F>
-class FieldValue {
-    typename F::ValueType val;
+/// @tparam R  The register or field type this value was read from.
+template <typename R>
+class RegionValue {
+    using StoredType = std::conditional_t<R::is_register, typename R::RegValueType, typename R::ValueType>;
+    StoredType val;
 
   public:
-    using FieldType = F;
+    using RegionType = R;
 
-    explicit constexpr FieldValue(typename F::ValueType v) noexcept : val(v) {}
+    explicit constexpr RegionValue(StoredType v) noexcept : val(v) {}
 
     /// @brief Get the raw bit value (escape hatch).
     /// Symmetric with write-side `value()` — explicit opt-in for raw access.
     [[nodiscard]] constexpr auto bits() const noexcept { return val; }
 
-    /// @brief Compare two FieldValues of the same field.
-    [[nodiscard]] friend constexpr bool operator==(FieldValue, FieldValue) noexcept = default;
+    /// @brief Compare two RegionValues of the same region.
+    [[nodiscard]] friend constexpr bool operator==(RegionValue, RegionValue) noexcept = default;
 
-    /// @brief Compare with a compile-time named Value.
-    template <auto EnumValue>
-    [[nodiscard]] constexpr bool operator==(Value<F, EnumValue> /*unused*/) const noexcept {
-        return val == static_cast<typename F::ValueType>(EnumValue);
-    }
-
-    /// @brief Compare with a DynamicValue.
-    template <typename T>
-    [[nodiscard]] constexpr bool operator==(DynamicValue<F, T> const& dv) const noexcept {
-        return val == static_cast<typename F::ValueType>(dv.assigned_value);
-    }
-};
-
-/// @brief Immutable view of a register value read from hardware.
-///
-/// Holds the raw value from a single bus access, providing typed
-/// field extraction without additional bus transactions.
-/// All methods are constexpr noexcept for zero-overhead.
-///
-/// @tparam Reg The register type this reader was created from.
-template <typename Reg>
-class RegisterReader {
-    typename Reg::RegValueType val;
-
-  public:
-    explicit constexpr RegisterReader(typename Reg::RegValueType v) noexcept : val(v) {}
-
-    /// @brief Get the raw bit value of the entire register.
-    /// This is an explicit opt-in — prefer get() for typed access.
-    [[nodiscard]] constexpr auto bits() const noexcept { return val; }
+    // --- Register-only: field extraction and value matching ---
 
     /// @brief Extract a field value from the cached register value.
     /// No bus access occurs — this is a pure bit-extraction operation.
     ///
     /// @tparam F Field type. Must belong to this register.
-    /// @return FieldValue<F> wrapping the extracted value.
+    /// @return RegionValue<F> wrapping the extracted value.
     template <typename F>
-        requires IsField<F> && std::is_same_v<typename F::ParentRegType, Reg>
-    [[nodiscard]] constexpr auto get(F /*field*/ = {}) const noexcept -> FieldValue<F> {
-        return FieldValue<F>{static_cast<typename F::ValueType>((val & F::mask()) >> F::shift)};
+        requires(R::is_register) && IsField<F> && std::is_same_v<typename F::ParentRegType, R>
+    [[nodiscard]] constexpr auto get(F /*field*/ = {}) const noexcept -> RegionValue<F> {
+        return RegionValue<F>{static_cast<typename F::ValueType>((val & F::mask()) >> F::shift)};
     }
 
     /// @brief Compare the register/field value against an expected Value or DynamicValue.
@@ -501,30 +472,47 @@ class RegisterReader {
     /// @tparam V Value or DynamicValue type.
     /// @return true if the value matches.
     template <typename V>
+        requires(R::is_register)
     [[nodiscard]] constexpr bool is(V&& v) const noexcept {
         using VDecay = std::decay_t<V>;
         using RegionT = typename VDecay::RegionType;
 
         if constexpr (requires { VDecay::value; }) {
             if constexpr (RegionT::is_register) {
-                static_assert(std::is_same_v<RegionT, Reg>, "Value register type must match reader register type");
-                return val == static_cast<typename Reg::RegValueType>(VDecay::value);
+                static_assert(std::is_same_v<RegionT, R>, "Value register type must match reader register type");
+                return val == static_cast<typename R::RegValueType>(VDecay::value);
             } else {
-                static_assert(std::is_same_v<typename RegionT::ParentRegType, Reg>,
+                static_assert(std::is_same_v<typename RegionT::ParentRegType, R>,
                               "Value field must belong to this register");
                 return get(RegionT{}).bits() == static_cast<typename RegionT::ValueType>(VDecay::value);
             }
         } else {
             if constexpr (RegionT::is_register) {
-                static_assert(std::is_same_v<RegionT, Reg>,
+                static_assert(std::is_same_v<RegionT, R>,
                               "DynamicValue register type must match reader register type");
-                return val == static_cast<typename Reg::RegValueType>(v.assigned_value);
+                return val == static_cast<typename R::RegValueType>(v.assigned_value);
             } else {
-                static_assert(std::is_same_v<typename RegionT::ParentRegType, Reg>,
+                static_assert(std::is_same_v<typename RegionT::ParentRegType, R>,
                               "DynamicValue field must belong to this register");
                 return get(RegionT{}).bits() == static_cast<typename RegionT::ValueType>(v.assigned_value);
             }
         }
+    }
+
+    // --- Field-only: typed comparison ---
+
+    /// @brief Compare with a compile-time named Value.
+    template <auto EnumValue>
+        requires(!R::is_register)
+    [[nodiscard]] constexpr bool operator==(Value<R, EnumValue> /*unused*/) const noexcept {
+        return val == static_cast<typename R::ValueType>(EnumValue);
+    }
+
+    /// @brief Compare with a DynamicValue.
+    template <typename T>
+        requires(!R::is_register)
+    [[nodiscard]] constexpr bool operator==(DynamicValue<R, T> const& dv) const noexcept {
+        return val == static_cast<typename R::ValueType>(dv.assigned_value);
     }
 };
 

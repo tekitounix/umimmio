@@ -11,7 +11,7 @@ namespace {
 
 using namespace umi::mmio;
 
-struct TestDevice : Device<RW, DirectTransportTag> {};
+struct TestDevice : Device<> {};
 struct DataReg : Register<TestDevice, 0x08, bits32, WO, 0> {};
 
 /// @brief Mock transport for compile-time test.
@@ -19,7 +19,7 @@ struct MockTransport : private RegOps<> {
   public:
     using RegOps<>::write;
     using RegOps<>::read;
-    using TransportTag = DirectTransportTag;
+    using TransportTag = Direct;
 
     template <typename Reg>
     auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {

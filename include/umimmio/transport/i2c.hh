@@ -35,7 +35,7 @@ class I2cTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
     std::uint8_t device_addr;
 
   public:
-    using TransportTag = I2CTransportTag;
+    using TransportTag = I2c;
 
     /// @brief Construct an I2C transport.
     /// @param bus  Reference to I2C driver.

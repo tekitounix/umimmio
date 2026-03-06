@@ -45,7 +45,7 @@ class BitBangSpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, Address
     Pins& pins;
 
   public:
-    using TransportTag = SPITransportTag;
+    using TransportTag = Spi;
 
     /// @brief Construct a bit-bang SPI transport.
     /// @param p Reference to GPIO pin abstraction.
