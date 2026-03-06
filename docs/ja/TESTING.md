@@ -5,9 +5,9 @@
 ## テストレイアウト
 
 - `tests/test_main.cc`: テストエントリポイント
-- `tests/test_access_policy.cc`: RW/RO/WO/W1C ポリシーの強制、WriteBehavior
-- `tests/test_register_field.cc`: BitRegion, Register, Field, Value, マスク/シフト、RegionValue
-- `tests/test_transport.cc`: read/write/modify/is/flip/clear/reset/read_variant 用 RAM バックドモックトランスポート
+- `tests/test_access_policy.cc`: RW/RO/WO/W1C ポリシーの強制、WriteBehavior、Block 階層、レジスタマスク
+- `tests/test_register_field.cc`: BitRegion, Register, Field, Value, マスク/シフト、RegionValue、modify/write/flip ワークフロー
+- `tests/test_transport.cc`: RAM バックドモックトランスポート — read/write/modify/is/flip/clear/reset/read_variant、W1C エッジケース、DynamicValue 境界値、エラーポリシー
 - `tests/test_spi_bitbang.cc`: SPI, I2C, BitBang トランスポート、ByteAdapter エンディアンテスト
 - `tests/test_protected.cc`: NoLockPolicy および MutexPolicy による Protected<T, LockPolicy>
 - `tests/compile_fail/read_wo.cc`: compile-fail ガード — 書き込み専用レジスタの読み出し
@@ -16,9 +16,15 @@
 - `tests/compile_fail/value_typesafe.cc`: compile-fail ガード — 非 Numeric フィールドでの `value()`
 - `tests/compile_fail/value_signed.cc`: compile-fail ガード — 符号付き整数での `value()`
 - `tests/compile_fail/modify_w1c.cc`: compile-fail ガード — W1C フィールドでの `modify()`
+- `tests/compile_fail/modify_wo.cc`: compile-fail ガード — 書き込み専用レジスタでの `modify()`
 - `tests/compile_fail/flip_w1c.cc`: compile-fail ガード — W1C フィールドでの `flip()`
+- `tests/compile_fail/flip_ro.cc`: compile-fail ガード — 読み出し専用フィールドでの `flip()`
+- `tests/compile_fail/flip_wo.cc`: compile-fail ガード — 書き込み専用フィールドでの `flip()`
 - `tests/compile_fail/field_overflow.cc`: compile-fail ガード — BitRegion オーバーフロー（オフセット + 幅 > レジスタ幅）
+- `tests/compile_fail/clear_non_w1c.cc`: compile-fail ガード — 非 W1C フィールドでの `clear()`
+- `tests/compile_fail/cross_register_write.cc`: compile-fail ガード — 異なるレジスタの値を混ぜた `write()`
 - `tests/compile_fail/read_field_eq_int.cc`: compile-fail ガード — `RegionValue == 整数`（raw アクセスは `.bits()` を使用）
+- `tests/compile_fail/write_zero_args.cc`: compile-fail ガード — 引数なしの `write()`
 
 ## テスト実行
 
@@ -41,22 +47,27 @@ umimmio は主にコンパイル時抽象化ライブラリであるため、テ
 
 1. **アクセスポリシー強制** — `requires` 句がコンパイル時に不正アクセスを拒否
 2. **W1C 安全性** — `modify()` と `flip()` が W1C フィールドを拒否、`clear()` が唯一のパス
-3. **ビット算術** — レジスタとフィールドのマスク、シフト、リセット値
-4. **RegionValue** — `bits()`、`get()`、`is()` フルエント API、`RegionValue<F>` が raw 整数比較をブロック
-5. **トランスポート正確性** — RAM バックドモックが write/read/modify ラウンドトリップを検証
-6. **保護付きアクセス** — `Protected<T, LockPolicy>` NoLockPolicy および MutexPolicy の RAII パターン検証
-7. **Compile-fail ガード** — 不正操作がコンパイルされないことを確認（9 テストファイル）
+3. **W1C マスク正確性** — `modify()`、`flip()`、`clear()` が混合レジスタで W1C ビットを適切にマスク
+4. **ビット算術** — レジスタとフィールドのマスク、シフト、リセット値
+5. **RegionValue** — `bits()`、`get()`、`is()` フルエント API、`RegionValue<F>` が raw 整数比較をブロック
+6. **トランスポート正確性** — RAM バックドモックが write/read/modify ラウンドトリップを検証
+7. **エッジケース** — 境界値、全 W1C レジスタ、選択的クリア、reset_value 保持
+8. **エラーポリシー** — CustomErrorHandler、IgnoreError、範囲外 DynamicValue 検出
+9. **保護付きアクセス** — `Protected<T, LockPolicy>` NoLockPolicy および MutexPolicy の RAII パターン検証
+10. **Compile-fail ガード** — 不正操作がコンパイルされないことを確認（15 テストファイル）
+11. **複数幅レジスタ** — 8-bit、16-bit、32-bit、64-bit レジスタ操作
 
 ハードウェアレベル MMIO テストは実ハードウェアまたはエミュレーションが必要であり、ホストテストの対象外。
 
 ## リリースの品質ゲート
 
-- 全ホストテストパス（68 テスト）
-- 全 compile-fail 契約テストパス（9 テスト）
+- 全ホストテストパス（83 テスト）
+- 全 compile-fail 契約テストパス（15 テスト）
 - トランスポートモックテストが単一および複数フィールドの write, modify, is, flip, clear, reset, read_variant をカバー
-- W1C 安全性: modify_w1c, flip_w1c compile-fail テストパス
-- BitRegion オーバーフロー: field_overflow compile-fail テストパス
-- 符号付き値拒否: value_signed compile-fail テストパス
+- W1C マスキング: 混合 W1C レジスタでの flip/modify/clear が非 W1C フィールドを保持
+- W1C パス: 全 W1C 直接書き込み、混合 RMW、選択的クリア
+- write() セマンティクス: 単一フィールド書き込みで他のフィールドが reset_value になる（ゼロではない）
+- DynamicValue: 境界値、ゼロ、範囲外検出
 - 組み込みクロスビルドが CI でパス (gcc-arm)
 
 ## CI カバレッジ

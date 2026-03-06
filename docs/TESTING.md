@@ -5,9 +5,9 @@
 ## Test Layout
 
 - `tests/test_main.cc`: test entrypoint
-- `tests/test_access_policy.cc`: RW/RO/WO/W1C policy enforcement, WriteBehavior
-- `tests/test_register_field.cc`: BitRegion, Register, Field, Value, mask/shift, RegionValue
-- `tests/test_transport.cc`: RAM-backed mock transport for read/write/modify/is/flip/clear/reset/read_variant
+- `tests/test_access_policy.cc`: RW/RO/WO/W1C policy enforcement, WriteBehavior, Block hierarchy, register masks
+- `tests/test_register_field.cc`: BitRegion, Register, Field, Value, mask/shift, RegionValue, modify/write/flip workflows
+- `tests/test_transport.cc`: RAM-backed mock transport for read/write/modify/is/flip/clear/reset/read_variant, W1C edge cases, DynamicValue boundary, error policy
 - `tests/test_spi_bitbang.cc`: SPI, I2C, BitBang transports, ByteAdapter endian tests
 - `tests/test_protected.cc`: Protected<T, LockPolicy> with NoLockPolicy and MutexPolicy
 - `tests/compile_fail/read_wo.cc`: compile-fail guard — reading a write-only register
@@ -16,9 +16,15 @@
 - `tests/compile_fail/value_typesafe.cc`: compile-fail guard — `value()` on non-Numeric field
 - `tests/compile_fail/value_signed.cc`: compile-fail guard — `value()` with signed integer
 - `tests/compile_fail/modify_w1c.cc`: compile-fail guard — `modify()` on W1C field
+- `tests/compile_fail/modify_wo.cc`: compile-fail guard — `modify()` on write-only register
 - `tests/compile_fail/flip_w1c.cc`: compile-fail guard — `flip()` on W1C field
+- `tests/compile_fail/flip_ro.cc`: compile-fail guard — `flip()` on read-only field
+- `tests/compile_fail/flip_wo.cc`: compile-fail guard — `flip()` on write-only field
 - `tests/compile_fail/field_overflow.cc`: compile-fail guard — BitRegion overflow (offset + width > reg width)
+- `tests/compile_fail/clear_non_w1c.cc`: compile-fail guard — `clear()` on non-W1C field
+- `tests/compile_fail/cross_register_write.cc`: compile-fail guard — `write()` mixing values from different registers
 - `tests/compile_fail/read_field_eq_int.cc`: compile-fail guard — `RegionValue == integer` (use `.bits()` for raw)
+- `tests/compile_fail/write_zero_args.cc`: compile-fail guard — `write()` with zero arguments
 
 ## Run Tests
 
@@ -41,22 +47,27 @@ Since umimmio is primarily a compile-time abstraction library, tests focus on:
 
 1. **Access policy enforcement** — `requires` clauses reject illegal access at compile time
 2. **W1C safety** — `modify()` and `flip()` reject W1C fields; `clear()` is the only path
-3. **Bit arithmetic** — mask, shift, reset values for registers and fields
-4. **RegionValue** — `bits()`, `get()`, `is()` fluent API; `RegionValue<F>` blocks raw integer comparison
-5. **Transport correctness** — RAM-backed mock verifies write/read/modify round-trips
-6. **Protected access** — `Protected<T, LockPolicy>` RAII pattern with NoLockPolicy and MutexPolicy
-7. **Compile-fail guards** — illegal operations must not compile (9 test files)
+3. **W1C mask correctness** — `modify()`, `flip()`, `clear()` properly mask W1C bits in mixed registers
+4. **Bit arithmetic** — mask, shift, reset values for registers and fields
+5. **RegionValue** — `bits()`, `get()`, `is()` fluent API; `RegionValue<F>` blocks raw integer comparison
+6. **Transport correctness** — RAM-backed mock verifies write/read/modify round-trips
+7. **Edge cases** — boundary values, all-W1C registers, selective clear, reset_value preservation
+8. **Error policy** — CustomErrorHandler, IgnoreError, out-of-range DynamicValue detection
+9. **Protected access** — `Protected<T, LockPolicy>` RAII pattern with NoLockPolicy and MutexPolicy
+10. **Compile-fail guards** — illegal operations must not compile (15 test files)
+11. **Multi-width registers** — 8-bit, 16-bit, 32-bit, 64-bit register operations
 
 Hardware-level MMIO tests require actual hardware or emulation and are out of scope for host tests.
 
 ## Quality Gates for Release
 
-- All host tests pass (68 tests)
-- All compile-fail contract tests pass (9 tests)
+- All host tests pass (83 tests)
+- All compile-fail contract tests pass (15 tests)
 - Transport mock tests cover single and multi-field write, modify, is, flip, clear, reset, read_variant
-- W1C safety: modify_w1c, flip_w1c compile-fail tests pass
-- BitRegion overflow: field_overflow compile-fail test passes
-- Signed value rejection: value_signed compile-fail test passes
+- W1C masking: flip/modify/clear on mixed W1C registers preserves non-W1C fields
+- W1C paths: all-W1C direct write, mixed RMW, selective clear
+- write() semantics: single field resets others to reset_value (not zero)
+- DynamicValue: boundary values, zero, out-of-range detection
 - Embedded cross-build passes in CI (gcc-arm)
 
 ## CI Coverage

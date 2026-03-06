@@ -122,6 +122,22 @@ struct W1cEoc : Field<W1cStatusReg, 1, 1, W1C> {};
 /// @brief Non-W1C enable flag in same register (bit 8)
 struct W1cRegEnable : Field<W1cStatusReg, 8, 1> {};
 
+/// @brief Non-W1C mode flag in same register (bit 9)
+struct W1cRegMode : Field<W1cStatusReg, 9, 1> {};
+
+/// @brief All-W1C register — every bit is W1C (no non-W1C fields)
+struct AllW1cReg : Register<MockDevice, 0x1C, bits16, RW, 0, /*W1cMask=*/0xFFFF> {};
+struct AllW1cFlag0 : Field<AllW1cReg, 0, 1, W1C> {};
+struct AllW1cFlag1 : Field<AllW1cReg, 1, 1, W1C> {};
+struct AllW1cFlag2 : Field<AllW1cReg, 2, 1, W1C> {};
+
+/// @brief 16-bit RW register with W1C fields — tests W1C on non-32-bit widths
+struct Ctrl16W1cReg : Register<MockDevice, 0x20, bits16, RW, 0, /*W1cMask=*/0x03> {};
+struct Ctrl16W1cBit0 : Field<Ctrl16W1cReg, 0, 1, W1C> {};
+struct Ctrl16W1cBit1 : Field<Ctrl16W1cReg, 1, 1, W1C> {};
+struct Ctrl16Enable : Field<Ctrl16W1cReg, 8, 1> {};
+struct Ctrl16Mode : Field<Ctrl16W1cReg, 4, 2, Numeric> {};
+
 // --- Fields within ConfigReg ---
 
 /// @brief Enable bit (bit 0, 1-bit)
