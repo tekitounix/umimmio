@@ -312,6 +312,8 @@ void custom_handler(const char* /*msg*/) noexcept {
 struct CustomErrTransport : private RegOps<std::true_type, CustomErrorHandler<custom_handler>> {
   public:
     using RegOps<std::true_type, CustomErrorHandler<custom_handler>>::write;
+    using RegOps<std::true_type, CustomErrorHandler<custom_handler>>::read;
+    using RegOps<std::true_type, CustomErrorHandler<custom_handler>>::is;
     using TransportTag = Direct;
 
     std::array<std::uint8_t, 256> mutable memory{};
@@ -340,9 +342,6 @@ bool test_custom_error_handler_callback(TestContext& t) {
 // =============================================================================
 // Multi-field modify with W1C register
 // =============================================================================
-
-/// @brief A second non-W1C field in the W1C register (bit 9).
-struct W1cRegMode : Field<W1cStatusReg, 9, 1> {};
 
 bool test_w1c_modify_multi_field(TestContext& t) {
     MockTransport hw;
@@ -389,6 +388,311 @@ bool test_8bit_register_ops(TestContext& t) {
     return ok;
 }
 
+// =============================================================================
+// flip() in W1C-containing register — W1C bits must be masked
+// =============================================================================
+
+/// @brief Verifies that flip() on a non-W1C field in a W1C register masks W1C bits.
+/// This is the edge case that caught Bug #1: without W1C masking, flip() would
+/// write back 1s to W1C flag bits, accidentally clearing hardware flags.
+bool test_flip_in_w1c_register(TestContext& t) {
+    MockTransport hw;
+
+    // OVR=1, EOC=1, Enable=0 → raw = 0x0003
+    hw.poke<uint32_t>(0x14, 0x0003U);
+
+    // flip(Enable) should:
+    //   1. Read 0x0003
+    //   2. XOR Enable mask (0x0100) → 0x0103
+    //   3. Mask W1C bits (&~0x03) → 0x0100
+    //   4. Write 0x0100
+    hw.flip(W1cRegEnable{});
+
+    bool ok = true;
+    auto result = hw.peek<uint32_t>(0x14);
+    ok &= t.assert_true((result & 0x0100U) != 0, "Enable should be flipped to 1");
+    ok &= t.assert_true((result & 0x03U) == 0U, "W1C bits should be masked to 0");
+    return ok;
+}
+
+/// @brief flip() in W1C register toggles back — ensures bidirectional flip works.
+bool test_flip_in_w1c_register_toggle_back(TestContext& t) {
+    MockTransport hw;
+
+    // Enable=1, Mode=1, OVR=1
+    hw.poke<uint32_t>(0x14, 0x0301U);
+
+    // flip(Enable) should:
+    //   1. Read 0x0301
+    //   2. XOR Enable mask → 0x0201
+    //   3. Mask W1C (&~0x03) → 0x0200
+    //   4. Write 0x0200
+    hw.flip(W1cRegEnable{});
+
+    bool ok = true;
+    auto result = hw.peek<uint32_t>(0x14);
+    ok &= t.assert_true((result & 0x0100U) == 0U, "Enable should be flipped to 0");
+    ok &= t.assert_true((result & 0x0200U) != 0, "Mode should be preserved");
+    ok &= t.assert_true((result & 0x03U) == 0U, "W1C bits should be masked to 0");
+    return ok;
+}
+
+// =============================================================================
+// clear() on all-W1C register — direct write path (no RMW needed)
+// =============================================================================
+
+bool test_clear_all_w1c_register(TestContext& t) {
+    MockTransport hw;
+
+    // All flags set: 0x0007 (bits 0,1,2)
+    hw.poke<uint16_t>(0x1C, uint16_t{0x0007});
+
+    // clear(Flag1) should directly write Flag1::mask() = 0x0002
+    // because all bits are W1C → no non-W1C fields to preserve.
+    hw.clear(AllW1cFlag1{});
+
+    bool ok = true;
+    auto result = hw.peek<uint16_t>(0x1C);
+    // Direct write: only Flag1 bit is written (0x0002), NOT RMW.
+    // In real HW: writing 1 to bit 1 clears it. But in RAM mock,
+    // reg_write overwrites, so result = 0x0002.
+    ok &= t.assert_eq(result, uint16_t{0x0002});
+    return ok;
+}
+
+// =============================================================================
+// clear() selective — one W1C field while others stay
+// =============================================================================
+
+/// @brief Clear only EOC while OVR is also set — both are W1C, only EOC should clear.
+/// In a mixed register, clear() uses RMW: read → mask all W1C → set target → write.
+/// This ensures only the requested W1C bit gets the write-1-to-clear command.
+bool test_clear_selective_w1c(TestContext& t) {
+    MockTransport hw;
+
+    // OVR=1, EOC=1, Enable=1 → raw = 0x0103
+    hw.poke<uint32_t>(0x14, 0x0103U);
+
+    // clear(EOC) should:
+    //   1. Read 0x0103
+    //   2. Mask W1C bits (&~0x03) → 0x0100
+    //   3. Set EOC mask (|0x02) → 0x0102
+    //   4. Write 0x0102
+    hw.clear(W1cEoc{});
+
+    bool ok = true;
+    auto result = hw.peek<uint32_t>(0x14);
+    ok &= t.assert_true(result == 0x0102U, "Enable preserved, only EOC written as 1-to-clear");
+    return ok;
+}
+
+// =============================================================================
+// clear() non-W1C field preservation — thorough verification
+// =============================================================================
+
+/// @brief Multiple non-W1C fields must all survive clear() in a mixed register.
+bool test_clear_preserves_all_non_w1c(TestContext& t) {
+    MockTransport hw;
+
+    // OVR=1, EOC=1, Enable=1, Mode=1 → raw = 0x0303
+    hw.poke<uint32_t>(0x14, 0x0303U);
+
+    hw.clear(W1cOvr{});
+
+    bool ok = true;
+    auto result = hw.peek<uint32_t>(0x14);
+    // RMW: read 0x0303, mask W1C (&~0x03) → 0x0300, set OVR (|0x01) → 0x0301
+    ok &= t.assert_true((result & 0x0100U) != 0, "Enable preserved");
+    ok &= t.assert_true((result & 0x0200U) != 0, "Mode preserved");
+    ok &= t.assert_true((result & 0x03U) == 0x01U, "Only OVR bit written as 1-to-clear");
+    return ok;
+}
+
+// =============================================================================
+// clear() when target W1C bit is already 0 — should still write 1
+// =============================================================================
+
+bool test_clear_already_cleared_w1c(TestContext& t) {
+    MockTransport hw;
+
+    // OVR=0, EOC=0, Enable=1 → only non-W1C field set
+    hw.poke<uint32_t>(0x14, 0x0100U);
+
+    // clear(OVR) even though OVR is already 0 — should still write the bit
+    hw.clear(W1cOvr{});
+
+    bool ok = true;
+    auto result = hw.peek<uint32_t>(0x14);
+    // RMW: read 0x0100, mask W1C (&~0x03) → 0x0100, set OVR (|0x01) → 0x0101
+    ok &= t.assert_true(result == 0x0101U, "Enable preserved, OVR written as 1-to-clear");
+    return ok;
+}
+
+// =============================================================================
+// flip() on 16-bit W1C register — different register widths
+// =============================================================================
+
+bool test_flip_16bit_w1c_register(TestContext& t) {
+    MockTransport hw;
+
+    // Ctrl16: W1C bits 0-1 set, Enable=0
+    hw.poke<uint16_t>(0x20, uint16_t{0x0003});
+
+    // flip(Enable) — W1C bits should be masked
+    hw.flip(Ctrl16Enable{});
+
+    bool ok = true;
+    auto result = hw.peek<uint16_t>(0x20);
+    ok &= t.assert_true((result & 0x0100U) != 0, "Enable should be 1");
+    ok &= t.assert_true((result & 0x03U) == uint16_t{0}, "16-bit W1C bits masked");
+    return ok;
+}
+
+// =============================================================================
+// modify() with DynamicValue on W1C register
+// =============================================================================
+
+bool test_modify_dynamic_value_w1c_register(TestContext& t) {
+    MockTransport hw;
+
+    // Ctrl16: W1C bits set, Enable=0, Mode=0
+    hw.poke<uint16_t>(0x20, uint16_t{0x0003});
+
+    // modify() with DynamicValue — W1C bits must be masked
+    hw.modify(Ctrl16Mode::value(static_cast<uint8_t>(0x02)));
+
+    bool ok = true;
+    auto result = hw.peek<uint16_t>(0x20);
+    ok &= t.assert_true(((result >> 4) & 0x03) == uint16_t{0x02}, "Mode should be 2");
+    ok &= t.assert_true((result & 0x03U) == uint16_t{0}, "W1C bits should be masked");
+    return ok;
+}
+
+// =============================================================================
+// write() single field resets others to reset_value
+// =============================================================================
+
+/// @brief Verify that write() with a single field sets other fields to reset_value,
+/// NOT to zero. ConfigReg has reset=0xFF00 (prescaler = 0xFF).
+bool test_write_single_field_resets_others(TestContext& t) {
+    MockTransport hw;
+
+    // Pre-fill with something else
+    hw.poke<uint32_t>(0x04, 0x0000'0000U);
+
+    // write(Enable::Set) should write reset_value(0xFF00) | Enable(0x01) = 0xFF01
+    hw.write(ConfigEnable::Set{});
+
+    bool ok = true;
+    auto result = hw.peek<uint32_t>(0x04);
+    ok &= t.assert_true((result & 0x01U) == 1U, "Enable bit set");
+    // Prescaler should be 0xFF (from reset_value), NOT 0x00
+    ok &= t.assert_true(((result >> 8) & 0xFFU) == 0xFFU, "Prescaler should be reset value 0xFF");
+    ok &= t.assert_true(result == 0xFF01U, "Full register = reset_value | enable");
+    return ok;
+}
+
+// =============================================================================
+// DynamicValue boundary values
+// =============================================================================
+
+/// @brief Max value for field width should be accepted.
+bool test_dynamic_value_max_boundary(TestContext& t) {
+    MockTransport hw;
+
+    // ConfigPrescaler: 8-bit field → max = 255
+    hw.write(ConfigPrescaler::value(static_cast<uint8_t>(255)));
+
+    bool ok = true;
+    ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(255));
+    return ok;
+}
+
+/// @brief Zero value should work for all field types.
+bool test_dynamic_value_zero(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<uint32_t>(0x04, 0xFFFF'FFFFU);
+    hw.modify(ConfigPrescaler::value(static_cast<uint8_t>(0)));
+
+    bool ok = true;
+    ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0));
+    // Other fields (enable, mode) should be preserved
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(3));
+    return ok;
+}
+
+// =============================================================================
+// RegionValue field comparison operators
+// =============================================================================
+
+bool test_region_value_field_eq_value(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<uint32_t>(0x04, 0x02U); // Mode = FAST (bits 1-2 = 01)
+    auto mode_val = hw.read(ConfigMode{});
+
+    bool ok = true;
+    ok &= t.assert_true(mode_val == ModeFast{}, "RegionValue<Field> == Value match");
+    ok &= t.assert_true(!(mode_val == ModeNormal{}), "RegionValue<Field> != Value mismatch");
+    return ok;
+}
+
+bool test_region_value_field_eq_dynamic(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<uint32_t>(0x04, 0x42U << 8); // Prescaler = 0x42
+    auto presc_val = hw.read(ConfigPrescaler{});
+
+    bool ok = true;
+    // DynamicValue comparison uses .bits() since value() returns DynamicValue
+    // with base Field type parameter, not the derived type alias.
+    ok &= t.assert_true(presc_val.bits() == static_cast<uint8_t>(0x42),
+                         "RegionValue<Field> bits match");
+    ok &= t.assert_true(presc_val.bits() != static_cast<uint8_t>(0x43),
+                         "RegionValue<Field> bits mismatch");
+    // is() at RegOps level handles DynamicValue correctly
+    ok &= t.assert_true(hw.is(ConfigPrescaler::value(static_cast<uint8_t>(0x42))),
+                         "is() with DynamicValue match");
+    ok &= t.assert_true(!hw.is(ConfigPrescaler::value(static_cast<uint8_t>(0x43))),
+                         "is() with DynamicValue mismatch");
+    return ok;
+}
+
+// =============================================================================
+// is() with out-of-range DynamicValue — triggers error policy
+// =============================================================================
+
+bool test_is_out_of_range_dynamic_value(TestContext& t) {
+    custom_handler_called = false;
+    CustomErrTransport hw;
+
+    // ConfigPrescaler is 8-bit (max 255). Compare with 256.
+    (void)hw.is(DynamicValue<ConfigPrescaler, uint16_t>{256});
+
+    return t.assert_true(custom_handler_called, "is() should invoke error handler for out-of-range value");
+}
+
+// =============================================================================
+// modify() multiple fields with mixed Value + DynamicValue
+// =============================================================================
+
+bool test_modify_mixed_value_dynamic(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<uint32_t>(0x04, 0U);
+
+    // Modify: Set enable (Value) + prescaler 0x42 (DynamicValue) in one RMW
+    hw.modify(ConfigEnable::Set{}, ConfigPrescaler::value(static_cast<uint8_t>(0x42)));
+
+    bool ok = true;
+    ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x42));
+    ok &= t.assert_eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(0));
+    return ok;
+}
+
 } // namespace
 
 void run_transport_tests(umi::test::Suite& suite) {
@@ -424,6 +728,33 @@ void run_transport_tests(umi::test::Suite& suite) {
 
     umi::test::Suite::section("8-bit register");
     suite.run("write/read/modify/reset", test_8bit_register_ops);
+
+    umi::test::Suite::section("flip() in W1C register");
+    suite.run("W1C bits masked during flip", test_flip_in_w1c_register);
+    suite.run("flip toggle back with W1C mask", test_flip_in_w1c_register_toggle_back);
+    suite.run("flip 16-bit W1C register", test_flip_16bit_w1c_register);
+
+    umi::test::Suite::section("clear() edge cases");
+    suite.run("all-W1C register direct write", test_clear_all_w1c_register);
+    suite.run("selective clear one of multiple W1C", test_clear_selective_w1c);
+    suite.run("preserves all non-W1C fields", test_clear_preserves_all_non_w1c);
+    suite.run("clear already-cleared W1C bit", test_clear_already_cleared_w1c);
+
+    umi::test::Suite::section("write() semantics");
+    suite.run("single field resets others to reset_value", test_write_single_field_resets_others);
+
+    umi::test::Suite::section("DynamicValue boundary");
+    suite.run("max boundary value", test_dynamic_value_max_boundary);
+    suite.run("zero value preserves neighbors", test_dynamic_value_zero);
+
+    umi::test::Suite::section("modify() with DynamicValue");
+    suite.run("DynamicValue on W1C register", test_modify_dynamic_value_w1c_register);
+    suite.run("mixed Value + DynamicValue", test_modify_mixed_value_dynamic);
+
+    umi::test::Suite::section("RegionValue comparisons");
+    suite.run("field == Value", test_region_value_field_eq_value);
+    suite.run("field == DynamicValue", test_region_value_field_eq_dynamic);
+    suite.run("is() out-of-range triggers handler", test_is_out_of_range_dynamic_value);
 }
 
 } // namespace umimmio::test
