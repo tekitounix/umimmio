@@ -98,6 +98,7 @@ class RegOps {
     ///          Use modify() to change a single field at runtime.
     template <typename Self, WritableValue... Values>
     void write(this const Self& self, Values&&... values) noexcept {
+        static_assert(sizeof...(Values) > 0, "write() requires at least one value");
         if constexpr (sizeof...(Values) == 1) {
             write_single(self, std::forward<Values>(values)...);
         } else {
@@ -118,6 +119,8 @@ class RegOps {
 
     /// @brief Toggle a 1-bit field via read-modify-write.
     /// @tparam F A 1-bit, read-write Field type.
+    /// @note W1C bits in the parent register are automatically masked to 0
+    ///       before write-back to prevent accidental flag clearing.
     template <typename Self, typename F>
         requires ReadWritable<F> && IsField<F> && (F::bit_width == 1) && NotW1C<F>
     void flip(this const Self& self, F /*field*/) noexcept {
@@ -125,18 +128,34 @@ class RegOps {
         using ParentRegType = typename F::ParentRegType;
         auto current = self.reg_read(ParentRegType{});
         current ^= F::mask();
+        if constexpr (ParentRegType::w1c_mask != 0) {
+            current &= ~ParentRegType::w1c_mask;
+        }
         self.reg_write(ParentRegType{}, current);
     }
 
     /// @brief Clear a W1C (Write-1-to-Clear) field by writing 1 to the target bit(s).
-    /// Other bits are written as 0 to prevent accidental clearing.
+    /// For registers containing only W1C fields, a direct write is used.
+    /// For mixed registers (W1C + non-W1C fields), read-modify-write preserves
+    /// non-W1C field values while clearing only the target W1C bit(s).
     /// @tparam F A W1C field type.
     template <typename Self, typename F>
         requires IsW1C<F> && IsField<F>
     void clear(this const Self& self, F /*field*/) noexcept {
         check_transport_allowed<Self, F>();
         using ParentRegType = typename F::ParentRegType;
-        self.reg_write(ParentRegType{}, F::mask());
+        if constexpr (ParentRegType::w1c_mask == ParentRegType::mask()) {
+            // All bits are W1C — safe to write directly (no non-W1C fields to preserve).
+            self.reg_write(ParentRegType{}, F::mask());
+        } else {
+            // Mixed register: RMW to preserve non-W1C field values.
+            static_assert(Readable<ParentRegType>,
+                          "Mixed W1C+non-W1C register must be readable for safe clear()");
+            auto current = self.reg_read(ParentRegType{});
+            current &= ~ParentRegType::w1c_mask; // Zero all W1C bits (no-op in W1C spec)
+            current |= F::mask();                 // Set target W1C bit(s) to 1 (clear them)
+            self.reg_write(ParentRegType{}, current);
+        }
     }
 
     /// @brief Reset a register to its compile-time reset value.

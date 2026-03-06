@@ -25,11 +25,11 @@ struct DynamicValue;
 template <class FieldT, auto EnumValue>
 struct Value;
 
+namespace detail {
+
 /// @brief Compile-time error trigger (non-constexpr function)
 /// @note Called in `if consteval` block to trigger compile error
 void mmio_compile_time_error_value_out_of_range();
-
-namespace detail {
 
 /// @brief Range-checked DynamicValue construction (compile-time + runtime).
 ///
@@ -50,13 +50,13 @@ constexpr auto make_checked_dynamic_value(T val) {
     return DynamicValue<Region, T>{val};
 }
 
-} // namespace detail
-
 /// @brief Helper type for transport concepts
 struct TransportConceptReg {
     using RegValueType = std::uint32_t;
     static constexpr Addr address = 0;
 };
+
+} // namespace detail
 
 // ===========================================================================
 // Device, Block — peripheral and memory region descriptors
@@ -389,18 +389,9 @@ concept ModifiableValue =
 /// incorrectly reject these valid internal operations.
 
 template <typename T>
-concept DirectTransportLike = requires(T& t) {
-    typename T::TransportTag;
-    requires std::same_as<typename T::TransportTag, Direct>;
-} && requires(T& t, std::uint64_t val) {
-    { t.template reg_read<TransportConceptReg>(TransportConceptReg{}) } -> std::convertible_to<std::uint64_t>;
-    { t.template reg_write<TransportConceptReg>(TransportConceptReg{}, val) } -> std::same_as<void>;
-};
-
-template <typename T>
 concept RegTransportLike = requires(T& t) { typename T::TransportTag; } && requires(T& t, std::uint64_t val) {
-    { t.template reg_read<TransportConceptReg>(TransportConceptReg{}) } -> std::convertible_to<std::uint64_t>;
-    { t.template reg_write<TransportConceptReg>(TransportConceptReg{}, val) } -> std::same_as<void>;
+    { t.template reg_read<detail::TransportConceptReg>(detail::TransportConceptReg{}) } -> std::convertible_to<std::uint64_t>;
+    { t.template reg_write<detail::TransportConceptReg>(detail::TransportConceptReg{}, val) } -> std::same_as<void>;
 };
 
 template <typename T>
