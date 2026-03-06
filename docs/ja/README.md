@@ -43,10 +43,10 @@ USART1->SR = 0;                     // RO ビットへの書き込み — コン
 - **ゼロコスト** — 全ディスパッチはコンパイル時に解決、vtable なし、ヒープなし
 - **複数トランスポート** — 同一レジスタマップを Direct MMIO、I2C、SPI、ビットバングで共有
 - **ポリシーベースエラーハンドリング** — `AssertOnError`、`TrapOnError`、`IgnoreError`、`CustomErrorHandler`
-- **compile-fail ガード** — 9 個の compile-fail テストで不正アクセスの拒否を検証
+- **compile-fail ガード** — 15 個の compile-fail テストで不正アクセスの拒否を検証
 - **RegionValue** — 1 回のバス読み出しで複数フィールドを `read(Reg{}).get(Field{})` で抽出
 - **パターンマッチ** — `read_variant()` で `std::variant` + `std::visit` による網羅的分岐
-- **並行性** — `umisync::Protected<T, LockPolicy>` + RAII Guard でロック経由アクセスのみ許可（[umisync](../../umisync/) が提供）
+- **並行性** — トランスポート操作は非アトミック、呼び出し側がプラットフォーム固有のクリティカルセクションでアクセスを直列化
 - **C++23** — deducing this (CRTP 不要)、`if consteval`、`std::byteswap`
 
 ## クイックスタート
@@ -116,7 +116,7 @@ xmake test
 - コア: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `RegionValue`, `Numeric`
 - 操作: `read()`, `write()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()`, `read_variant()`
 - トランスポート: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
-- 並行性: [umisync](../../umisync/) を参照 — `Protected<T, LockPolicy>`, `Guard`, `MutexPolicy`, `NoLockPolicy`（`umimmio/protected.hh` に非推奨の再エクスポートあり）
+- 並行性: 提供しない — 呼び出し側がプラットフォーム固有のロックを使用（設計 §9.4 参照）
 - エラーポリシー: `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
 
 ## ドキュメント

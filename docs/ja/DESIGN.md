@@ -76,8 +76,9 @@ lib/umimmio/
 │   ├── mmio.hh              # アンブレラヘッダー
 │   ├── policy.hh            # 基盤: AccessPolicy、トランスポートタグ、エラーポリシー
 │   ├── region.hh            # データモデル: Device, Register, Field, Value, concepts
-│   ├── ops.hh               # 操作: RegOps, ByteAdapter, RegionValue
+│   ├── ops.hh               # 操作: RegOps, ByteAdapter
 │   └── transport/
+│       ├── detail.hh        # アドレスエンコード共通ヘルパー
 │       ├── direct.hh        # DirectTransport (volatile ポインタ)
 │       ├── i2c.hh           # I2cTransport (HAL ベース)
 │       ├── spi.hh           # SpiTransport (HAL ベース)
@@ -90,14 +91,21 @@ lib/umimmio/
     ├── test_transport.cc
     ├── test_spi_bitbang.cc
     ├── compile_fail/
+    │   ├── clear_non_w1c.cc
+    │   ├── cross_register_write.cc
+    │   ├── field_overflow.cc
+    │   ├── flip_ro.cc
+    │   ├── flip_w1c.cc
+    │   ├── flip_wo.cc
+    │   ├── modify_w1c.cc
+    │   ├── modify_wo.cc
+    │   ├── read_field_eq_int.cc
     │   ├── read_wo.cc
+    │   ├── value_signed.cc
+    │   ├── value_typesafe.cc
     │   ├── write_ro.cc
     │   ├── write_ro_value.cc
-    │   ├── value_typesafe.cc
-    │   ├── value_signed.cc
-    │   ├── modify_w1c.cc
-    │   ├── flip_w1c.cc
-    │   └── field_overflow.cc
+    │   └── write_zero_args.cc
     └── xmake.lua
 ```
 
@@ -169,11 +177,9 @@ Register/Field の静的メソッド：
 
 並行性:
 
-排他アクセス制御（`Protected<T, LockPolicy>`、`Guard`、ロックポリシー）は
-`umisync` に移動済み — `lib/umisync/README.md` を参照。
-umimmio は後方互換のため `<umimmio/protected.hh>` を提供するが、
-これは `<umisync/protected.hh>` への単なるリダイレクトである。
-新規コードは `umi::sync::` の型を直接使用すること。
+`modify()` はアトミックではない（read-modify-write）。ISR 安全またはマルチコンテキスト
+アクセスでは、呼び出し側が外部でアクセスを直列化する必要がある（例: 割り込み禁止、
+スコープ付きロック）。パターンは §9.4 を参照。
 
 ### 4.1 最小パス
 
@@ -273,7 +279,7 @@ umi::mmio::SpiTransport<MySpi> spi(hal_spi);            // HAL SPI
 6. `clear()` による W1C フィールドハンドリング、
 7. `reset()` によるレジスタリセット、
 8. `read_variant()` によるパターンマッチ付きフィールド読み出し、
-9. `umisync::Protected<Transport, LockPolicy>` による ISR 安全アクセス（プラットフォーム固有のロックポリシーを DI で注入）。
+9. トランスポート操作を呼び出し側が提供するクリティカルセクションでラップする ISR 安全アクセス。
 
 ---
 
@@ -285,8 +291,9 @@ umi::mmio::SpiTransport<MySpi> spi(hal_spi);            // HAL SPI
 
 - `Register` = `IsRegister=true` の `BitRegion`（フル幅、アドレスオフセットを持つ）。
 - `Field` = `IsRegister=false` の `BitRegion`（サブ幅、ビットオフセットを持つ）。
-- 5 つの `static_assert` で検証：ビット幅 > 0、オフセット + 幅 ≤ レジスタ幅、
-  レジスタ幅は 2 の累乗、レジスタ幅 ≥ 8、ゼロ幅レジスタなし。
+- 5 つの `static_assert` で検証：ビット幅 > 0、レジスタ幅 ≤ 64、
+  オフセット + 幅 ≤ レジスタ幅、レジスタの BitOffset が 0、
+  レジスタの BitWidth が RegBitWidth と等しい。
 
 ### 5.2 RegOps (deducing this)
 
@@ -363,6 +370,32 @@ auto en_raw = en.bits();             // raw フィールド値（エスケープ
 - `get(Field{})` — フィールド値の抽出（`RegionValue<F>` を返す、レジスタのみ）
 - `is(ValueType{})` — 名前付き値とのマッチ（レジスタのみ）
 - `operator==` with `Value`/`DynamicValue` — 型付き比較（フィールドのみ）
+
+### 5.7 read_variant()
+
+`read_variant()` はフィールドを読み出し、その値を名前付き `Value<>` 型のセットに対して
+パターンマッチし、`std::variant` を返す。マッチしない場合は最後の代替型として
+`UnknownValue<F>` が返される。
+
+```cpp
+auto result = hw.read_variant<CTRL::MODE,
+                              CTRL::MODE::Normal,
+                              CTRL::MODE::Fast,
+                              CTRL::MODE::LowPwr>();
+
+// result の型: std::variant<Normal, Fast, LowPwr, UnknownValue<MODE>>
+
+std::visit([](auto v) {
+    if constexpr (std::is_same_v<decltype(v), CTRL::MODE::Fast>) {
+        // Fast モードの処理
+    } else if constexpr (std::is_same_v<decltype(v), UnknownValue<CTRL::MODE>>) {
+        // 予期しない値の処理 — v.value に raw ビット値を保持
+    }
+}, result);
+```
+
+フィールドが多くの名前付き値を持ち、呼び出し側が `std::visit` で網羅的に
+処理したい場合に特に有用である。
 
 ---
 
@@ -448,21 +481,19 @@ read-modify-write により非W1C フィールド値を保持する。
 ### 9.4 アトミック性
 
 `modify()` は read-modify-write を実行し、**決してアトミックではない**。
-ISR 安全なアクセスには `umisync` の `umi::sync::Protected<Transport, LockPolicy>` を使用：
+ISR 安全なアクセスでは、呼び出し側がアクセスを外部で直列化する必要がある：
 
 ```cpp
-#include <umisync/protected.hh>
-using umi::sync::Protected;
-
-// LockPolicy は DI で注入 — プラットフォーム固有のポリシーは各ポートライブラリが提供。
-Protected<DirectTransport<>, SomeLockPolicy> protected_hw;
-
-auto guard = protected_hw.lock();   // ロック取得
-guard->modify(ConfigEnable::Set{}); // ISR 安全な RMW
-// ~Guard() でロック解放 (RAII)
+// 例: トランスポート操作をプラットフォーム固有のクリティカルセクションで囲む。
+// 具体的な方法（割り込み禁止、mutex 等）は呼び出し側が決定する。
+{
+    auto lock = enter_critical_section();  // プラットフォーム固有
+    io.modify(ConfigEnable::Set{});        // ISR 安全な RMW
+}   // lock 解放 (RAII)
 ```
 
-利用可能なロックポリシーについては `lib/umisync/README.md` を参照。
+umimmio はトランスポートレベルのライブラリであり、同期プリミティブは提供しない。
+適切なロック機構の選択は呼び出し側の責務である。
 
 ### 9.5 reset()
 

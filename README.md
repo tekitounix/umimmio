@@ -43,10 +43,10 @@ USART1->SR = 0;                     // Write to RO bits — compiles fine
 - **Zero-cost** — all dispatch resolved at compile time, no vtable, no heap
 - **Multiple transports** — same register map works across Direct MMIO, I2C, SPI, and bitbang variants
 - **Policy-based error handling** — `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
-- **Compile-fail guards** — 9 compile-fail tests verify illegal access is rejected at compile time
+- **Compile-fail guards** — 15 compile-fail tests verify illegal access is rejected at compile time
 - **RegionValue** — single bus read, multiple field extraction via `read(Reg{}).get(Field{})`
 - **Pattern matching** — `read_variant()` with `std::variant` + `std::visit` for exhaustive field matching
-- **Concurrency** — `umisync::Protected<T, LockPolicy>` with RAII Guard ensures lock-only access (provided by [umisync](../umisync/))
+- **Concurrency** — transport operations are not atomic; callers serialize access via platform-specific critical sections
 - **C++23** — deducing this (no CRTP), `if consteval`, `std::byteswap`
 
 ## Quick Start
@@ -119,7 +119,7 @@ xmake test
 - Core: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `RegionValue`, `Numeric`
 - Operations: `read()`, `write()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()`, `read_variant()`
 - Transports: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
-- Concurrency: See [umisync](../umisync/) — `Protected<T, LockPolicy>`, `Guard`, `MutexPolicy`, `NoLockPolicy` (deprecated re-exports in `umimmio/protected.hh`)
+- Concurrency: not provided — callers use platform-specific locking (see Design §9.4)
 - Error policies: `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
 
 ## Examples
