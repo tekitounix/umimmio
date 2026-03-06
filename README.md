@@ -2,6 +2,15 @@
 
 [日本語](docs/ja/README.md)
 
+> [!CAUTION]
+> **Experimental — Do not depend on this repository.**
+>
+> This library is published as a git subtree on an experimental basis.
+> The API, structure, and contents may change without notice, and the repository may be made private or removed entirely in the future.
+> Do not add this repository as a dependency in your projects.
+>
+> Additionally, some test dependencies are not publicly available, so tests cannot be fully built or run from this repository alone.
+
 A type-safe, zero-cost memory-mapped I/O library for C++23.
 Define register maps at compile time and access them through direct MMIO, I2C, or SPI transports with the same API.
 
