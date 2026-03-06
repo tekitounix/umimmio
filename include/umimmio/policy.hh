@@ -79,19 +79,23 @@ struct Spi {};
 /// @{
 struct AssertOnError {
     static void on_range_error([[maybe_unused]] const char* msg) noexcept { assert(false && msg); }
+    static void on_transport_error([[maybe_unused]] const char* msg) noexcept { assert(false && msg); }
 };
 
 struct TrapOnError {
     [[noreturn]] static void on_range_error([[maybe_unused]] const char* msg) noexcept { std::abort(); }
+    [[noreturn]] static void on_transport_error([[maybe_unused]] const char* msg) noexcept { std::abort(); }
 };
 
 struct IgnoreError {
     static void on_range_error([[maybe_unused]] const char* msg) noexcept {}
+    static void on_transport_error([[maybe_unused]] const char* msg) noexcept {}
 };
 
 template <void (*Handler)(const char*)>
 struct CustomErrorHandler {
     static void on_range_error(const char* msg) noexcept { Handler(msg); }
+    static void on_transport_error(const char* msg) noexcept { Handler(msg); }
 };
 /// @}
 

@@ -12,7 +12,7 @@ int main() {
     umimmio::test::run_register_field_tests(suite);
     umimmio::test::run_transport_tests(suite);
     umimmio::test::run_access_policy_tests(suite);
-    umimmio::test::run_spi_bitbang_tests(suite);
+    umimmio::test::run_byte_transport_tests(suite);
 
     return suite.summary();
 }

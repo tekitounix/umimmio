@@ -22,7 +22,5 @@ Documentation entry for the umimmio library.
   - `include/umimmio/transport/direct.hh` — DirectTransport (volatile pointer)
   - `include/umimmio/transport/i2c.hh` — I2cTransport (HAL-based)
   - `include/umimmio/transport/spi.hh` — SpiTransport (HAL-based)
-  - `include/umimmio/transport/bitbang_i2c.hh` — BitBangI2cTransport (GPIO)
-  - `include/umimmio/transport/bitbang_spi.hh` — BitBangSpiTransport (GPIO)
 
 

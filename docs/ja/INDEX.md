@@ -22,7 +22,5 @@ umimmio ライブラリのドキュメントエントリです。
   - `include/umimmio/transport/direct.hh` — DirectTransport (volatile ポインタ)
   - `include/umimmio/transport/i2c.hh` — I2cTransport (HAL ベース)
   - `include/umimmio/transport/spi.hh` — SpiTransport (HAL ベース)
-  - `include/umimmio/transport/bitbang_i2c.hh` — BitBangI2cTransport (GPIO)
-  - `include/umimmio/transport/bitbang_spi.hh` — BitBangSpiTransport (GPIO)
 
 

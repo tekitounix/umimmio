@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <type_traits>
 
 #include "../ops.hh"
 #include "detail.hh"
@@ -46,6 +47,8 @@ class SpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
     explicit SpiTransport(SpiDevice& dev) noexcept : spi(dev) {}
 
     /// @brief Write register data over SPI.
+    /// @note If the SPI driver's transfer() returns a type convertible to bool,
+    ///       a failure triggers ErrorPolicy::on_transport_error().
     void raw_write(AddressWidth reg_addr, const void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressWidth);
 
@@ -53,10 +56,18 @@ class SpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
         detail::encode_spi_address<AddrEndian, AddressWidth, WriteBit, CmdMask>(reg_addr, tx_buf.data());
         std::memcpy(tx_buf.data() + addr_size, data, size);
 
-        spi.transfer(tx_buf.data(), nullptr, addr_size + size);
+        if constexpr (std::is_void_v<decltype(spi.transfer(tx_buf.data(), nullptr, addr_size + size))>) {
+            spi.transfer(tx_buf.data(), nullptr, addr_size + size);
+        } else {
+            if (!spi.transfer(tx_buf.data(), nullptr, addr_size + size)) {
+                ErrorPolicy::on_transport_error("SPI write failed");
+            }
+        }
     }
 
     /// @brief Read register data over SPI.
+    /// @note If the SPI driver's transfer() returns a type convertible to bool,
+    ///       a failure triggers ErrorPolicy::on_transport_error().
     void raw_read(AddressWidth reg_addr, void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressWidth);
 
@@ -64,7 +75,13 @@ class SpiTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
         std::array<std::uint8_t, addr_size + max_reg_bytes> rx_buf{};
         detail::encode_spi_address<AddrEndian, AddressWidth, ReadBit, CmdMask>(reg_addr, tx_buf.data());
 
-        spi.transfer(tx_buf.data(), rx_buf.data(), addr_size + size);
+        if constexpr (std::is_void_v<decltype(spi.transfer(tx_buf.data(), rx_buf.data(), addr_size + size))>) {
+            spi.transfer(tx_buf.data(), rx_buf.data(), addr_size + size);
+        } else {
+            if (!spi.transfer(tx_buf.data(), rx_buf.data(), addr_size + size)) {
+                ErrorPolicy::on_transport_error("SPI read failed");
+            }
+        }
         std::memcpy(data, rx_buf.data() + addr_size, size);
     }
 };
