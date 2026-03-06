@@ -123,7 +123,7 @@ using ParityEven = Value<UartCtrlParity, static_cast<uint8_t>(Parity::EVEN)>;
 using ParityOdd = Value<UartCtrlParity, static_cast<uint8_t>(Parity::ODD)>;
 
 bool test_uart_device_init(TestContext& t) {
-    MockTransport hw;
+    const MockTransport hw;
 
     // Configure UART: 115200 baud, 8N1, RX+TX enabled
     hw.write(UartBaud::value(115200U));

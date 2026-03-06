@@ -6,7 +6,10 @@
 /// @brief DirectTransport — volatile pointer access for memory-mapped peripherals.
 /// @author Shota Moriguchi @tekitounix
 
+#include <type_traits>
+
 #include "../ops.hh"
+#include "../policy.hh" // IWYU pragma: keep  — AssertOnError, Direct
 
 namespace umi::mmio {
 

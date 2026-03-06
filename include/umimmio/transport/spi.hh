@@ -7,12 +7,14 @@
 /// @author Shota Moriguchi @tekitounix
 
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstring>
 #include <span>
 #include <type_traits>
 
 #include "../ops.hh"
+#include "../policy.hh" // IWYU pragma: keep  — AssertOnError, Spi, max_reg_bytes
 #include "detail.hh"
 
 namespace umi::mmio {

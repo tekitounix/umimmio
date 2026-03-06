@@ -8,12 +8,15 @@
 
 #include <array>
 #include <bit>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
+#include "policy.hh"
 #include "region.hh"
 
 namespace umi::mmio {

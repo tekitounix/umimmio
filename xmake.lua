@@ -27,10 +27,6 @@ target("umimmio")
     set_kind("headeronly")
     add_headerfiles("include/(umimmio/**.hh)")
     add_includedirs("include", { public = true })
-    -- protected.hh redirects to umisync (deprecated but still present)
-    if not standalone_repo then
-        add_deps("umisync")
-    end
 
 -- Host tests + ARM embedded targets
 includes("tests")

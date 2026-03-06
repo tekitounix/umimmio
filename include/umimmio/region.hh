@@ -8,6 +8,7 @@
 
 #include <cassert>
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <tuple>
 #include <type_traits>
@@ -236,6 +237,7 @@ using ExtractAccess_t = typename ExtractAccess<Ts...>::type;
 struct NoOneBitAliases {};
 
 /// @brief Set/Reset aliases for 1-bit RW fields.
+/// @note Not CRTP — pure type-alias mixin. Direct construction is harmless.
 template <class FieldT>
 struct OneBitAliases {
     using Set = Value<FieldT, 1>;
@@ -243,6 +245,7 @@ struct OneBitAliases {
 };
 
 /// @brief Clear alias for 1-bit W1C fields.
+/// @note Not CRTP — pure type-alias mixin. Direct construction is harmless.
 template <class FieldT>
 struct OneBitW1CAliases {
     using Clear = Value<FieldT, 1>;

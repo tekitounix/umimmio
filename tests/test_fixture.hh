@@ -104,6 +104,11 @@ struct CmdReg : Register<MockDevice, 0x10, bits32, WO, 0> {};
 /// @brief 8-bit register (read-write, reset = 0xA5)
 struct ByteReg : Register<MockDevice, 0x18, bits8, RW, 0xA5> {};
 
+/// @brief 64-bit register (read-write, reset = 0)
+struct Reg64Direct : Register<MockDevice, 0x28, bits64, RW, 0> {};
+struct Field64Low32 : Field<Reg64Direct, 0, 32, Numeric> {};
+struct Field64High32 : Field<Reg64Direct, 32, 32, Numeric> {};
+
 /// @brief Low nibble field (bits 0-3)
 struct ByteLow : Field<ByteReg, 0, 4, Numeric> {};
 

@@ -160,7 +160,7 @@ struct I2CField : Field<I2CReg, 0, 8, Numeric> {};
 
 bool test_i2c_transport_write_read(TestContext& t) {
     MockI2C i2c;
-    I2cTransport<MockI2C> transport(i2c, 0x50);
+    const I2cTransport<MockI2C> transport(i2c, 0x50);
 
     // Write a value through I2C transport
     transport.write(I2CReg::value(0xDEAD'BEEFU));
@@ -173,7 +173,7 @@ bool test_i2c_transport_write_read(TestContext& t) {
 
 bool test_i2c_transport_field_operations(TestContext& t) {
     MockI2C i2c;
-    I2cTransport<MockI2C> transport(i2c, 0x50);
+    const I2cTransport<MockI2C> transport(i2c, 0x50);
 
     // Write via register
     transport.write(I2CReg::value(0x00000042U));
@@ -185,7 +185,7 @@ bool test_i2c_transport_field_operations(TestContext& t) {
 
 bool test_i2c_transport_modify(TestContext& t) {
     MockI2C i2c;
-    I2cTransport<MockI2C> transport(i2c, 0x50);
+    const I2cTransport<MockI2C> transport(i2c, 0x50);
 
     // Pre-load value
     transport.write(I2CReg::value(0xFF00'0000U));
@@ -332,7 +332,7 @@ struct CustomErrTransport : private RegOps<std::true_type, CustomErrorHandler<cu
 };
 
 bool test_custom_error_handler_callback(TestContext& t) {
-    CustomErrTransport hw;
+    const CustomErrTransport hw;
     // ConfigPrescaler is 8-bit (bits 8-15). Value 256 exceeds max (255).
     custom_handler_called = false;
     hw.write(DynamicValue<ConfigPrescaler, uint16_t>{256});
@@ -365,7 +365,7 @@ bool test_w1c_modify_multi_field(TestContext& t) {
 // =============================================================================
 
 bool test_8bit_register_ops(TestContext& t) {
-    MockTransport hw;
+    const MockTransport hw;
 
     // Write full register
     hw.write(ByteReg::value(static_cast<uint8_t>(0x5A)));
@@ -598,7 +598,7 @@ bool test_write_single_field_resets_others(TestContext& t) {
 
 /// @brief Max value for field width should be accepted.
 bool test_dynamic_value_max_boundary(TestContext& t) {
-    MockTransport hw;
+    const MockTransport hw;
 
     // ConfigPrescaler: 8-bit field → max = 255
     hw.write(ConfigPrescaler::value(static_cast<uint8_t>(255)));
@@ -662,7 +662,7 @@ bool test_region_value_field_eq_dynamic(TestContext& t) {
 
 bool test_is_out_of_range_dynamic_value(TestContext& t) {
     custom_handler_called = false;
-    CustomErrTransport hw;
+    const CustomErrTransport hw;
 
     // ConfigPrescaler is 8-bit (max 255). Compare with 256.
     (void)hw.is(DynamicValue<ConfigPrescaler, uint16_t>{256});
@@ -686,6 +686,191 @@ bool test_modify_mixed_value_dynamic(TestContext& t) {
     ok &= t.assert_eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
     ok &= t.assert_eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x42));
     ok &= t.assert_eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(0));
+    return ok;
+}
+
+// =============================================================================
+// 64-bit register through direct RegOps
+// =============================================================================
+
+bool test_64bit_register_write_read(TestContext& t) {
+    const MockTransport hw;
+
+    hw.write(Reg64Direct::value(0x0102'0304'0506'0708ULL));
+    auto val = hw.read(Reg64Direct{});
+    return t.assert_eq(val.bits(), 0x0102'0304'0506'0708ULL);
+}
+
+bool test_64bit_register_mask(TestContext& t) {
+    bool ok = true;
+    ok &= t.assert_eq(Reg64Direct::mask(), ~std::uint64_t{0});
+    ok &= t.assert_eq(Field64Low32::mask(), static_cast<std::uint64_t>(0xFFFF'FFFF));
+    ok &= t.assert_eq(Field64High32::mask(), 0xFFFF'FFFF'0000'0000ULL);
+    return ok;
+}
+
+bool test_64bit_field_read(TestContext& t) {
+    const MockTransport hw;
+
+    hw.write(Reg64Direct::value(0xAAAA'BBBB'CCCC'DDDDULL));
+    bool ok = true;
+    ok &= t.assert_eq(hw.read(Field64Low32{}).bits(), 0xCCCC'DDDDU);
+    ok &= t.assert_eq(hw.read(Field64High32{}).bits(), 0xAAAA'BBBBU);
+    return ok;
+}
+
+bool test_64bit_modify(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<std::uint64_t>(0x28, 0xFFFF'FFFF'0000'0000ULL);
+    hw.modify(Field64Low32::value(0xDEAD'BEEFU));
+
+    bool ok = true;
+    ok &= t.assert_eq(hw.read(Field64Low32{}).bits(), 0xDEAD'BEEFU);
+    ok &= t.assert_eq(hw.read(Field64High32{}).bits(), 0xFFFF'FFFFU);
+    return ok;
+}
+
+bool test_64bit_reset(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<std::uint64_t>(0x28, 0xFFFF'FFFF'FFFF'FFFFULL);
+    hw.reset(Reg64Direct{});
+    return t.assert_eq(hw.peek<std::uint64_t>(0x28), 0ULL);
+}
+
+// =============================================================================
+// Non-zero base_address Device
+// =============================================================================
+
+struct MmioPeripheral : Device<> {
+    static constexpr Addr base_address = 0x4001'3000;
+};
+struct MmioCtrl : Register<MmioPeripheral, 0x00, bits32, RW, 0> {};
+struct MmioStatus : Register<MmioPeripheral, 0x04, bits32, RO, 0> {};
+struct MmioCtrlEn : Field<MmioCtrl, 0, 1> {};
+
+bool test_nonzero_base_address(TestContext& t) {
+    bool ok = true;
+    ok &= t.assert_eq(MmioCtrl::address, static_cast<Addr>(0x4001'3000));
+    ok &= t.assert_eq(MmioStatus::address, static_cast<Addr>(0x4001'3004));
+    ok &= t.assert_eq(MmioCtrlEn::address, static_cast<Addr>(0x4001'3000));
+    return ok;
+}
+
+struct MmioPeripheralBlock : Block<MmioPeripheral, 0x100> {};
+struct MmioBlockReg : Register<MmioPeripheralBlock, 0x10, bits16> {};
+
+bool test_nonzero_base_with_block(TestContext& t) {
+    return t.assert_eq(MmioBlockReg::address, static_cast<Addr>(0x4001'3110));
+}
+
+// =============================================================================
+// RegionValue edge cases
+// =============================================================================
+
+bool test_region_value_eq_region_value(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<uint32_t>(0x04, 0x1234U);
+    auto val1 = hw.read(ConfigReg{});
+    auto val2 = hw.read(ConfigReg{});
+
+    bool ok = true;
+    ok &= t.assert_true(val1 == val2, "same reads should be equal");
+
+    hw.poke<uint32_t>(0x04, 0x5678U);
+    auto val3 = hw.read(ConfigReg{});
+    ok &= t.assert_true(!(val1 == val3), "different reads should differ");
+    return ok;
+}
+
+bool test_region_value_field_eq_dynamic_operator(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<uint32_t>(0x04, 0x42U << 8); // Prescaler = 0x42
+    auto presc_val = hw.read(ConfigPrescaler{});
+
+    bool ok = true;
+    // Direct operator== with DynamicValue (requires exact type match)
+    // Field::value() returns DynamicValue<Field<...base...>, T>, so we
+    // construct DynamicValue<ConfigPrescaler, T> manually for the operator.
+    ok &= t.assert_true(presc_val == DynamicValue<ConfigPrescaler, uint8_t>{0x42},
+                        "RegionValue<Field> == DynamicValue match");
+    ok &= t.assert_true(!(presc_val == DynamicValue<ConfigPrescaler, uint8_t>{0x43}),
+                        "RegionValue<Field> == DynamicValue mismatch");
+    return ok;
+}
+
+bool test_region_value_is_with_dynamic_value(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<uint32_t>(0x04, 0x42U << 8); // Prescaler = 0x42
+
+    bool ok = true;
+    // RegOps::is() with field-level DynamicValue (the primary API path)
+    ok &= t.assert_true(hw.is(ConfigPrescaler::value(static_cast<uint8_t>(0x42))),
+                        "RegOps::is(DynamicValue<Field>) match");
+    ok &= t.assert_true(!hw.is(ConfigPrescaler::value(static_cast<uint8_t>(0x43))),
+                        "RegOps::is(DynamicValue<Field>) mismatch");
+    return ok;
+}
+
+bool test_region_value_is_with_register_dynamic(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<uint32_t>(0x04, 0x4200U);
+
+    bool ok = true;
+    // RegOps::is() with register-level DynamicValue
+    ok &= t.assert_true(hw.is(ConfigReg::value(0x4200U)), "RegOps::is(Reg DynamicValue) match");
+    ok &= t.assert_true(!hw.is(ConfigReg::value(0x4201U)), "RegOps::is(Reg DynamicValue) mismatch");
+    return ok;
+}
+
+bool test_region_value_field_eq_field(TestContext& t) {
+    MockTransport hw;
+
+    hw.poke<uint32_t>(0x04, 0x02U); // Mode = FAST (bits 1-2 = 01)
+    auto mode1 = hw.read(ConfigMode{});
+    auto mode2 = hw.read(ConfigMode{});
+
+    bool ok = true;
+    ok &= t.assert_true(mode1 == mode2, "same field reads should be equal");
+    return ok;
+}
+
+// =============================================================================
+// Value::shifted_value direct assertion
+// =============================================================================
+
+bool test_value_shifted_value(TestContext& t) {
+    bool ok = true;
+    // ConfigEnable: bit 0, width 1 → shift = 0 → shifted_value = 1 << 0 = 1
+    ok &= t.assert_eq(ConfigEnable::Set::shifted_value, static_cast<uint32_t>(1));
+    ok &= t.assert_eq(ConfigEnable::Reset::shifted_value, static_cast<uint32_t>(0));
+
+    // ConfigMode: shift = 1 → FAST(1) shifted = 1 << 1 = 2
+    ok &= t.assert_eq(ModeFast::shifted_value, static_cast<uint32_t>(2));
+    // LOW_POWER(2) shifted = 2 << 1 = 4
+    ok &= t.assert_eq(ModeLowPower::shifted_value, static_cast<uint32_t>(4));
+    // TEST(3) shifted = 3 << 1 = 6
+    ok &= t.assert_eq(ModeTest::shifted_value, static_cast<uint32_t>(6));
+    return ok;
+}
+
+// =============================================================================
+// Multi-transport device
+// =============================================================================
+
+struct DualTransportDevice : Device<RW, Direct, I2c> {};
+struct DualReg : Register<DualTransportDevice, 0x00, bits32, RW, 0> {};
+
+bool test_multi_transport_device(TestContext& t) {
+    // DualTransportDevice allows both Direct and I2c
+    using Allowed = DualTransportDevice::AllowedTransportsType;
+    bool ok = true;
+    ok &= t.assert_true((std::tuple_size_v<Allowed> == 2), "should allow 2 transports");
     return ok;
 }
 
@@ -751,6 +936,30 @@ void run_transport_tests(umi::test::Suite& suite) {
     suite.run("field == Value", test_region_value_field_eq_value);
     suite.run("field == DynamicValue", test_region_value_field_eq_dynamic);
     suite.run("is() out-of-range triggers handler", test_is_out_of_range_dynamic_value);
+
+    umi::test::Suite::section("64-bit register (direct)");
+    suite.run("write/read", test_64bit_register_write_read);
+    suite.run("mask computation", test_64bit_register_mask);
+    suite.run("field read", test_64bit_field_read);
+    suite.run("modify (RMW)", test_64bit_modify);
+    suite.run("reset", test_64bit_reset);
+
+    umi::test::Suite::section("Non-zero base_address");
+    suite.run("MMIO peripheral addresses", test_nonzero_base_address);
+    suite.run("block within MMIO peripheral", test_nonzero_base_with_block);
+
+    umi::test::Suite::section("RegionValue edge cases");
+    suite.run("RegionValue == RegionValue", test_region_value_eq_region_value);
+    suite.run("field == DynamicValue (operator)", test_region_value_field_eq_dynamic_operator);
+    suite.run("is() with field DynamicValue", test_region_value_is_with_dynamic_value);
+    suite.run("is() with register DynamicValue", test_region_value_is_with_register_dynamic);
+    suite.run("field RegionValue == field RegionValue", test_region_value_field_eq_field);
+
+    umi::test::Suite::section("Value::shifted_value");
+    suite.run("shifted values match expected", test_value_shifted_value);
+
+    umi::test::Suite::section("Multi-transport device");
+    suite.run("dual transport allowed", test_multi_transport_device);
 }
 
 } // namespace umimmio::test

@@ -7,8 +7,8 @@
 - `tests/test_main.cc`: テストエントリポイント
 - `tests/test_access_policy.cc`: RW/RO/WO/W1C ポリシーの強制、WriteBehavior、Block 階層、レジスタマスク
 - `tests/test_register_field.cc`: BitRegion, Register, Field, Value, マスク/シフト、RegionValue、modify/write/flip ワークフロー
-- `tests/test_transport.cc`: RAM バックドモックトランスポート — read/write/modify/is/flip/clear/reset/read_variant、W1C エッジケース、DynamicValue 境界値、エラーポリシー
-- `tests/test_byte_transport.cc`: SPI, I2C トランスポート、ByteAdapter エンディアン、トランスポートエラーポリシーテスト
+- `tests/test_transport.cc`: RAM バックドモックトランスポート — read/write/modify/is/flip/clear/reset/read_variant、W1C エッジケース、DynamicValue 境界値、エラーポリシー、64-bit レジスタ、非ゼロ base_address、RegionValue エッジケース、Value::shifted_value、マルチトランスポートデバイス
+- `tests/test_byte_transport.cc`: SPI, I2C トランスポート、ByteAdapter エンディアン、トランスポートエラーポリシー、SPI カスタムコマンドビット/ビッグエンディアン/16-bit、I2C 8-bit/16-bit アドレス幅
 - `tests/compile_fail/read_wo.cc`: compile-fail ガード — 書き込み専用レジスタの読み出し
 - `tests/compile_fail/write_ro.cc`: compile-fail ガード — 読み出し専用レジスタへの書き込み
 - `tests/compile_fail/write_ro_value.cc`: compile-fail ガード — value 経由での読み出し専用レジスタへの書き込み
@@ -24,6 +24,10 @@
 - `tests/compile_fail/cross_register_write.cc`: compile-fail ガード — 異なるレジスタの値を混ぜた `write()`
 - `tests/compile_fail/read_field_eq_int.cc`: compile-fail ガード — `RegionValue == 整数`（raw アクセスは `.bits()` を使用）
 - `tests/compile_fail/write_zero_args.cc`: compile-fail ガード — 引数なしの `write()`
+- `tests/compile_fail/transport_tag_mismatch.cc`: compile-fail ガード — Direct 専用デバイスでの I2C トランスポート使用
+- `tests/compile_fail/modify_cross_register.cc`: compile-fail ガード — 異なるレジスタのフィールドを混ぜた `modify()`
+- `tests/compile_fail/flip_multi_bit.cc`: compile-fail ガード — 複数ビットフィールドでの `flip()`
+- `tests/compile_fail/get_wrong_field.cc`: compile-fail ガード — 別レジスタのフィールドでの `RegionValue::get()`
 
 ## テスト実行
 
@@ -52,8 +56,10 @@ umimmio は主にコンパイル時抽象化ライブラリであるため、テ
 6. **トランスポート正確性** — RAM バックドモックが write/read/modify ラウンドトリップを検証
 7. **エッジケース** — 境界値、全 W1C レジスタ、選択的クリア、reset_value 保持
 8. **エラーポリシー** — CustomErrorHandler、IgnoreError、範囲外 DynamicValue 検出
-9. **Compile-fail ガード** — 不正操作がコンパイルされないことを確認（15 テストファイル）
+9. **Compile-fail ガード** — 不正操作がコンパイルされないことを確認（19 テストファイル）
 10. **複数幅レジスタ** — 8-bit、16-bit、32-bit、64-bit レジスタ操作
+11. **非ゼロ base_address** — 実アドレスの MMIO ペリフェラル、MMIO 内の Block
+12. **トランスポートバリアント** — SPI カスタムコマンドビット、ビッグエンディアン、I2C 16-bit アドレス幅、マルチトランスポートデバイス
 
 並行性/ロックは umimmio のスコープ外であり、ここではテストしない。
 
@@ -61,8 +67,8 @@ umimmio は主にコンパイル時抽象化ライブラリであるため、テ
 
 ## リリースの品質ゲート
 
-- 全ホストテストパス（75 テスト）
-- 全 compile-fail 契約テストパス（15 テスト）
+- 全ホストテストパス（93 テスト）
+- 全 compile-fail 契約テストパス（19 テスト）
 - トランスポートモックテストが単一および複数フィールドの write, modify, is, flip, clear, reset, read_variant をカバー
 - W1C マスキング: 混合 W1C レジスタでの flip/modify/clear が非 W1C フィールドを保持
 - W1C パス: 全 W1C 直接書き込み、混合 RMW、選択的クリア
