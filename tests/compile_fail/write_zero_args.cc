@@ -14,7 +14,9 @@ struct Transport : private umi::mmio::RegOps<> {
     using TransportTag = umi::mmio::Direct;
 
     template <typename R>
-    auto reg_read(R) const noexcept -> typename R::RegValueType { return {}; }
+    auto reg_read(R) const noexcept -> typename R::RegValueType {
+        return {};
+    }
     template <typename R>
     void reg_write(R, typename R::RegValueType) const noexcept {}
 };

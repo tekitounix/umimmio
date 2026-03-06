@@ -31,21 +31,21 @@ struct MockSpi {
     /// Full-duplex transfer. First byte(s) = address, remaining = data.
     /// For reads, response data comes from memory[addr].
     /// For writes, tx data is stored at memory[addr].
-    void transfer(const std::uint8_t* tx, std::uint8_t* rx, std::size_t size) const {
-        if (size < 2) {
+    void transfer(std::span<const std::uint8_t> tx, std::span<std::uint8_t> rx) const {
+        if (tx.size() < 2) {
             return;
         }
         // Address is first byte (mask off command bits)
         std::uint8_t const addr = tx[0] & 0x7F;
         bool const is_read = (tx[0] & 0x80) != 0;
 
-        if (rx != nullptr && is_read) {
+        if (!rx.empty() && is_read) {
             // Read: fill rx with data from memory starting at addr
-            std::memset(rx, 0, size);
-            std::memcpy(rx + 1, &memory[addr], size - 1);
+            std::memset(rx.data(), 0, rx.size());
+            std::memcpy(rx.data() + 1, &memory[addr], rx.size() - 1);
         } else {
             // Write: store tx data bytes into memory
-            std::memcpy(&memory[addr], tx + 1, size - 1);
+            std::memcpy(&memory[addr], tx.data() + 1, tx.size() - 1);
         }
     }
 };
@@ -260,15 +260,17 @@ struct FailingI2C {
 
     Result write(std::uint8_t /*dev_addr*/, std::span<const std::uint8_t> /*data*/) const { return {false}; }
 
-    Result write_read(std::uint8_t /*dev_addr*/, std::span<const std::uint8_t> /*tx*/,
-                      std::span<std::uint8_t> /*rx*/) const {
+    Result
+    write_read(std::uint8_t /*dev_addr*/, std::span<const std::uint8_t> /*tx*/, std::span<std::uint8_t> /*rx*/) const {
         return {false};
     }
 };
 
 /// @brief Error counter for transport error tests.
-static int transport_error_count = 0; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables) test-only counter
-static void count_transport_errors(const char* /*msg*/) { transport_error_count++; }
+int transport_error_count = 0; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables) test-only counter
+void count_transport_errors(const char* /*msg*/) {
+    transport_error_count++;
+}
 
 using CountingErrorPolicy = CustomErrorHandler<count_transport_errors>;
 
@@ -299,7 +301,7 @@ struct FailingSpi {
         bool success;
     };
 
-    Result transfer(const std::uint8_t* /*tx*/, std::uint8_t* /*rx*/, std::size_t /*size*/) const { return {false}; }
+    Result transfer(std::span<const std::uint8_t> /*tx*/, std::span<std::uint8_t> /*rx*/) const { return {false}; }
 };
 
 bool test_spi_transport_error_on_write(TestContext& t) {

@@ -64,9 +64,9 @@ struct MockDevice : Device<> {
     struct CTRL : Register<MockDevice, 0x00, bits32, RW, 0x0000> {
         struct EN : Field<CTRL, 0, 1> {};
         struct MODE : Field<CTRL, 1, 2> {
-            using Normal  = Value<MODE, 0>;
-            using Fast    = Value<MODE, 1>;
-            using LowPwr  = Value<MODE, 2>;
+            using Normal = Value<MODE, 0>;
+            using Fast = Value<MODE, 1>;
+            using LowPwr = Value<MODE, 2>;
         };
         struct PRESCALER : Field<CTRL, 8, 8, Numeric> {};
     };
@@ -110,14 +110,14 @@ int main() {
     // -------------------------------------------------------------------------
     // 2. read() — register and field level
     // -------------------------------------------------------------------------
-    auto ctrl_val = io.read(CTRL{});             // RegionValue<CTRL>
-    auto en_val   = io.read(CTRL::EN{});         // RegionValue<EN>
+    auto ctrl_val = io.read(CTRL{});   // RegionValue<CTRL>
+    auto en_val = io.read(CTRL::EN{}); // RegionValue<EN>
     check(en_val.bits() == 1, "read field");
 
     // -------------------------------------------------------------------------
     // 3. RegionValue — get(), bits(), is()
     // -------------------------------------------------------------------------
-    auto en_from_reg = ctrl_val.get(CTRL::EN{});  // extract field from register read
+    auto en_from_reg = ctrl_val.get(CTRL::EN{}); // extract field from register read
     check(en_from_reg.bits() == 1, "RegionValue.get()");
     check(ctrl_val.is(CTRL::MODE::Fast{}), "RegionValue.is()");
 
@@ -165,8 +165,8 @@ int main() {
     //   - clear(W1cField{}) writes 1 to the W1C bit (clearing it in real HW).
     //   - In a mixed register (W1C + non-W1C fields), clear() uses RMW to
     //     preserve non-W1C field values.
-    io.write(SR::READY::Set{});                    // set non-W1C field
-    io.clear(SR::OVR{});                           // clear W1C bit (RMW preserves READY)
+    io.write(SR::READY::Set{}); // set non-W1C field
+    io.clear(SR::OVR{});        // clear W1C bit (RMW preserves READY)
     check(io.read(SR::READY{}).bits() == 1, "clear() preserves non-W1C fields");
 
     // -------------------------------------------------------------------------
@@ -174,31 +174,31 @@ int main() {
     // -------------------------------------------------------------------------
     io.write(CTRL::EN::Set{}, CTRL::MODE::Fast{});
 
-    auto mode = io.read_variant<CTRL::MODE,
-                                CTRL::MODE::Normal,
-                                CTRL::MODE::Fast,
-                                CTRL::MODE::LowPwr>();
+    auto mode = io.read_variant<CTRL::MODE, CTRL::MODE::Normal, CTRL::MODE::Fast, CTRL::MODE::LowPwr>();
 
     bool matched_fast = false;
-    std::visit([&](auto v) {
-        if constexpr (std::is_same_v<decltype(v), CTRL::MODE::Fast>) {
-            matched_fast = true;
-        }
-    }, mode);
+    std::visit(
+        [&](auto v) {
+            if constexpr (std::is_same_v<decltype(v), CTRL::MODE::Fast>) {
+                matched_fast = true;
+            }
+        },
+        mode);
     check(matched_fast, "read_variant matches Fast");
 
     // read_variant with unknown value → UnknownValue
     io.modify(CTRL::MODE::LowPwr{});
-    auto mode2 = io.read_variant<CTRL::MODE,
-                                 CTRL::MODE::Normal,
-                                 CTRL::MODE::Fast>();  // LowPwr not listed
+    auto mode2 = io.read_variant<CTRL::MODE, CTRL::MODE::Normal,
+                                 CTRL::MODE::Fast>(); // LowPwr not listed
 
     bool is_unknown = false;
-    std::visit([&](auto v) {
-        if constexpr (std::is_same_v<decltype(v), UnknownValue<CTRL::MODE>>) {
-            is_unknown = true;
-        }
-    }, mode2);
+    std::visit(
+        [&](auto v) {
+            if constexpr (std::is_same_v<decltype(v), UnknownValue<CTRL::MODE>>) {
+                is_unknown = true;
+            }
+        },
+        mode2);
     check(is_unknown, "read_variant returns UnknownValue for unlisted value");
 
     // -------------------------------------------------------------------------

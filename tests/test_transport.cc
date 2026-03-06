@@ -648,15 +648,11 @@ bool test_region_value_field_eq_dynamic(TestContext& t) {
     bool ok = true;
     // DynamicValue comparison uses .bits() since value() returns DynamicValue
     // with base Field type parameter, not the derived type alias.
-    ok &= t.assert_true(presc_val.bits() == static_cast<uint8_t>(0x42),
-                         "RegionValue<Field> bits match");
-    ok &= t.assert_true(presc_val.bits() != static_cast<uint8_t>(0x43),
-                         "RegionValue<Field> bits mismatch");
+    ok &= t.assert_true(presc_val.bits() == static_cast<uint8_t>(0x42), "RegionValue<Field> bits match");
+    ok &= t.assert_true(presc_val.bits() != static_cast<uint8_t>(0x43), "RegionValue<Field> bits mismatch");
     // is() at RegOps level handles DynamicValue correctly
-    ok &= t.assert_true(hw.is(ConfigPrescaler::value(static_cast<uint8_t>(0x42))),
-                         "is() with DynamicValue match");
-    ok &= t.assert_true(!hw.is(ConfigPrescaler::value(static_cast<uint8_t>(0x43))),
-                         "is() with DynamicValue mismatch");
+    ok &= t.assert_true(hw.is(ConfigPrescaler::value(static_cast<uint8_t>(0x42))), "is() with DynamicValue match");
+    ok &= t.assert_true(!hw.is(ConfigPrescaler::value(static_cast<uint8_t>(0x43))), "is() with DynamicValue mismatch");
     return ok;
 }
 
