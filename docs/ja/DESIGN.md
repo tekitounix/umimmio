@@ -182,40 +182,48 @@ Direct MMIO の最小フロー：
 
 ### 4.2 レジスタマップの構成
 
-典型的なデバイスレジスタマップの構造：
+推奨スタイルは**階層型ネスト**: Device が Register を含み、
+Register が Field を含み、Field が名前付き Value を含む。
+これはデバイスの物理構造をそのまま反映し、複数レジスタが同名フィールド（`EN`, `MODE` 等）を
+持つ場合の名前衝突を防ぐ。
 
 ```cpp
 namespace mm = umi::mmio;
 
 struct MyDevice : mm::Device<mm::RW> {
     static constexpr mm::Addr base_address = 0x4000'0000;
+
+    struct CTRL : mm::Register<MyDevice, 0x00, 32> {
+        // 1ビットフィールド — Set/Reset 自動生成
+        struct EN : mm::Field<CTRL, 0, 1> {};
+
+        // 2ビットフィールド（名前付き値） — デフォルトで安全（raw value() 不可）
+        struct MODE : mm::Field<CTRL, 1, 2> {
+            using Output  = mm::Value<MODE, 0b01>;
+            using AltFunc = mm::Value<MODE, 0b10>;
+        };
+
+        // 9ビット数値フィールド — raw value() 有効
+        struct PLLN : mm::Field<CTRL, 6, 9, mm::Numeric> {};
+
+        // 読み出し専用 + 数値
+        struct DR : mm::Field<CTRL, 0, 16, mm::RO, mm::Numeric> {};
+    };
+
+    // W1C ステータスレジスタ（W1cMask 指定）
+    struct SR : mm::Register<MyDevice, 0x04, 32, mm::RW, 0, 0x0003> {
+        // W1C フィールド — Clear エイリアスが自動生成（Set/Reset の代わり）
+        struct OVR : mm::Field<SR, 0, 1, mm::W1C> {};
+        struct EOC : mm::Field<SR, 1, 1, mm::W1C> {};
+        struct READY : mm::Field<SR, 8, 1> {};  // 通常の RW フィールド
+    };
 };
-
-using CTRL = mm::Register<MyDevice, 0x00, 32>;
-
-// 1ビットフィールド — Set/Reset 自動生成
-struct EN : mm::Field<CTRL, 0, 1> {};
-
-// 2ビットフィールド（名前付き値） — デフォルトで安全（raw value() 不可）
-struct MODE : mm::Field<CTRL, 1, 2> {
-    using Output  = mm::Value<MODE, 0b01>;
-    using AltFunc = mm::Value<MODE, 0b10>;
-};
-
-// 9ビット数値フィールド — raw value() 有効
-struct PLLN : mm::Field<CTRL, 6, 9, mm::Numeric> {};
-
-// 読み出し専用 + 数値
-struct DR : mm::Field<CTRL, 0, 16, mm::RO, mm::Numeric> {};
-
-// W1C ステータスレジスタ（W1cMask 指定）
-using SR = mm::Register<MyDevice, 0x04, 32, mm::RW, 0, 0x0003>;
-
-// W1C フィールド — Clear エイリアスが自動生成（Set/Reset の代わり）
-struct OVR : mm::Field<SR, 0, 1, mm::W1C> {};
-struct EOC : mm::Field<SR, 1, 1, mm::W1C> {};
-struct READY : mm::Field<SR, 8, 1> {};  // 通常の RW フィールド
 ```
+
+> **Note:** フラットスタイル（レジスタやフィールドをデバイス外の独立した struct として
+> 定義する）も有効な C++ であり正しくコンパイルされる。ただし階層型スタイルを推奨する。
+> 名前衝突を自然に防ぎ、型パス（`MyDevice::CTRL::MODE::Output`）が
+> 自己文書化されるため。
 
 ### 4.2.1 フィールド型安全モデル
 
@@ -415,9 +423,9 @@ auto en_raw = en.bits();             // raw フィールド値（エスケープ
 W1C フィールドは `clear()` を使用する：
 
 ```cpp
-hw.clear(OVR{});             // ✅ 正しい: OVR のみに 1 を書き込み
-hw.modify(OVR::Clear{});     // ✗ コンパイルエラー: W1C は ModifiableValue でない
-hw.flip(OVR{});              // ✗ コンパイルエラー: W1C は NotW1C でない
+hw.clear(MyDevice::SR::OVR{});             // ✅ 正しい: OVR のみに 1 を書き込み
+hw.modify(MyDevice::SR::OVR::Clear{});     // ✗ コンパイルエラー: W1C は ModifiableValue でない
+hw.flip(MyDevice::SR::OVR{});              // ✗ コンパイルエラー: W1C は NotW1C でない
 ```
 
 `modify()` 中、親レジスタの W1C ビットは `Register::w1c_mask` により

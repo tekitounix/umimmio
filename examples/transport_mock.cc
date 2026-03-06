@@ -46,34 +46,37 @@ class MockTransport : private RegOps<> {
 };
 
 // =============================================================================
-// Device register definitions
+// Device register definitions (hierarchical style)
 // =============================================================================
 
-struct MockDevice : Device<RW, DirectTransportTag> {};
+struct MockDevice : Device<RW, DirectTransportTag> {
+    /// CTRL: 8-bit control register at offset 0x00
+    struct CTRL : Register<MockDevice, 0x00, bits8> {
+        struct EN : Field<CTRL, 0, 1> {};     // Enable
+        struct SPEED : Field<CTRL, 1, 2> {    // Speed selection
+            using Fast = Value<SPEED, 2>;
+        };
+    };
 
-struct CtrlReg : Register<MockDevice, 0x00, bits8> {};
-struct StatusReg : Register<MockDevice, 0x01, bits8, RO> {};
-
-struct Enable : Field<CtrlReg, 0, 1> {};
-struct Speed : Field<CtrlReg, 1, 2> {};
-struct Ready : Field<StatusReg, 0, 1> {};
-
-// Named values for Speed
-using SpeedFast = Value<Speed, 2>;
+    /// SR: 8-bit status register at offset 0x01 (read-only)
+    struct SR : Register<MockDevice, 0x01, bits8, RO> {
+        struct READY : Field<SR, 0, 1> {};
+    };
+};
 
 int main() {
     MockTransport const io;
 
-    // Write Enable=1, Speed=2 using typed API
-    io.write(Enable::Set{}, SpeedFast{});
+    // Write EN=1, SPEED=2 using typed API
+    io.write(MockDevice::CTRL::EN::Set{}, MockDevice::CTRL::SPEED::Fast{});
 
-    auto reader = io.read(CtrlReg{});
-    std::printf("CtrlReg = 0x%02X (expect Enable=1, Speed=2 -> 0x05)\n", reader.bits());
+    auto reader = io.read(MockDevice::CTRL{});
+    std::printf("CTRL = 0x%02X (expect EN=1, SPEED=2 -> 0x05)\n", reader.bits());
 
     // Verify using field read
-    auto enable_val = reader.get(Enable{}).bits();
-    auto speed_val = reader.get(Speed{}).bits();
-    std::printf("Enable = %u, Speed = %u\n", enable_val, speed_val);
+    auto enable_val = reader.get(MockDevice::CTRL::EN{}).bits();
+    auto speed_val = reader.get(MockDevice::CTRL::SPEED{}).bits();
+    std::printf("EN = %u, SPEED = %u\n", enable_val, speed_val);
 
     return (reader.bits() == 0x05) ? 0 : 1;
 }

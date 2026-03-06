@@ -55,41 +55,45 @@ USART1->SR = 0;                     // Write to RO bits — compiles fine
 #include <umimmio/mmio.hh>
 using namespace umi::mmio;
 
+// Hierarchical register map — the nested struct hierarchy
+// Device > Register > Field > Value mirrors the physical device structure.
 struct MyDevice : Device<RW> {
     static constexpr Addr base_address = 0x4000'0000;
+
+    struct CTRL : Register<MyDevice, 0x00, 32> {
+        // 1-bit field — Set/Reset auto-generated
+        struct EN : Field<CTRL, 0, 1> {};
+
+        // 2-bit field with named values (safe — no raw value())
+        struct MODE : Field<CTRL, 1, 2> {
+            using Output  = Value<MODE, 0b01>;
+            using AltFunc = Value<MODE, 0b10>;
+        };
+
+        // 9-bit numeric field — raw value() enabled via Numeric trait
+        struct PLLN : Field<CTRL, 6, 9, Numeric> {};
+    };
 };
 
-using CTRL = Register<MyDevice, 0x00, 32>;
-
-// 1-bit field — Set/Reset auto-generated
-struct EN : Field<CTRL, 0, 1> {};
-
-// 2-bit field with named values (safe — no raw value())
-struct MODE : Field<CTRL, 1, 2> {
-    using Output  = Value<MODE, 0b01>;
-    using AltFunc = Value<MODE, 0b10>;
-};
-
-// 9-bit numeric field — raw value() enabled via Numeric trait
-struct PLLN : Field<CTRL, 6, 9, Numeric> {};
+using CTRL = MyDevice::CTRL;  // alias for brevity
 
 DirectTransport<> io;
-io.write(EN::Set{});            // set bit 0
-io.write(EN::Reset{});          // clear bit 0
-io.write(MODE::Output{});       // write named value
-io.write(PLLN::value(336));     // write raw numeric (Numeric fields only)
-io.modify(EN::Set{});           // read-modify-write (preserves other fields)
+io.write(CTRL::EN::Set{});            // set bit 0
+io.write(CTRL::EN::Reset{});          // clear bit 0
+io.write(CTRL::MODE::Output{});       // write named value
+io.write(CTRL::PLLN::value(336));     // write raw numeric (Numeric fields only)
+io.modify(CTRL::EN::Set{});           // read-modify-write (preserves other fields)
 
 // Reading
-auto val = io.read(EN{});       // → FieldValue<EN>
-auto raw = val.bits();          // escape hatch for raw access
-bool is_out = io.is(MODE::Output{});  // named value comparison
-io.flip(EN{});                  // toggle 1-bit field
+auto val = io.read(CTRL::EN{});       // → FieldValue<EN>
+auto raw = val.bits();                // escape hatch for raw access
+bool is_out = io.is(CTRL::MODE::Output{});  // named value comparison
+io.flip(CTRL::EN{});                  // toggle 1-bit field
 
 // RegisterReader — one bus read, multiple field access
-auto cfg = io.read(CTRL{});     // → RegisterReader<CTRL>
-auto en  = cfg.get(EN{});       // extract field — no additional bus access
-bool fast = cfg.is(MODE::AltFunc{});
+auto cfg = io.read(CTRL{});           // → RegisterReader<CTRL>
+auto en  = cfg.get(CTRL::EN{});       // extract field — no additional bus access
+bool fast = cfg.is(CTRL::MODE::AltFunc{});
 ```
 
 ## Field Type Safety

@@ -182,40 +182,48 @@ Required minimal flow for direct MMIO:
 
 ### 4.2 Register Map Organization
 
-Typical device register map structure:
+The recommended style is **hierarchical nesting**: Device contains Registers,
+Registers contain Fields, Fields contain named Values. This mirrors the
+physical device structure and avoids name collisions when multiple registers
+share common field names (e.g. `EN`, `MODE`).
 
 ```cpp
 namespace mm = umi::mmio;
 
 struct MyDevice : mm::Device<mm::RW> {
     static constexpr mm::Addr base_address = 0x4000'0000;
+
+    struct CTRL : mm::Register<MyDevice, 0x00, 32> {
+        // 1-bit field — Set/Reset auto-generated
+        struct EN : mm::Field<CTRL, 0, 1> {};
+
+        // 2-bit field with named values — safe by default (no raw value())
+        struct MODE : mm::Field<CTRL, 1, 2> {
+            using Output  = mm::Value<MODE, 0b01>;
+            using AltFunc = mm::Value<MODE, 0b10>;
+        };
+
+        // 9-bit numeric field — raw value() enabled
+        struct PLLN : mm::Field<CTRL, 6, 9, mm::Numeric> {};
+
+        // Read-only + numeric
+        struct DR : mm::Field<CTRL, 0, 16, mm::RO, mm::Numeric> {};
+    };
+
+    // W1C status register with W1cMask
+    struct SR : mm::Register<MyDevice, 0x04, 32, mm::RW, 0, 0x0003> {
+        // W1C field — Clear alias auto-generated (instead of Set/Reset)
+        struct OVR : mm::Field<SR, 0, 1, mm::W1C> {};
+        struct EOC : mm::Field<SR, 1, 1, mm::W1C> {};
+        struct READY : mm::Field<SR, 8, 1> {};  // Normal RW field
+    };
 };
-
-using CTRL = mm::Register<MyDevice, 0x00, 32>;
-
-// 1-bit field — Set/Reset auto-generated
-struct EN : mm::Field<CTRL, 0, 1> {};
-
-// 2-bit field with named values — safe by default (no raw value())
-struct MODE : mm::Field<CTRL, 1, 2> {
-    using Output  = mm::Value<MODE, 0b01>;
-    using AltFunc = mm::Value<MODE, 0b10>;
-};
-
-// 9-bit numeric field — raw value() enabled
-struct PLLN : mm::Field<CTRL, 6, 9, mm::Numeric> {};
-
-// Read-only + numeric
-struct DR : mm::Field<CTRL, 0, 16, mm::RO, mm::Numeric> {};
-
-// W1C status register with W1cMask
-using SR = mm::Register<MyDevice, 0x04, 32, mm::RW, 0, 0x0003>;
-
-// W1C field — Clear alias auto-generated (instead of Set/Reset)
-struct OVR : mm::Field<SR, 0, 1, mm::W1C> {};
-struct EOC : mm::Field<SR, 1, 1, mm::W1C> {};
-struct READY : mm::Field<SR, 8, 1> {};  // Normal RW field
 ```
+
+> **Note:** Flat-style definitions (registers and fields as standalone structs outside
+> the device) are also valid C++ and compile correctly. However, the hierarchical
+> style is recommended because it naturally prevents name collisions and makes
+> the type path (`MyDevice::CTRL::MODE::Output`) self-documenting.
 
 ### 4.2.1 Field Type Safety Model
 
@@ -415,9 +423,9 @@ See [TESTING.md](TESTING.md) for test layout, run commands, and quality gates.
 W1C fields must use `clear()`:
 
 ```cpp
-hw.clear(OVR{});             // ✅ Correct: writes 1 to OVR only
-hw.modify(OVR::Clear{});     // ✗ Compile error: W1C not ModifiableValue
-hw.flip(OVR{});              // ✗ Compile error: W1C not NotW1C
+hw.clear(MyDevice::SR::OVR{});             // ✅ Correct: writes 1 to OVR only
+hw.modify(MyDevice::SR::OVR::Clear{});     // ✗ Compile error: W1C not ModifiableValue
+hw.flip(MyDevice::SR::OVR{});              // ✗ Compile error: W1C not NotW1C
 ```
 
 During `modify()`, W1C bits in the parent register are automatically masked to 0

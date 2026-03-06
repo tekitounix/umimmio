@@ -55,38 +55,42 @@ USART1->SR = 0;                     // RO ビットへの書き込み — コン
 #include <umimmio/mmio.hh>
 using namespace umi::mmio;
 
+// 階層型レジスタマップ — Device > Register > Field > Value の
+// ネスト構造がデバイスの物理構造をそのまま表現する。
 struct MyDevice : Device<RW> {
     static constexpr Addr base_address = 0x4000'0000;
+
+    struct CTRL : Register<MyDevice, 0x00, 32> {
+        // 1 ビットフィールド — Set/Reset 自動生成
+        struct EN : Field<CTRL, 0, 1> {};
+
+        // 2 ビットフィールド（名前付き値）— デフォルトで安全
+        struct MODE : Field<CTRL, 1, 2> {
+            using Output  = Value<MODE, 0b01>;
+            using AltFunc = Value<MODE, 0b10>;
+        };
+
+        // 9 ビット数値フィールド — Numeric トレイトで raw value() 有効
+        struct PLLN : Field<CTRL, 6, 9, Numeric> {};
+    };
 };
 
-using CTRL = Register<MyDevice, 0x00, 32>;
-
-// 1 ビットフィールド — Set/Reset 自動生成
-struct EN : Field<CTRL, 0, 1> {};
-
-// 2 ビットフィールド（名前付き値）— デフォルトで安全
-struct MODE : Field<CTRL, 1, 2> {
-    using Output  = Value<MODE, 0b01>;
-    using AltFunc = Value<MODE, 0b10>;
-};
-
-// 9 ビット数値フィールド — Numeric トレイトで raw value() 有効
-struct PLLN : Field<CTRL, 6, 9, Numeric> {};
+using CTRL = MyDevice::CTRL;  // 簡潔さのためエイリアス
 
 DirectTransport<> io;
-io.write(EN::Set{});            // ビット 0 をセット
-io.write(MODE::Output{});       // 名前付き値を書き込み
-io.write(PLLN::value(336));     // raw 数値書き込み (Numeric のみ)
-io.modify(EN::Set{});           // read-modify-write (他フィールド保持)
+io.write(CTRL::EN::Set{});            // ビット 0 をセット
+io.write(CTRL::MODE::Output{});       // 名前付き値を書き込み
+io.write(CTRL::PLLN::value(336));     // raw 数値書き込み (Numeric のみ)
+io.modify(CTRL::EN::Set{});           // read-modify-write (他フィールド保持)
 
 // 読み出し
-auto val = io.read(EN{});       // → FieldValue<EN>
-auto raw = val.bits();          // raw 値のエスケープハッチ
-io.flip(EN{});                  // 1 ビットフィールドのトグル
+auto val = io.read(CTRL::EN{});       // → FieldValue<EN>
+auto raw = val.bits();                // raw 値のエスケープハッチ
+io.flip(CTRL::EN{});                  // 1 ビットフィールドのトグル
 
 // RegisterReader — 1 回のバスアクセスで複数フィールド取得
-auto cfg = io.read(CTRL{});     // → RegisterReader<CTRL>
-auto en  = cfg.get(EN{});       // フィールド抽出（追加バスアクセスなし）
+auto cfg = io.read(CTRL{});           // → RegisterReader<CTRL>
+auto en  = cfg.get(CTRL::EN{});       // フィールド抽出（追加バスアクセスなし）
 ```
 
 ## フィールド型安全性
