@@ -107,7 +107,8 @@ class RegOps {
     }
 
     /// @brief Read-modify-write: read current value, apply field changes, write back.
-    /// @warning This operation is NOT atomic. Use Protected<> for ISR safety.
+    /// @warning This operation is NOT atomic. Callers must serialize access
+    ///          externally (e.g. disable interrupts, use a scoped lock).
     /// @note W1C fields are rejected at compile time. Use clear() instead.
     /// @note W1C bits in the parent register are automatically masked to 0
     ///       before write-back via Register::w1c_mask.

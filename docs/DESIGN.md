@@ -76,8 +76,9 @@ lib/umimmio/
 │   ├── mmio.hh              # Umbrella header
 │   ├── policy.hh            # Foundation: AccessPolicy, transport tags, error policies
 │   ├── region.hh            # Data model: Device, Register, Field, Value, concepts
-│   ├── ops.hh               # Operations: RegOps, ByteAdapter, RegionValue
+│   ├── ops.hh               # Operations: RegOps, ByteAdapter
 │   └── transport/
+│       ├── detail.hh        # Shared helpers for address encoding
 │       ├── direct.hh        # DirectTransport (volatile pointer)
 │       ├── i2c.hh           # I2cTransport (HAL-based)
 │       ├── spi.hh           # SpiTransport (HAL-based)
@@ -90,14 +91,21 @@ lib/umimmio/
     ├── test_transport.cc
     ├── test_spi_bitbang.cc
     ├── compile_fail/
+    │   ├── clear_non_w1c.cc
+    │   ├── cross_register_write.cc
+    │   ├── field_overflow.cc
+    │   ├── flip_ro.cc
+    │   ├── flip_w1c.cc
+    │   ├── flip_wo.cc
+    │   ├── modify_w1c.cc
+    │   ├── modify_wo.cc
+    │   ├── read_field_eq_int.cc
     │   ├── read_wo.cc
+    │   ├── value_signed.cc
+    │   ├── value_typesafe.cc
     │   ├── write_ro.cc
     │   ├── write_ro_value.cc
-    │   ├── value_typesafe.cc
-    │   ├── value_signed.cc
-    │   ├── modify_w1c.cc
-    │   ├── flip_w1c.cc
-    │   └── field_overflow.cc
+    │   └── write_zero_args.cc
     └── xmake.lua
 ```
 
@@ -169,11 +177,9 @@ Static methods on Register/Field:
 
 Concurrency:
 
-Exclusive access control (`Protected<T, LockPolicy>`, `Guard`, lock policies)
-has been moved to `umisync` — see `lib/umisync/README.md`.
-umimmio provides a deprecated backward-compatibility header `<umimmio/protected.hh>`
-that redirects to `<umisync/protected.hh>`. New code should use `umi::sync::`
-types directly.
+`modify()` is not atomic (read-modify-write). For ISR-safe or multi-context
+access, the caller must serialize access externally (e.g. disable interrupts,
+use a scoped lock). See §9.4 for the pattern.
 
 ### 4.1 Minimal Path
 
@@ -273,7 +279,7 @@ Advanced usage includes:
 6. W1C field handling via `clear()`,
 7. register reset via `reset()`,
 8. pattern-matched field reading via `read_variant()`,
-9. ISR-safe access via `umisync::Protected<Transport, LockPolicy>` (platform-specific lock policy injected via DI).
+9. ISR-safe access by wrapping transport operations in a caller-provided critical section.
 
 ---
 
@@ -285,8 +291,9 @@ Unified compile-time base for both registers and fields:
 
 - `Register` = `BitRegion` with `IsRegister=true` (full-width, has address offset).
 - `Field` = `BitRegion` with `IsRegister=false` (sub-width, has bit offset).
-- 5 `static_assert`s validate: bit width > 0, offset + width ≤ register width,
-  register width is power of 2, register width ≥ 8, no zero-width register.
+- 5 `static_assert`s validate: bit width > 0, register width ≤ 64,
+  offset + width ≤ register width, register has bit offset 0,
+  register bit width equals register full width.
 
 ### 5.2 RegOps (deducing this)
 
@@ -363,6 +370,32 @@ auto en_raw = en.bits();             // Raw field value (escape hatch)
 - `get(Field{})` — extract a field value as `RegionValue<F>` (register only)
 - `is(ValueType{})` — match against a named value (register only)
 - `operator==` with `Value`/`DynamicValue` — typed comparison (field only)
+
+### 5.7 read_variant()
+
+`read_variant()` reads a field and pattern-matches its value against a set of
+named `Value<>` types, returning a `std::variant`. If no match is found,
+`UnknownValue<F>` is returned as the last alternative.
+
+```cpp
+auto result = hw.read_variant<CTRL::MODE,
+                              CTRL::MODE::Normal,
+                              CTRL::MODE::Fast,
+                              CTRL::MODE::LowPwr>();
+
+// result type: std::variant<Normal, Fast, LowPwr, UnknownValue<MODE>>
+
+std::visit([](auto v) {
+    if constexpr (std::is_same_v<decltype(v), CTRL::MODE::Fast>) {
+        // handle Fast mode
+    } else if constexpr (std::is_same_v<decltype(v), UnknownValue<CTRL::MODE>>) {
+        // handle unexpected value — v.value holds the raw bits
+    }
+}, result);
+```
+
+This is particularly useful when a field has many named values and the caller
+wants exhaustive handling via `std::visit`.
 
 ---
 
@@ -448,21 +481,19 @@ read-modify-write to preserve non-W1C field values. For pure-W1C registers
 ### 9.4 Atomicity
 
 `modify()` performs read-modify-write and is **never atomic**.
-For ISR-safe access, use `umi::sync::Protected<Transport, LockPolicy>` from `umisync`:
+For ISR-safe access, the caller must serialize access externally:
 
 ```cpp
-#include <umisync/protected.hh>
-using umi::sync::Protected;
-
-// LockPolicy is injected via DI — platform port libraries provide concrete policies.
-Protected<DirectTransport<>, SomeLockPolicy> protected_hw;
-
-auto guard = protected_hw.lock();   // Lock acquired
-guard->modify(ConfigEnable::Set{}); // ISR-safe RMW
-// ~Guard() releases lock (RAII)
+// Example: wrap transport operations in a platform-specific critical section.
+// The exact mechanism (disable IRQ, mutex, etc.) is determined by the caller.
+{
+    auto lock = enter_critical_section();  // platform-specific
+    io.modify(ConfigEnable::Set{});        // ISR-safe RMW
+}   // lock released (RAII)
 ```
 
-See `lib/umisync/README.md` for available lock policies.
+umimmio itself is transport-level only and does not provide synchronization primitives.
+Callers are responsible for choosing the appropriate locking mechanism for their platform.
 
 ### 9.5 reset()
 
