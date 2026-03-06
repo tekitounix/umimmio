@@ -41,22 +41,22 @@ class RegOps {
     RegOps(RegOps&&) = delete;
     RegOps& operator=(RegOps&&) = delete;
 
-    /// @brief Read a register, returning a RegisterReader for typed field extraction.
+    /// @brief Read a register, returning a RegionValue for typed field extraction.
     /// @tparam Reg Register type.
-    /// @return RegisterReader wrapping the raw register value.
+    /// @return RegionValue wrapping the raw register value.
     template <typename Self, typename Reg>
         requires Readable<Reg> && IsRegister<Reg>
-    [[nodiscard]] auto read(this const Self& self, Reg /*reg*/) noexcept -> RegisterReader<Reg> {
+    [[nodiscard]] auto read(this const Self& self, Reg /*reg*/) noexcept -> RegionValue<Reg> {
         check_transport_allowed<Self, Reg>();
-        return RegisterReader<Reg>{self.reg_read(Reg{})};
+        return RegionValue<Reg>{self.reg_read(Reg{})};
     }
 
     /// @brief Read a single field value (shortcut for read(Reg).get(Field)).
     /// @tparam F Field type.
-    /// @return FieldValue<F> wrapping the extracted value.
+    /// @return RegionValue<F> wrapping the extracted value.
     template <typename Self, typename F>
         requires Readable<F> && IsField<F>
-    [[nodiscard]] auto read(this const Self& self, F /*field*/) noexcept -> FieldValue<F> {
+    [[nodiscard]] auto read(this const Self& self, F /*field*/) noexcept -> RegionValue<F> {
         check_transport_allowed<Self, F>();
         return self.read(typename F::ParentRegType{}).get(F{});
     }
@@ -66,7 +66,7 @@ class RegOps {
     /// @return true if the current hardware value matches.
     ///
     /// DynamicValue range check is performed here (RegOps layer) since
-    /// RegisterReader intentionally omits it — it holds no ErrorPolicy.
+    /// RegionValue intentionally omits it — it holds no ErrorPolicy.
     template <typename Self, ReadableValue V>
     [[nodiscard]] bool is(this const Self& self, V&& value) noexcept {
         using VDecay = std::decay_t<V>;
@@ -85,7 +85,7 @@ class RegOps {
             }
         }
 
-        // Delegate to RegisterReader::is() which handles both Value/DynamicValue
+        // Delegate to RegionValue::is() which handles both Value/DynamicValue
         if constexpr (RegionT::is_register) {
             return self.read(RegionT{}).is(std::forward<V>(value));
         } else {

@@ -151,8 +151,8 @@ struct MockI2C {
     }
 };
 
-/// @brief I2C device for testing — allows I2CTransportTag
-struct I2CDevice : Device<RW, I2CTransportTag> {};
+/// @brief I2C device for testing — allows I2c
+struct I2CDevice : Device<RW, I2c> {};
 
 /// @brief Register on I2C device at offset 0x10
 struct I2CReg : Register<I2CDevice, 0x10, bits32, RW, 0> {};
@@ -311,7 +311,7 @@ void custom_handler(const char* /*msg*/) noexcept {
 struct CustomErrTransport : private RegOps<std::true_type, CustomErrorHandler<custom_handler>> {
   public:
     using RegOps<std::true_type, CustomErrorHandler<custom_handler>>::write;
-    using TransportTag = DirectTransportTag;
+    using TransportTag = Direct;
 
     std::array<std::uint8_t, 256> mutable memory{};
 

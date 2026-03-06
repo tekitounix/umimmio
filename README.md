@@ -44,7 +44,7 @@ USART1->SR = 0;                     // Write to RO bits — compiles fine
 - **Multiple transports** — same register map works across Direct MMIO, I2C, SPI, and bitbang variants
 - **Policy-based error handling** — `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
 - **Compile-fail guards** — 9 compile-fail tests verify illegal access is rejected at compile time
-- **RegisterReader** — single bus read, multiple field extraction via `read(Reg{}).get(Field{})`
+- **RegionValue** — single bus read, multiple field extraction via `read(Reg{}).get(Field{})`
 - **Pattern matching** — `read_variant()` with `std::variant` + `std::visit` for exhaustive field matching
 - **Concurrency** — `Protected<T, LockPolicy>` with RAII Guard ensures lock-only access
 - **C++23** — deducing this (no CRTP), `if consteval`, `std::byteswap`
@@ -85,13 +85,13 @@ io.write(CTRL::PLLN::value(336));     // write raw numeric (Numeric fields only)
 io.modify(CTRL::EN::Set{});           // read-modify-write (preserves other fields)
 
 // Reading
-auto val = io.read(CTRL::EN{});       // → FieldValue<EN>
+auto val = io.read(CTRL::EN{});       // → RegionValue<EN>
 auto raw = val.bits();                // escape hatch for raw access
 bool is_out = io.is(CTRL::MODE::Output{});  // named value comparison
 io.flip(CTRL::EN{});                  // toggle 1-bit field
 
-// RegisterReader — one bus read, multiple field access
-auto cfg = io.read(CTRL{});           // → RegisterReader<CTRL>
+// RegionValue — one bus read, multiple field access
+auto cfg = io.read(CTRL{});           // → RegionValue<CTRL>
 auto en  = cfg.get(CTRL::EN{});       // extract field — no additional bus access
 bool fast = cfg.is(CTRL::MODE::AltFunc{});
 ```
@@ -100,12 +100,12 @@ bool fast = cfg.is(CTRL::MODE::AltFunc{});
 
 | Field kind | `value()` (write) | `Value<>` types | `read()` returns |
 |-----------|:---------:|:---------------:|:----------------:|
-| Default (safe) | Blocked | Yes | `FieldValue<F>` |
-| `Numeric` trait | Yes (unsigned only) | Yes | `FieldValue<F>` |
-| 1-bit RW | — | `Set` / `Reset` auto | `FieldValue<F>` |
-| 1-bit W1C | — | `Clear` auto | `FieldValue<F>` |
+| Default (safe) | Blocked | Yes | `RegionValue<F>` |
+| `Numeric` trait | Yes (unsigned only) | Yes | `RegionValue<F>` |
+| 1-bit RW | — | `Set` / `Reset` auto | `RegionValue<F>` |
+| 1-bit W1C | — | `Clear` auto | `RegionValue<F>` |
 
-`FieldValue<F>` supports `==` with `Value<F,V>` and `DynamicValue<F,T>` only — raw integer comparison is a compile error. Use `.bits()` to extract the underlying value.
+`RegionValue<F>` supports `==` with `Value<F,V>` and `DynamicValue<F,T>` only — raw integer comparison is a compile error. Use `.bits()` to extract the underlying value.
 
 ## Build and Test
 
@@ -116,7 +116,7 @@ xmake test
 ## Public API
 
 - Entrypoint: `include/umimmio/mmio.hh`
-- Core: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `FieldValue`, `RegisterReader`, `Numeric`
+- Core: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `RegionValue`, `Numeric`
 - Operations: `read()`, `write()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()`, `read_variant()`
 - Transports: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
 - Concurrency: `Protected<T, LockPolicy>`, `Guard`, `MutexPolicy`, `NoLockPolicy`

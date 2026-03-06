@@ -53,7 +53,7 @@ struct MockSpi {
 };
 
 // SPI device/register definitions
-struct SPIDevice : Device<RW, SPITransportTag> {};
+struct SPIDevice : Device<RW, Spi> {};
 struct SPIReg32 : Register<SPIDevice, 0x10, bits32, RW, 0> {};
 struct SPIField8 : Field<SPIReg32, 0, 8, Numeric> {};
 struct SPIFieldHigh : Field<SPIReg32, 24, 8> {};
@@ -169,7 +169,7 @@ struct MockI2CGpio {
 };
 
 // Device for bit-bang I2C (uses IgnoreError to avoid assertions in tests)
-struct BBI2CDevice : Device<RW, I2CTransportTag> {};
+struct BBI2CDevice : Device<RW, I2c> {};
 struct BBI2CReg : Register<BBI2CDevice, 0x20, bits32, RW, 0> {};
 struct BBI2CField : Field<BBI2CReg, 0, 8> {};
 
@@ -321,7 +321,7 @@ struct MockSpiPins {
 };
 
 // Device for bit-bang SPI
-struct BBSPIDevice : Device<RW, SPITransportTag> {};
+struct BBSPIDevice : Device<RW, Spi> {};
 struct BBSPIReg : Register<BBSPIDevice, 0x10, bits32, RW, 0> {};
 struct BBSPIField : Field<BBSPIReg, 0, 8> {};
 
@@ -471,7 +471,7 @@ struct LocalMockI2C {
 };
 
 // Device and register definitions for endian tests
-struct EndianDevice : Device<RW, I2CTransportTag> {};
+struct EndianDevice : Device<RW, I2c> {};
 struct EndianReg32 : Register<EndianDevice, 0x10, bits32, RW, 0> {};
 
 // Type aliases for long template names

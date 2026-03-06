@@ -76,7 +76,7 @@ lib/umimmio/
 │   ├── mmio.hh              # Umbrella header
 │   ├── policy.hh            # Foundation: AccessPolicy, transport tags, error policies
 │   ├── region.hh            # Data model: Device, Register, Field, Value, concepts
-│   ├── ops.hh               # Operations: RegOps, ByteAdapter, RegisterReader
+│   ├── ops.hh               # Operations: RegOps, ByteAdapter, RegionValue
 │   ├── protected.hh         # Protected<T, LockPolicy>, Guard, lock policies
 │   └── transport/
 │       ├── direct.hh        # DirectTransport (volatile pointer)
@@ -116,14 +116,15 @@ Core types:
 | Type | Purpose |
 |------|---------|
 | `Device<Access, Transports...>` | Device root with access policy and allowed transports. MMIO devices override `base_address`. |
+| `Block<Parent, BaseAddr, Access>` | Address sub-region within a Device (inherits parent's transports). |
 | `Register<Device, Offset, Bits, Access, Reset, W1cMask>` | Register at an offset within a device. `W1cMask` specifies which bits are W1C. |
 | `Field<Reg, BitOffset, BitWidth, ...Traits>` | Bit field within a register (variadic traits) |
 | `Value<Field, val>` | Named constant for a Field |
 | `DynamicValue<Field, T>` | Runtime value for a Field |
-| `RegisterReader<Reg>` | Return type of `read(Register{})` — provides `bits()`, `get()`, `is()` |
-| `FieldValue<F>` | Return type of `read(Field{})` and `get(Field{})` — type-safe, use `.bits()` for raw |
+| `RegionValue<R>` | Unified return type of `read()` and `get()` — `bits()` always; register: `get()`, `is()`; field: typed `==` only |
 | `UnknownValue<Reg>` | Sentinel type for `read_variant()` when no named value matches |
 | `Numeric` | Trait: enables raw `value()` on a Field |
+| `Inherit` | Sentinel: Field inherits access policy from parent Register |
 | `WriteBehavior` | Enum: `NORMAL` or `ONE_TO_CLEAR` |
 
 Transport types:
@@ -149,8 +150,8 @@ Operations:
 
 | Operation | Purpose | Constraint |
 |-----------|---------|------------|
-| `read(Reg{})` | Read register → `RegisterReader<Reg>` | `Readable<Reg>` |
-| `read(Field{})` | Read field → `FieldValue<F>` (use `.bits()` for raw) | `Readable<Field>` |
+| `read(Reg{})` | Read register → `RegionValue<Reg>` | `Readable<Reg>` |
+| `read(Field{})` | Read field → `RegionValue<F>` (use `.bits()` for raw) | `Readable<Field>` |
 | `write(v1, v2, ...)` | Write values (from reset) | `WritableValue` |
 | `modify(v1, v2, ...)` | Read-modify-write | `ModifiableValue` (excludes W1C) |
 | `is(v)` | Compare field/register value | `ReadableValue` |
@@ -159,12 +160,21 @@ Operations:
 | `reset(Reg{})` | Write `Reg::reset_value()` | `Writable<Reg>` |
 | `read_variant(F{}, V1{}, ..., VN{})` | Pattern-match field value → `std::variant` | — |
 
+Static methods on Register/Field:
+
+| Method | Purpose | Availability |
+|--------|---------|-------------|
+| `Reg::value(T)` | Create `DynamicValue` with range check | Register (always) |
+| `Field::value(T)` | Create `DynamicValue` with range check | Field with `Numeric` trait |
+| `mask()` | Compile-time bit mask | Register, Field |
+| `reset_value()` | Compile-time reset value | Register, Field (inherited) |
+
 Concurrency types:
 
 | Type | Purpose |
 |------|---------|
 | `Protected<T, LockPolicy>` | Wraps T, only accessible via `lock()` → `Guard` |
-| `Guard<T, LockPolicy>` | RAII scoped access to Protected inner value |
+| `Guard<T, LockPolicy>` | RAII scoped access via `operator*()` / `operator->()`. Lock released on destruction. |
 | `MutexPolicy<MutexT>` | RTOS mutex wrapper |
 | `NoLockPolicy` | No-op lock for single-threaded or test contexts |
 
@@ -229,7 +239,7 @@ struct MyDevice : mm::Device<mm::RW> {
 
 Fields are **safe by default**: only named `Value<>` types are accepted.
 The `Numeric` trait opts a field into raw `value()` access.
-Use `FieldValue::bits()` or `RegisterReader::bits()` for raw value extraction on the read side.
+Use `RegionValue::bits()` for raw value extraction on the read side.
 
 | Field kind | `value()` | `Value<>` types |
 |-----------|:---------:|:---------------:|
@@ -337,23 +347,27 @@ struct D : mm::Field<REG, 0, 8> {};                        // Inherit, safe
 struct E : mm::Field<SR, 0, 1, mm::W1C> {};                // W1C: Clear alias
 ```
 
-### 5.6 RegisterReader
+### 5.6 RegionValue
 
-`read(Register{})` returns `RegisterReader<Reg>`, not a raw value.
+`read(Register{})` returns `RegionValue<Reg>`, not a raw value.
+`read(Field{})` returns `RegionValue<F>`. Both are the same `RegionValue<R>` template
+specialized for registers or fields.
 This enables fluent chained access:
 
 ```cpp
 auto cfg = hw.read(ConfigReg{});
-auto en  = cfg.get(ConfigEnable{});   // FieldValue<ConfigEnable>
+auto en  = cfg.get(ConfigEnable{});   // RegionValue<ConfigEnable>
 bool is_fast = cfg.is(ModeFast{});    // Match named value
 uint32_t raw = cfg.bits();           // Raw register value
 auto en_raw = en.bits();             // Raw field value (escape hatch)
 ```
 
-`RegisterReader` stores the raw value and provides:
-- `bits()` — raw register value
-- `get(Field{})` — extract a field value as `FieldValue<F>`
-- `is(ValueType{})` — match against a named value
+`RegionValue<R>` stores the raw value and provides:
+- `bits()` — raw value (always available)
+- `operator==(RegionValue)` — same-region equality (always available)
+- `get(Field{})` — extract a field value as `RegionValue<F>` (register only)
+- `is(ValueType{})` — match against a named value (register only)
+- `operator==` with `Value`/`DynamicValue` — typed comparison (field only)
 
 ---
 
@@ -369,7 +383,7 @@ auto en_raw = en.bits();             // Raw field value (escape hatch)
 6. `BitRegion` overflow (offset + width > register width) → `static_assert` failure.
 7. W1C field in `modify()` → `ModifiableValue` concept rejects W1C.
 8. W1C field in `flip()` → `NotW1C` concept rejects W1C.
-9. `FieldValue == integer` → no matching `operator==` (use `.bits()` for raw access).
+9. `RegionValue == integer` → no matching `operator==` (use `.bits()` for raw access).
 
 ### 6.2 Runtime Error Policies
 
@@ -378,7 +392,7 @@ Policy-based via `ErrorPolicy` template parameter:
 | Policy | Behavior |
 |--------|----------|
 | `AssertOnError` | `assert(false && msg)` (default) |
-| `TrapOnError` | `__builtin_trap()` |
+| `TrapOnError` | `std::abort()` |
 | `IgnoreError` | Silent no-op |
 | `CustomErrorHandler<fn>` | User callback |
 

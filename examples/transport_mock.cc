@@ -23,7 +23,7 @@ class MockTransport : private RegOps<> {
     using RegOps<>::read;
     using RegOps<>::modify;
     using RegOps<>::is;
-    using TransportTag = DirectTransportTag;
+    using TransportTag = Direct;
 
     MockTransport() { std::memset(ram.data(), 0, ram.size()); }
 
@@ -49,7 +49,7 @@ class MockTransport : private RegOps<> {
 // Device register definitions (hierarchical style)
 // =============================================================================
 
-struct MockDevice : Device<RW, DirectTransportTag> {
+struct MockDevice : Device<> {
     /// CTRL: 8-bit control register at offset 0x00
     struct CTRL : Register<MockDevice, 0x00, bits8> {
         struct EN : Field<CTRL, 0, 1> {};     // Enable

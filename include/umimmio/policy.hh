@@ -70,9 +70,9 @@ struct Inherit {};
 
 /// @name Transport tags
 /// @{
-struct DirectTransportTag {};
-struct I2CTransportTag {};
-struct SPITransportTag {};
+struct Direct {};
+struct I2c {};
+struct Spi {};
 /// @}
 
 /// @name Error policies

@@ -44,7 +44,7 @@ USART1->SR = 0;                     // RO ビットへの書き込み — コン
 - **複数トランスポート** — 同一レジスタマップを Direct MMIO、I2C、SPI、ビットバングで共有
 - **ポリシーベースエラーハンドリング** — `AssertOnError`、`TrapOnError`、`IgnoreError`、`CustomErrorHandler`
 - **compile-fail ガード** — 9 個の compile-fail テストで不正アクセスの拒否を検証
-- **RegisterReader** — 1 回のバス読み出しで複数フィールドを `read(Reg{}).get(Field{})` で抽出
+- **RegionValue** — 1 回のバス読み出しで複数フィールドを `read(Reg{}).get(Field{})` で抽出
 - **パターンマッチ** — `read_variant()` で `std::variant` + `std::visit` による網羅的分岐
 - **並行性** — `Protected<T, LockPolicy>` + RAII Guard でロック経由アクセスのみ許可
 - **C++23** — deducing this (CRTP 不要)、`if consteval`、`std::byteswap`
@@ -84,12 +84,12 @@ io.write(CTRL::PLLN::value(336));     // raw 数値書き込み (Numeric のみ)
 io.modify(CTRL::EN::Set{});           // read-modify-write (他フィールド保持)
 
 // 読み出し
-auto val = io.read(CTRL::EN{});       // → FieldValue<EN>
+auto val = io.read(CTRL::EN{});       // → RegionValue<EN>
 auto raw = val.bits();                // raw 値のエスケープハッチ
 io.flip(CTRL::EN{});                  // 1 ビットフィールドのトグル
 
-// RegisterReader — 1 回のバスアクセスで複数フィールド取得
-auto cfg = io.read(CTRL{});           // → RegisterReader<CTRL>
+// RegionValue — 1 回のバスアクセスで複数フィールド取得
+auto cfg = io.read(CTRL{});           // → RegionValue<CTRL>
 auto en  = cfg.get(CTRL::EN{});       // フィールド抽出（追加バスアクセスなし）
 ```
 
@@ -97,12 +97,12 @@ auto en  = cfg.get(CTRL::EN{});       // フィールド抽出（追加バスア
 
 | フィールド種別 | `value()` (書込) | `Value<>` 型 | `read()` 戻り値 |
 |-----------|:---------:|:---------------:|:----------------:|
-| デフォルト（安全） | ブロック | Yes | `FieldValue<F>` |
-| `Numeric` トレイト | Yes（符号なしのみ） | Yes | `FieldValue<F>` |
-| 1 ビット RW | — | `Set` / `Reset` 自動 | `FieldValue<F>` |
-| 1 ビット W1C | — | `Clear` 自動 | `FieldValue<F>` |
+| デフォルト（安全） | ブロック | Yes | `RegionValue<F>` |
+| `Numeric` トレイト | Yes（符号なしのみ） | Yes | `RegionValue<F>` |
+| 1 ビット RW | — | `Set` / `Reset` 自動 | `RegionValue<F>` |
+| 1 ビット W1C | — | `Clear` 自動 | `RegionValue<F>` |
 
-`FieldValue<F>` は `Value<F,V>` および `DynamicValue<F,T>` との `==` のみサポート — 整数との直接比較はコンパイルエラー。`.bits()` で raw 値を取得。
+`RegionValue<F>` は `Value<F,V>` および `DynamicValue<F,T>` との `==` のみサポート — 整数との直接比較はコンパイルエラー。`.bits()` で raw 値を取得。
 
 ## ビルドとテスト
 
@@ -113,7 +113,7 @@ xmake test
 ## パブリック API
 
 - エントリポイント: `include/umimmio/mmio.hh`
-- コア: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `FieldValue`, `RegisterReader`, `Numeric`
+- コア: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `RegionValue`, `Numeric`
 - 操作: `read()`, `write()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()`, `read_variant()`
 - トランスポート: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
 - 並行性: `Protected<T, LockPolicy>`, `Guard`, `MutexPolicy`, `NoLockPolicy`

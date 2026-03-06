@@ -42,7 +42,7 @@ bool test_w1c_policy(TestContext& t) {
 // Block hierarchy
 // =============================================================================
 
-struct MyDevice : Device<RW, DirectTransportTag> {};
+struct MyDevice : Device<> {};
 struct MyBlock : Block<MyDevice, 0x100, RO> {};
 struct MyReg : Register<MyBlock, 0x04, bits32, Inherit> {};
 struct MyField : Field<MyReg, 8, 4> {};
@@ -71,7 +71,7 @@ bool test_block_access_inheritance(TestContext& t) {
 // Nested block hierarchy
 // =============================================================================
 
-struct TopDevice : Device<RW, DirectTransportTag> {};
+struct TopDevice : Device<> {};
 struct SubBlock1 : Block<TopDevice, 0x1000> {};
 struct SubBlock2 : Block<SubBlock1, 0x200> {};
 struct DeepReg : Register<SubBlock2, 0x10, bits16> {};
@@ -106,7 +106,7 @@ bool test_register_mask_full_width(TestContext& t) {
 // =============================================================================
 
 /// @brief Simulates a UART-like device.
-struct UartDevice : Device<RW, DirectTransportTag> {};
+struct UartDevice : Device<> {};
 struct UartCtrl : Register<UartDevice, 0x00, bits32, RW, 0> {};
 struct UartStatus : Register<UartDevice, 0x04, bits32, RO, 0> {};
 struct UartData : Register<UartDevice, 0x08, bits32, RW, 0> {};

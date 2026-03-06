@@ -40,7 +40,7 @@ class BitBangI2cTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, Address
     std::uint8_t device_addr;
 
   public:
-    using TransportTag = I2CTransportTag;
+    using TransportTag = I2c;
 
     /// @brief Construct a bit-bang I2C transport.
     /// @param g    Reference to GPIO abstraction.

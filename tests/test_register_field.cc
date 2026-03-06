@@ -277,7 +277,7 @@ bool test_peripheral_init_sequence(TestContext& t) {
 }
 
 // =============================================================================
-// RegisterReader — get() and is()
+// RegionValue — get() and is()
 // =============================================================================
 
 bool test_register_reader_get(TestContext& t) {
@@ -343,7 +343,7 @@ void run_register_field_tests(umi::test::Suite& suite) {
     umi::test::Suite::section("Practical workflow");
     suite.run("peripheral init sequence", test_peripheral_init_sequence);
 
-    umi::test::Suite::section("RegisterReader");
+    umi::test::Suite::section("RegionValue");
     suite.run("get() field extraction", test_register_reader_get);
     suite.run("is() value matching", test_register_reader_is);
 }
