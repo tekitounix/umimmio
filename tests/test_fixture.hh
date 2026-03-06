@@ -176,6 +176,6 @@ using ModeTest = Value<ConfigMode, static_cast<uint8_t>(ModeVal::TEST)>;
 void run_register_field_tests(umi::test::Suite& suite);
 void run_transport_tests(umi::test::Suite& suite);
 void run_access_policy_tests(umi::test::Suite& suite);
-void run_spi_bitbang_tests(umi::test::Suite& suite);
+void run_byte_transport_tests(umi::test::Suite& suite);
 
 } // namespace umimmio::test

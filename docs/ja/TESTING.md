@@ -8,7 +8,7 @@
 - `tests/test_access_policy.cc`: RW/RO/WO/W1C ポリシーの強制、WriteBehavior、Block 階層、レジスタマスク
 - `tests/test_register_field.cc`: BitRegion, Register, Field, Value, マスク/シフト、RegionValue、modify/write/flip ワークフロー
 - `tests/test_transport.cc`: RAM バックドモックトランスポート — read/write/modify/is/flip/clear/reset/read_variant、W1C エッジケース、DynamicValue 境界値、エラーポリシー
-- `tests/test_spi_bitbang.cc`: SPI, I2C, BitBang トランスポート、ByteAdapter エンディアンテスト
+- `tests/test_byte_transport.cc`: SPI, I2C トランスポート、ByteAdapter エンディアン、トランスポートエラーポリシーテスト
 - `tests/compile_fail/read_wo.cc`: compile-fail ガード — 書き込み専用レジスタの読み出し
 - `tests/compile_fail/write_ro.cc`: compile-fail ガード — 読み出し専用レジスタへの書き込み
 - `tests/compile_fail/write_ro_value.cc`: compile-fail ガード — value 経由での読み出し専用レジスタへの書き込み

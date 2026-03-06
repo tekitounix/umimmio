@@ -41,7 +41,7 @@ USART1->SR = 0;                     // RO ビットへの書き込み — コン
 - **デフォルトで安全** — フィールドは名前付き `Value<>` 型のみ受け付け、raw 数値アクセスは `Numeric` トレイトでオプトイン
 - **型安全レジスタ** — コンパイル時検証アクセスポリシー (RW/RO/WO/W1C)
 - **ゼロコスト** — 全ディスパッチはコンパイル時に解決、vtable なし、ヒープなし
-- **複数トランスポート** — 同一レジスタマップを Direct MMIO、I2C、SPI、ビットバングで共有
+- **複数トランスポート** — 同一レジスタマップを Direct MMIO、I2C、SPI で共有
 - **ポリシーベースエラーハンドリング** — `AssertOnError`、`TrapOnError`、`IgnoreError`、`CustomErrorHandler`
 - **compile-fail ガード** — 15 個の compile-fail テストで不正アクセスの拒否を検証
 - **RegionValue** — 1 回のバス読み出しで複数フィールドを `read(Reg{}).get(Field{})` で抽出
@@ -115,7 +115,7 @@ xmake test
 - エントリポイント: `include/umimmio/mmio.hh`
 - コア: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `RegionValue`, `Numeric`
 - 操作: `read()`, `write()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()`, `read_variant()`
-- トランスポート: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
+- トランスポート: `DirectTransport`, `I2cTransport`, `SpiTransport`
 - 並行性: 提供しない — 呼び出し側がプラットフォーム固有のロックを使用（設計 §9.4 参照）
 - エラーポリシー: `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
 

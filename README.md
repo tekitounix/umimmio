@@ -41,7 +41,7 @@ USART1->SR = 0;                     // Write to RO bits — compiles fine
 - **Safe by default** — fields only accept named `Value<>` types; raw numeric access requires opt-in via `Numeric` trait
 - **Type-safe registers** — compile-time verified access policies (RW/RO/WO/W1C)
 - **Zero-cost** — all dispatch resolved at compile time, no vtable, no heap
-- **Multiple transports** — same register map works across Direct MMIO, I2C, SPI, and bitbang variants
+- **Multiple transports** — same register map works across Direct MMIO, I2C, SPI
 - **Policy-based error handling** — `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
 - **Compile-fail guards** — 15 compile-fail tests verify illegal access is rejected at compile time
 - **RegionValue** — single bus read, multiple field extraction via `read(Reg{}).get(Field{})`
@@ -118,7 +118,7 @@ xmake test
 - Entrypoint: `include/umimmio/mmio.hh`
 - Core: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `RegionValue`, `Numeric`
 - Operations: `read()`, `write()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()`, `read_variant()`
-- Transports: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
+- Transports: `DirectTransport`, `I2cTransport`, `SpiTransport`
 - Concurrency: not provided — callers use platform-specific locking (see Design §9.4)
 - Error policies: `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
 

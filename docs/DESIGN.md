@@ -36,8 +36,8 @@ Register operations are decoupled from bus protocol.
 The same `Device/Block/Register/Field` hierarchy works with:
 
 1. Direct volatile pointer (Cortex-M, RISC-V memory-mapped peripherals).
-2. I2C bus (HAL-based or bit-bang).
-3. SPI bus (HAL-based or bit-bang).
+2. I2C bus.
+3. SPI bus.
 
 Transport is a template parameter, not a base-class pointer.
 
@@ -81,15 +81,13 @@ lib/umimmio/
 │       ├── detail.hh        # Shared helpers for address encoding
 │       ├── direct.hh        # DirectTransport (volatile pointer)
 │       ├── i2c.hh           # I2cTransport (HAL-based)
-│       ├── spi.hh           # SpiTransport (HAL-based)
-│       ├── bitbang_i2c.hh   # BitBangI2cTransport (GPIO)
-│       └── bitbang_spi.hh   # BitBangSpiTransport (GPIO)
+│       └── spi.hh           # SpiTransport (HAL-based)
 └── tests/
     ├── test_main.cc
     ├── test_access_policy.cc
     ├── test_register_field.cc
     ├── test_transport.cc
-    ├── test_spi_bitbang.cc
+    ├── test_byte_transport.cc
     ├── compile_fail/
     │   ├── clear_non_w1c.cc
     │   ├── cross_register_write.cc
@@ -140,8 +138,6 @@ Transport types:
 | `DirectTransport` | Memory-mapped I/O (volatile pointer access) |
 | `I2cTransport` | HAL-compatible I2C peripheral drivers |
 | `SpiTransport` | HAL-compatible SPI peripheral drivers |
-| `BitBangI2cTransport` | Software I2C via GPIO |
-| `BitBangSpiTransport` | Software SPI via GPIO |
 
 Access policies:
 
@@ -423,6 +419,17 @@ Policy-based via `ErrorPolicy` template parameter:
 | `TrapOnError` | `std::abort()` |
 | `IgnoreError` | Silent no-op |
 | `CustomErrorHandler<fn>` | User callback |
+
+Each policy provides two entry points:
+
+| Entry Point | Triggered By |
+|---|---|
+| `on_range_error(msg)` | Value out-of-range for field width (programming error) |
+| `on_transport_error(msg)` | HAL driver reports failure (bus error, NACK, timeout) |
+
+I2cTransport and SpiTransport use `if constexpr` to check whether the HAL driver's
+return type is `void` or convertible to `bool`. If the HAL returns a falsy value,
+`on_transport_error()` is invoked. Void-returning HALs skip the check.
 
 ---
 

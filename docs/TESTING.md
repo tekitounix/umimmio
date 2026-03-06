@@ -8,7 +8,7 @@
 - `tests/test_access_policy.cc`: RW/RO/WO/W1C policy enforcement, WriteBehavior, Block hierarchy, register masks
 - `tests/test_register_field.cc`: BitRegion, Register, Field, Value, mask/shift, RegionValue, modify/write/flip workflows
 - `tests/test_transport.cc`: RAM-backed mock transport for read/write/modify/is/flip/clear/reset/read_variant, W1C edge cases, DynamicValue boundary, error policy
-- `tests/test_spi_bitbang.cc`: SPI, I2C, BitBang transports, ByteAdapter endian tests
+- `tests/test_byte_transport.cc`: SPI, I2C transports, ByteAdapter endian, transport error policy tests
 - `tests/compile_fail/read_wo.cc`: compile-fail guard — reading a write-only register
 - `tests/compile_fail/write_ro.cc`: compile-fail guard — writing a read-only register
 - `tests/compile_fail/write_ro_value.cc`: compile-fail guard — writing a read-only register via value

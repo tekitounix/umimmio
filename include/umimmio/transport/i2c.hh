@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <span>
+#include <type_traits>
 
 #include "../ops.hh"
 #include "detail.hh"
@@ -43,6 +44,8 @@ class I2cTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
     I2cTransport(I2C& bus, std::uint8_t addr) noexcept : i2c(bus), device_addr(addr) {}
 
     /// @brief Write register data over I2C.
+    /// @note If the HAL driver's write() returns a type convertible to bool,
+    ///       a failure triggers ErrorPolicy::on_transport_error().
     void raw_write(AddressWidth reg_addr, const void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressWidth);
 
@@ -50,19 +53,34 @@ class I2cTransport : public ByteAdapter<CheckPolicy, ErrorPolicy, AddressWidth, 
         detail::encode_address<AddrEndian>(reg_addr, buf.data());
         std::memcpy(&buf[addr_size], data, size);
 
-        i2c.write(device_addr, std::span<const std::uint8_t>{buf.data(), addr_size + size});
+        auto span = std::span<const std::uint8_t>{buf.data(), addr_size + size};
+        if constexpr (std::is_void_v<decltype(i2c.write(device_addr, span))>) {
+            i2c.write(device_addr, span);
+        } else {
+            if (!i2c.write(device_addr, span)) {
+                ErrorPolicy::on_transport_error("I2C write failed");
+            }
+        }
     }
 
     /// @brief Read register data over I2C.
+    /// @note If the HAL driver's write_read() returns a type convertible to bool,
+    ///       a failure triggers ErrorPolicy::on_transport_error().
     void raw_read(AddressWidth reg_addr, void* data, std::size_t size) const noexcept {
         constexpr std::size_t addr_size = sizeof(AddressWidth);
 
         std::array<std::uint8_t, addr_size> addr_buf{};
         detail::encode_address<AddrEndian>(reg_addr, addr_buf.data());
 
-        i2c.write_read(device_addr,
-                       std::span<const std::uint8_t>{addr_buf.data(), addr_size},
-                       std::span<std::uint8_t>{static_cast<std::uint8_t*>(data), size});
+        auto tx = std::span<const std::uint8_t>{addr_buf.data(), addr_size};
+        auto rx = std::span<std::uint8_t>{static_cast<std::uint8_t*>(data), size};
+        if constexpr (std::is_void_v<decltype(i2c.write_read(device_addr, tx, rx))>) {
+            i2c.write_read(device_addr, tx, rx);
+        } else {
+            if (!i2c.write_read(device_addr, tx, rx)) {
+                ErrorPolicy::on_transport_error("I2C read failed");
+            }
+        }
     }
 };
 
