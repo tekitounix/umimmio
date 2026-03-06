@@ -77,7 +77,6 @@ lib/umimmio/
 │   ├── policy.hh            # 基盤: AccessPolicy、トランスポートタグ、エラーポリシー
 │   ├── region.hh            # データモデル: Device, Register, Field, Value, concepts
 │   ├── ops.hh               # 操作: RegOps, ByteAdapter, RegionValue
-│   ├── protected.hh         # Protected<T, LockPolicy>, Guard, ロックポリシー
 │   └── transport/
 │       ├── direct.hh        # DirectTransport (volatile ポインタ)
 │       ├── i2c.hh           # I2cTransport (HAL ベース)
@@ -90,7 +89,6 @@ lib/umimmio/
     ├── test_register_field.cc
     ├── test_transport.cc
     ├── test_spi_bitbang.cc
-    ├── test_protected.cc
     ├── compile_fail/
     │   ├── read_wo.cc
     │   ├── write_ro.cc
@@ -164,21 +162,18 @@ Register/Field の静的メソッド：
 
 | メソッド | 用途 | 利用可能条件 |
 |--------|---------|-------------|
-| `Reg::value(T)` | 範囲チェック付き `DynamicValue` 生成 | Register（常に） |
-| `Field::value(T)` | 範囲チェック付き `DynamicValue` 生成 | `Numeric` トレイト付き Field |
+| `<Register>::value(T)` | 範囲チェック付き `DynamicValue` 生成 | Register（常に） |
+| `<Field>::value(T)` | 範囲チェック付き `DynamicValue` 生成 | `Numeric` トレイト付き Field |
 | `mask()` | コンパイル時ビットマスク | Register, Field |
 | `reset_value()` | コンパイル時リセット値 | Register, Field（継承） |
 
-並行性型：
+並行性:
 
-| 型 | 用途 |
-|------|---------|
-| `Protected<T, LockPolicy>` | T をラップし、`lock()` → `Guard` 経由でのみアクセス可能 |
-| `Guard<T, LockPolicy>` | `operator*()` / `operator->()` による RAII スコープ付きアクセス。破棄時にロック解放。 |
-| `MutexPolicy<MutexT>` | RTOS ミューテックスラッパー |
-| `NoLockPolicy` | シングルスレッドまたはテスト用の No-op ロック |
-
-`CriticalSectionPolicy`（ARM Cortex-M `cpsid`/`cpsie`）は `umiport` が提供 — `<umiport/platform/embedded/critical_section.hh>` を参照。
+排他アクセス制御（`Protected<T, LockPolicy>`、`Guard`、ロックポリシー）は
+`umisync` に移動済み — `lib/umisync/README.md` を参照。
+umimmio は後方互換のため `<umimmio/protected.hh>` を提供するが、
+これは `<umisync/protected.hh>` への単なるリダイレクトである。
+新規コードは `umi::sync::` の型を直接使用すること。
 
 ### 4.1 最小パス
 
@@ -278,7 +273,7 @@ umi::mmio::SpiTransport<MySpi> spi(hal_spi);            // HAL SPI
 6. `clear()` による W1C フィールドハンドリング、
 7. `reset()` によるレジスタリセット、
 8. `read_variant()` によるパターンマッチ付きフィールド読み出し、
-9. `Protected<Transport, LockPolicy>` による ISR 安全アクセス（プラットフォーム固有のロックポリシーを DI で注入）。
+9. `umisync::Protected<Transport, LockPolicy>` による ISR 安全アクセス（プラットフォーム固有のロックポリシーを DI で注入）。
 
 ---
 
@@ -453,19 +448,21 @@ read-modify-write により非W1C フィールド値を保持する。
 ### 9.4 アトミック性
 
 `modify()` は read-modify-write を実行し、**決してアトミックではない**。
-ISR 安全なアクセスにはプラットフォーム固有のポリシーを注入した `Protected<Transport, LockPolicy>` を使用：
+ISR 安全なアクセスには `umisync` の `umi::sync::Protected<Transport, LockPolicy>` を使用：
 
 ```cpp
-// ARM Cortex-M: #include <umiport/platform/embedded/critical_section.hh>
-using umi::port::platform::CriticalSectionPolicy;
-Protected<DirectTransport<>, CriticalSectionPolicy> protected_hw;
+#include <umisync/protected.hh>
+using umi::sync::Protected;
 
-auto guard = protected_hw.lock();   // __disable_irq()
+// LockPolicy は DI で注入 — プラットフォーム固有のポリシーは各ポートライブラリが提供。
+Protected<DirectTransport<>, SomeLockPolicy> protected_hw;
+
+auto guard = protected_hw.lock();   // ロック取得
 guard->modify(ConfigEnable::Set{}); // ISR 安全な RMW
-// ~Guard() → __enable_irq() (RAII)
+// ~Guard() でロック解放 (RAII)
 ```
 
-非 ARM プラットフォームでは `MutexPolicy<MutexT>` または `NoLockPolicy` を適宜使用。
+利用可能なロックポリシーについては `lib/umisync/README.md` を参照。
 
 ### 9.5 reset()
 

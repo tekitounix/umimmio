@@ -77,7 +77,6 @@ lib/umimmio/
 │   ├── policy.hh            # Foundation: AccessPolicy, transport tags, error policies
 │   ├── region.hh            # Data model: Device, Register, Field, Value, concepts
 │   ├── ops.hh               # Operations: RegOps, ByteAdapter, RegionValue
-│   ├── protected.hh         # Protected<T, LockPolicy>, Guard, lock policies
 │   └── transport/
 │       ├── direct.hh        # DirectTransport (volatile pointer)
 │       ├── i2c.hh           # I2cTransport (HAL-based)
@@ -90,7 +89,6 @@ lib/umimmio/
     ├── test_register_field.cc
     ├── test_transport.cc
     ├── test_spi_bitbang.cc
-    ├── test_protected.cc
     ├── compile_fail/
     │   ├── read_wo.cc
     │   ├── write_ro.cc
@@ -164,21 +162,18 @@ Static methods on Register/Field:
 
 | Method | Purpose | Availability |
 |--------|---------|-------------|
-| `Reg::value(T)` | Create `DynamicValue` with range check | Register (always) |
-| `Field::value(T)` | Create `DynamicValue` with range check | Field with `Numeric` trait |
+| `<Register>::value(T)` | Create `DynamicValue` with range check | Register (always) |
+| `<Field>::value(T)` | Create `DynamicValue` with range check | Field with `Numeric` trait |
 | `mask()` | Compile-time bit mask | Register, Field |
 | `reset_value()` | Compile-time reset value | Register, Field (inherited) |
 
-Concurrency types:
+Concurrency:
 
-| Type | Purpose |
-|------|---------|
-| `Protected<T, LockPolicy>` | Wraps T, only accessible via `lock()` → `Guard` |
-| `Guard<T, LockPolicy>` | RAII scoped access via `operator*()` / `operator->()`. Lock released on destruction. |
-| `MutexPolicy<MutexT>` | RTOS mutex wrapper |
-| `NoLockPolicy` | No-op lock for single-threaded or test contexts |
-
-`CriticalSectionPolicy` (ARM Cortex-M `cpsid`/`cpsie`) is provided by `umiport` — see `<umiport/platform/embedded/critical_section.hh>`.
+Exclusive access control (`Protected<T, LockPolicy>`, `Guard`, lock policies)
+has been moved to `umisync` — see `lib/umisync/README.md`.
+umimmio provides a deprecated backward-compatibility header `<umimmio/protected.hh>`
+that redirects to `<umisync/protected.hh>`. New code should use `umi::sync::`
+types directly.
 
 ### 4.1 Minimal Path
 
@@ -278,7 +273,7 @@ Advanced usage includes:
 6. W1C field handling via `clear()`,
 7. register reset via `reset()`,
 8. pattern-matched field reading via `read_variant()`,
-9. ISR-safe access via `Protected<Transport, LockPolicy>` (platform-specific lock policy injected via DI).
+9. ISR-safe access via `umisync::Protected<Transport, LockPolicy>` (platform-specific lock policy injected via DI).
 
 ---
 
@@ -453,19 +448,21 @@ read-modify-write to preserve non-W1C field values. For pure-W1C registers
 ### 9.4 Atomicity
 
 `modify()` performs read-modify-write and is **never atomic**.
-For ISR-safe access, use `Protected<Transport, LockPolicy>` with a platform-specific policy:
+For ISR-safe access, use `umi::sync::Protected<Transport, LockPolicy>` from `umisync`:
 
 ```cpp
-// ARM Cortex-M: #include <umiport/platform/embedded/critical_section.hh>
-using umi::port::platform::CriticalSectionPolicy;
-Protected<DirectTransport<>, CriticalSectionPolicy> protected_hw;
+#include <umisync/protected.hh>
+using umi::sync::Protected;
 
-auto guard = protected_hw.lock();   // __disable_irq()
+// LockPolicy is injected via DI — platform port libraries provide concrete policies.
+Protected<DirectTransport<>, SomeLockPolicy> protected_hw;
+
+auto guard = protected_hw.lock();   // Lock acquired
 guard->modify(ConfigEnable::Set{}); // ISR-safe RMW
-// ~Guard() → __enable_irq() (RAII)
+// ~Guard() releases lock (RAII)
 ```
 
-On non-ARM platforms, use `MutexPolicy<MutexT>` or `NoLockPolicy` as appropriate.
+See `lib/umisync/README.md` for available lock policies.
 
 ### 9.5 reset()
 

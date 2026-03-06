@@ -17,8 +17,8 @@ umimmio ライブラリのドキュメントエントリです。
   - `include/umimmio/policy.hh` — Addr, AccessPolicy, トランスポートタグ, エラーポリシー
   - `include/umimmio/region.hh` — Device, Register, Field, Value, RegionValue, concepts
   - `include/umimmio/ops.hh` — RegOps, ByteAdapter
-- 並行性:
-  - `include/umimmio/protected.hh` — Protected, Guard, MutexPolicy, NoLockPolicy
+- 並行性（`umisync` に移動済み）:
+  - `include/umimmio/protected.hh` — `<umisync/protected.hh>` への非推奨リダイレクト
 - トランスポート実装:
   - `include/umimmio/transport/direct.hh` — DirectTransport (volatile ポインタ)
   - `include/umimmio/transport/i2c.hh` — I2cTransport (HAL ベース)
