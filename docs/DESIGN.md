@@ -45,7 +45,7 @@ Transport is a template parameter, not a base-class pointer.
 
 Field values are range-checked at compile time when possible:
 
-1. `value()` with a literal exceeding field width triggers `mmio_compile_time_error_value_out_of_range` via `if consteval`.
+1. `value()` with a literal exceeding field width triggers `detail::mmio_compile_time_error_value_out_of_range` via `if consteval`.
 2. Runtime `DynamicValue` is checked by `CheckPolicy` + `ErrorPolicy` at write/modify time.
 3. `value()` requires `std::unsigned_integral` — signed values are a compile error.
 4. `BitRegion` has 5 `static_assert`s validating offset, width, and register-width consistency.
@@ -155,8 +155,8 @@ Operations:
 | `write(v1, v2, ...)` | Write values (from reset) | `WritableValue` |
 | `modify(v1, v2, ...)` | Read-modify-write | `ModifiableValue` (excludes W1C) |
 | `is(v)` | Compare field/register value | `ReadableValue` |
-| `flip(F{})` | Toggle 1-bit field | `ReadWritable && NotW1C` |
-| `clear(F{})` | Write-1-to-clear a W1C field | `IsW1C<F>` |
+| `flip(F{})` | Toggle 1-bit field (W1C mask applied) | `ReadWritable && NotW1C` |
+| `clear(F{})` | W1C field: write-1-to-clear (RMW for mixed registers) | `IsW1C<F>` |
 | `reset(Reg{})` | Write `Reg::reset_value()` | `Writable<Reg>` |
 | `read_variant(F{}, V1{}, ..., VN{})` | Pattern-match field value → `std::variant` | — |
 
@@ -324,7 +324,7 @@ Endianness is expressed with `std::endian` (no custom `Endian` enum).
 ### 5.4 Value and DynamicValue
 
 - `Value<RegionT, EnumValue>`: compile-time constant with shifted representation.
-  Uses `RegionType` (not `FieldType`) as the primary type reference.
+  Holds a `RegionType` alias for the parent Register or Field type.
 - `DynamicValue<RegionT, T>`: runtime value with deferred range check.
 
 ### 5.5 Field Trait System
@@ -376,7 +376,7 @@ auto en_raw = en.bits();             // Raw field value (escape hatch)
 ### 6.1 Compile-Time Errors
 
 1. Access policy violations → `requires` clause failure with clear concept names.
-2. Value out of range in `consteval` context → `mmio_compile_time_error_value_out_of_range`.
+2. Value out of range in `consteval` context → `detail::mmio_compile_time_error_value_out_of_range`.
 3. `value()` on non-Numeric field → concept constraint failure (`requires(is_numeric)`).
 4. `value()` with signed type → concept constraint failure (`std::unsigned_integral`).
 5. Transport not allowed for device → `static_assert` failure.
@@ -437,14 +437,18 @@ See [TESTING.md](TESTING.md) for test layout, run commands, and quality gates.
 W1C fields must use `clear()`:
 
 ```cpp
-hw.clear(MyDevice::SR::OVR{});             // ✅ Correct: writes 1 to OVR only
+hw.clear(MyDevice::SR::OVR{});             // ✅ Correct: clears OVR (RMW preserves non-W1C fields)
 hw.modify(MyDevice::SR::OVR::Clear{});     // ✗ Compile error: W1C not ModifiableValue
 hw.flip(MyDevice::SR::OVR{});              // ✗ Compile error: W1C not NotW1C
 ```
 
-During `modify()`, W1C bits in the parent register are automatically masked to 0
+During `modify()` and `flip()`, W1C bits in the parent register are automatically masked to 0
 before write-back via `Register::w1c_mask`. This prevents accidental clearing
 of W1C status bits during read-modify-write operations on other fields.
+
+`clear()` on mixed registers (containing both W1C and non-W1C fields) uses
+read-modify-write to preserve non-W1C field values. For pure-W1C registers
+(where all bits are W1C), a direct write is used for efficiency.
 
 ### 9.4 Atomicity
 

@@ -210,9 +210,10 @@ bool test_w1c_clear(TestContext& t) {
 
     hw.poke<uint32_t>(0x14, 0x0103U); // OVR=1, EOC=1, Enable=1
     hw.clear(W1cOvr{});
-    // clear() writes F::mask() (= 0x01) to the register.
-    // Mock simply overwrites, so value should be 0x01.
-    return t.assert_eq(hw.peek<uint32_t>(0x14), W1cOvr::mask());
+    // Mixed register (W1C + non-W1C): clear() uses RMW.
+    // Read 0x0103, mask W1C bits (&~0x03 = 0x0100), set OVR (|0x01 = 0x0101).
+    // Enable (bit 8) preserved. EOC (bit 1, W1C) not accidentally cleared.
+    return t.assert_eq(hw.peek<uint32_t>(0x14), 0x0101U);
 }
 
 // =============================================================================
