@@ -9,7 +9,6 @@
 - `tests/test_register_field.cc`: BitRegion, Register, Field, Value, マスク/シフト、RegionValue、modify/write/flip ワークフロー
 - `tests/test_transport.cc`: RAM バックドモックトランスポート — read/write/modify/is/flip/clear/reset/read_variant、W1C エッジケース、DynamicValue 境界値、エラーポリシー
 - `tests/test_spi_bitbang.cc`: SPI, I2C, BitBang トランスポート、ByteAdapter エンディアンテスト
-- `tests/test_protected.cc`: NoLockPolicy および MutexPolicy による Protected<T, LockPolicy>
 - `tests/compile_fail/read_wo.cc`: compile-fail ガード — 書き込み専用レジスタの読み出し
 - `tests/compile_fail/write_ro.cc`: compile-fail ガード — 読み出し専用レジスタへの書き込み
 - `tests/compile_fail/write_ro_value.cc`: compile-fail ガード — value 経由での読み出し専用レジスタへの書き込み
@@ -53,15 +52,16 @@ umimmio は主にコンパイル時抽象化ライブラリであるため、テ
 6. **トランスポート正確性** — RAM バックドモックが write/read/modify ラウンドトリップを検証
 7. **エッジケース** — 境界値、全 W1C レジスタ、選択的クリア、reset_value 保持
 8. **エラーポリシー** — CustomErrorHandler、IgnoreError、範囲外 DynamicValue 検出
-9. **保護付きアクセス** — `Protected<T, LockPolicy>` NoLockPolicy および MutexPolicy の RAII パターン検証
-10. **Compile-fail ガード** — 不正操作がコンパイルされないことを確認（15 テストファイル）
-11. **複数幅レジスタ** — 8-bit、16-bit、32-bit、64-bit レジスタ操作
+9. **Compile-fail ガード** — 不正操作がコンパイルされないことを確認（15 テストファイル）
+10. **複数幅レジスタ** — 8-bit、16-bit、32-bit、64-bit レジスタ操作
+
+> **Note:** Protected<T, LockPolicy> テストは `umisync` に移動済み。
 
 ハードウェアレベル MMIO テストは実ハードウェアまたはエミュレーションが必要であり、ホストテストの対象外。
 
 ## リリースの品質ゲート
 
-- 全ホストテストパス（83 テスト）
+- 全ホストテストパス（75 テスト）
 - 全 compile-fail 契約テストパス（15 テスト）
 - トランスポートモックテストが単一および複数フィールドの write, modify, is, flip, clear, reset, read_variant をカバー
 - W1C マスキング: 混合 W1C レジスタでの flip/modify/clear が非 W1C フィールドを保持

@@ -46,7 +46,7 @@ USART1->SR = 0;                     // Write to RO bits — compiles fine
 - **Compile-fail guards** — 9 compile-fail tests verify illegal access is rejected at compile time
 - **RegionValue** — single bus read, multiple field extraction via `read(Reg{}).get(Field{})`
 - **Pattern matching** — `read_variant()` with `std::variant` + `std::visit` for exhaustive field matching
-- **Concurrency** — `Protected<T, LockPolicy>` with RAII Guard ensures lock-only access
+- **Concurrency** — `umisync::Protected<T, LockPolicy>` with RAII Guard ensures lock-only access (provided by [umisync](../umisync/))
 - **C++23** — deducing this (no CRTP), `if consteval`, `std::byteswap`
 
 ## Quick Start
@@ -119,7 +119,7 @@ xmake test
 - Core: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `RegionValue`, `Numeric`
 - Operations: `read()`, `write()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()`, `read_variant()`
 - Transports: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
-- Concurrency: `Protected<T, LockPolicy>`, `Guard`, `MutexPolicy`, `NoLockPolicy`
+- Concurrency: See [umisync](../umisync/) — `Protected<T, LockPolicy>`, `Guard`, `MutexPolicy`, `NoLockPolicy` (deprecated re-exports in `umimmio/protected.hh`)
 - Error policies: `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
 
 ## Examples

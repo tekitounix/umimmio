@@ -177,6 +177,5 @@ void run_register_field_tests(umi::test::Suite& suite);
 void run_transport_tests(umi::test::Suite& suite);
 void run_access_policy_tests(umi::test::Suite& suite);
 void run_spi_bitbang_tests(umi::test::Suite& suite);
-void run_protected_tests(umi::test::Suite& suite);
 
 } // namespace umimmio::test

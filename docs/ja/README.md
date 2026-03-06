@@ -46,7 +46,7 @@ USART1->SR = 0;                     // RO ビットへの書き込み — コン
 - **compile-fail ガード** — 9 個の compile-fail テストで不正アクセスの拒否を検証
 - **RegionValue** — 1 回のバス読み出しで複数フィールドを `read(Reg{}).get(Field{})` で抽出
 - **パターンマッチ** — `read_variant()` で `std::variant` + `std::visit` による網羅的分岐
-- **並行性** — `Protected<T, LockPolicy>` + RAII Guard でロック経由アクセスのみ許可
+- **並行性** — `umisync::Protected<T, LockPolicy>` + RAII Guard でロック経由アクセスのみ許可（[umisync](../../umisync/) が提供）
 - **C++23** — deducing this (CRTP 不要)、`if consteval`、`std::byteswap`
 
 ## クイックスタート
@@ -116,7 +116,7 @@ xmake test
 - コア: `Device`, `Register`, `Field`, `Value`, `DynamicValue`, `RegionValue`, `Numeric`
 - 操作: `read()`, `write()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()`, `read_variant()`
 - トランスポート: `DirectTransport`, `I2cTransport`, `SpiTransport`, `BitBangI2cTransport`, `BitBangSpiTransport`
-- 並行性: `Protected<T, LockPolicy>`, `Guard`, `MutexPolicy`, `NoLockPolicy`
+- 並行性: [umisync](../../umisync/) を参照 — `Protected<T, LockPolicy>`, `Guard`, `MutexPolicy`, `NoLockPolicy`（`umimmio/protected.hh` に非推奨の再エクスポートあり）
 - エラーポリシー: `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
 
 ## ドキュメント

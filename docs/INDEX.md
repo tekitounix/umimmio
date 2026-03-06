@@ -17,8 +17,8 @@ Documentation entry for the umimmio library.
   - `include/umimmio/policy.hh` — Addr, AccessPolicy, transport tags, error policies
   - `include/umimmio/region.hh` — Device, Register, Field, Value, RegionValue, concepts
   - `include/umimmio/ops.hh` — RegOps, ByteAdapter
-- Concurrency:
-  - `include/umimmio/protected.hh` — Protected, Guard, MutexPolicy, NoLockPolicy
+- Concurrency (moved to `umisync`):
+  - `include/umimmio/protected.hh` — deprecated redirect to `<umisync/protected.hh>`
 - Transport implementations:
   - `include/umimmio/transport/direct.hh` — DirectTransport (volatile pointer)
   - `include/umimmio/transport/i2c.hh` — I2cTransport (HAL-based)

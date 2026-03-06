@@ -3,7 +3,7 @@ target("test_umimmio")
     add_rules("host.test")
     add_tests("default")
     set_default(true)
-    add_files("test_main.cc", "test_register_field.cc", "test_transport.cc", "test_access_policy.cc", "test_spi_bitbang.cc", "test_protected.cc")
+    add_files("test_main.cc", "test_register_field.cc", "test_transport.cc", "test_access_policy.cc", "test_spi_bitbang.cc")
     add_deps("umimmio", "umiport_host")
     umimmio_add_umitest_dep()
 
