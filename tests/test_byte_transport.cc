@@ -60,45 +60,42 @@ struct SPIFieldHigh : Field<SPIReg32, 24, 8> {};
 // SPI transport tests
 // =============================================================================
 
-bool test_spi_write_read(TestContext& t) {
+void test_spi_write_read(TestContext& t) {
     MockSpi spi;
     const SpiTransport<MockSpi> transport(spi);
 
     transport.write(SPIReg32::value(0xCAFE'BABEU));
     auto val = transport.read(SPIReg32{});
-    return t.assert_eq(val.bits(), 0xCAFE'BABEU);
+    t.eq(val.bits(), 0xCAFE'BABEU);
 }
 
-bool test_spi_field_read(TestContext& t) {
+void test_spi_field_read(TestContext& t) {
     MockSpi spi;
     const SpiTransport<MockSpi> transport(spi);
 
     transport.write(SPIReg32::value(0x000000ABU));
     auto val = transport.read(SPIField8{});
-    return t.assert_eq(val.bits(), static_cast<uint8_t>(0xAB));
+    t.eq(val.bits(), static_cast<uint8_t>(0xAB));
 }
 
-bool test_spi_modify_rmw(TestContext& t) {
+void test_spi_modify_rmw(TestContext& t) {
     MockSpi spi;
     const SpiTransport<MockSpi> transport(spi);
 
     transport.write(SPIReg32::value(0xFF000000U));
     transport.modify(SPIField8::value(static_cast<uint8_t>(0x42)));
-
-    bool ok = true;
     auto val = transport.read(SPIReg32{});
-    ok &= t.assert_eq(val.bits() & 0xFFU, 0x42U);
-    ok &= t.assert_eq(val.bits() & 0xFF000000U, 0xFF000000U);
-    return ok;
+    t.eq(val.bits() & 0xFFU, 0x42U);
+    t.eq(val.bits() & 0xFF000000U, 0xFF000000U);
 }
 
-bool test_spi_high_field_read(TestContext& t) {
+void test_spi_high_field_read(TestContext& t) {
     MockSpi spi;
     const SpiTransport<MockSpi> transport(spi);
 
     transport.write(SPIReg32::value(0xAB000000U));
     auto val = transport.read(SPIFieldHigh{});
-    return t.assert_eq(val.bits(), static_cast<uint8_t>(0xAB));
+    t.eq(val.bits(), static_cast<uint8_t>(0xAB));
 }
 
 // =============================================================================
@@ -147,43 +144,39 @@ using I2cBE =
 // ByteAdapter endian tests
 // =============================================================================
 
-bool test_i2c_endian_little_wire_format(TestContext& t) {
+void test_i2c_endian_little_wire_format(TestContext& t) {
     LocalMockI2C i2c;
     const I2cLE transport(i2c, 0x50);
 
     transport.write(EndianReg32::value(0x04030201U));
 
     // In little-endian: byte[0]=0x01, byte[1]=0x02, byte[2]=0x03, byte[3]=0x04
-    bool ok = true;
-    ok &= t.assert_eq(i2c.memory[0x10], static_cast<uint8_t>(0x01));
-    ok &= t.assert_eq(i2c.memory[0x11], static_cast<uint8_t>(0x02));
-    ok &= t.assert_eq(i2c.memory[0x12], static_cast<uint8_t>(0x03));
-    ok &= t.assert_eq(i2c.memory[0x13], static_cast<uint8_t>(0x04));
-    return ok;
+    t.eq(i2c.memory[0x10], static_cast<uint8_t>(0x01));
+    t.eq(i2c.memory[0x11], static_cast<uint8_t>(0x02));
+    t.eq(i2c.memory[0x12], static_cast<uint8_t>(0x03));
+    t.eq(i2c.memory[0x13], static_cast<uint8_t>(0x04));
 }
 
-bool test_i2c_endian_big_wire_format(TestContext& t) {
+void test_i2c_endian_big_wire_format(TestContext& t) {
     LocalMockI2C i2c;
     const I2cBE transport(i2c, 0x50);
 
     transport.write(EndianReg32::value(0x04030201U));
 
     // In big-endian: byte[0]=0x04, byte[1]=0x03, byte[2]=0x02, byte[3]=0x01
-    bool ok = true;
-    ok &= t.assert_eq(i2c.memory[0x10], static_cast<uint8_t>(0x04));
-    ok &= t.assert_eq(i2c.memory[0x11], static_cast<uint8_t>(0x03));
-    ok &= t.assert_eq(i2c.memory[0x12], static_cast<uint8_t>(0x02));
-    ok &= t.assert_eq(i2c.memory[0x13], static_cast<uint8_t>(0x01));
-    return ok;
+    t.eq(i2c.memory[0x10], static_cast<uint8_t>(0x04));
+    t.eq(i2c.memory[0x11], static_cast<uint8_t>(0x03));
+    t.eq(i2c.memory[0x12], static_cast<uint8_t>(0x02));
+    t.eq(i2c.memory[0x13], static_cast<uint8_t>(0x01));
 }
 
-bool test_i2c_endian_big_roundtrip(TestContext& t) {
+void test_i2c_endian_big_roundtrip(TestContext& t) {
     LocalMockI2C i2c;
     const I2cBE transport(i2c, 0x50);
 
     transport.write(EndianReg32::value(0xDEAD'BEEFU));
     auto val = transport.read(EndianReg32{});
-    return t.assert_eq(val.bits(), 0xDEAD'BEEFU);
+    t.eq(val.bits(), 0xDEAD'BEEFU);
 }
 
 // =============================================================================
@@ -193,22 +186,22 @@ bool test_i2c_endian_big_roundtrip(TestContext& t) {
 struct Reg16 : Register<EndianDevice, 0x20, bits16, RW, 0> {};
 struct Field16High : Field<Reg16, 8, 8> {};
 
-bool test_i2c_16bit_register_roundtrip(TestContext& t) {
+void test_i2c_16bit_register_roundtrip(TestContext& t) {
     LocalMockI2C i2c;
     const I2cTransport<LocalMockI2C> transport(i2c, 0x50);
 
     transport.write(Reg16::value(static_cast<uint16_t>(0xABCD)));
     auto val = transport.read(Reg16{});
-    return t.assert_eq(val.bits(), static_cast<uint16_t>(0xABCD));
+    t.eq(val.bits(), static_cast<uint16_t>(0xABCD));
 }
 
-bool test_i2c_16bit_field_high_byte(TestContext& t) {
+void test_i2c_16bit_field_high_byte(TestContext& t) {
     LocalMockI2C i2c;
     const I2cTransport<LocalMockI2C> transport(i2c, 0x50);
 
     transport.write(Reg16::value(static_cast<uint16_t>(0xAB00)));
     auto val = transport.read(Field16High{});
-    return t.assert_eq(val.bits(), static_cast<uint8_t>(0xAB));
+    t.eq(val.bits(), static_cast<uint8_t>(0xAB));
 }
 
 // =============================================================================
@@ -218,22 +211,22 @@ bool test_i2c_16bit_field_high_byte(TestContext& t) {
 struct Reg64 : Register<EndianDevice, 0x30, bits64, RW, 0> {};
 struct Field64Low : Field<Reg64, 0, 32> {};
 
-bool test_i2c_64bit_register_roundtrip(TestContext& t) {
+void test_i2c_64bit_register_roundtrip(TestContext& t) {
     LocalMockI2C i2c;
     const I2cTransport<LocalMockI2C> transport(i2c, 0x50);
 
     transport.write(Reg64::value(0x0102030405060708ULL));
     auto val = transport.read(Reg64{});
-    return t.assert_eq(val.bits(), 0x0102030405060708ULL);
+    t.eq(val.bits(), 0x0102030405060708ULL);
 }
 
-bool test_i2c_64bit_low_field(TestContext& t) {
+void test_i2c_64bit_low_field(TestContext& t) {
     LocalMockI2C i2c;
     const I2cTransport<LocalMockI2C> transport(i2c, 0x50);
 
     transport.write(Reg64::value(0xAAAABBBBCCCCDDDDULL));
     auto val = transport.read(Field64Low{});
-    return t.assert_eq(val.bits(), 0xCCCCDDDDU);
+    t.eq(val.bits(), 0xCCCCDDDDU);
 }
 
 // =============================================================================
@@ -242,13 +235,13 @@ bool test_i2c_64bit_low_field(TestContext& t) {
 
 struct IgnoreReg : Register<EndianDevice, 0x00, bits32, RW, 0> {};
 
-bool test_ignore_error_policy(TestContext& t) {
+void test_ignore_error_policy(TestContext& t) {
     LocalMockI2C i2c;
     const I2cTransport<LocalMockI2C, std::false_type, IgnoreError> transport(i2c, 0x50);
 
     transport.write(IgnoreReg::value(0x12345678U));
     auto val = transport.read(IgnoreReg{});
-    return t.assert_eq(val.bits(), 0x12345678U);
+    t.eq(val.bits(), 0x12345678U);
 }
 
 /// @brief I2C mock that always fails (returns false from write/write_read).
@@ -276,24 +269,24 @@ void count_transport_errors(const char* /*msg*/) {
 
 using CountingErrorPolicy = CustomErrorHandler<count_transport_errors>;
 
-bool test_i2c_transport_error_on_write(TestContext& t) {
+void test_i2c_transport_error_on_write(TestContext& t) {
     FailingI2C i2c;
     const I2cTransport<FailingI2C, std::false_type, CountingErrorPolicy> transport(i2c, 0x50);
 
     transport_error_count = 0;
     transport.write(IgnoreReg::value(0x12345678U));
 
-    return t.assert_eq(transport_error_count, 1);
+    t.eq(transport_error_count, 1);
 }
 
-bool test_i2c_transport_error_on_read(TestContext& t) {
+void test_i2c_transport_error_on_read(TestContext& t) {
     FailingI2C i2c;
     const I2cTransport<FailingI2C, std::false_type, CountingErrorPolicy> transport(i2c, 0x50);
 
     transport_error_count = 0;
     [[maybe_unused]] auto val = transport.read(IgnoreReg{});
 
-    return t.assert_eq(transport_error_count, 1);
+    t.eq(transport_error_count, 1);
 }
 
 /// @brief SPI mock that returns failure from transfer().
@@ -308,24 +301,24 @@ struct FailingSpi {
     }
 };
 
-bool test_spi_transport_error_on_write(TestContext& t) {
+void test_spi_transport_error_on_write(TestContext& t) {
     FailingSpi spi;
     const SpiTransport<FailingSpi, std::false_type, CountingErrorPolicy> transport(spi);
 
     transport_error_count = 0;
     transport.write(SPIReg32::value(0xDEADBEEFU));
 
-    return t.assert_eq(transport_error_count, 1);
+    t.eq(transport_error_count, 1);
 }
 
-bool test_spi_transport_error_on_read(TestContext& t) {
+void test_spi_transport_error_on_read(TestContext& t) {
     FailingSpi spi;
     const SpiTransport<FailingSpi, std::false_type, CountingErrorPolicy> transport(spi);
 
     transport_error_count = 0;
     [[maybe_unused]] auto val = transport.read(SPIReg32{});
 
-    return t.assert_eq(transport_error_count, 1);
+    t.eq(transport_error_count, 1);
 }
 
 /// @brief I2C mock with void-returning write/write_read (no error checking possible).
@@ -349,13 +342,13 @@ struct VoidI2C {
     }
 };
 
-bool test_i2c_void_hal_roundtrip(TestContext& t) {
+void test_i2c_void_hal_roundtrip(TestContext& t) {
     VoidI2C i2c;
     const I2cTransport<VoidI2C> transport(i2c, 0x50);
 
     transport.write(EndianReg32::value(0xCAFEBABEU));
     auto val = transport.read(EndianReg32{});
-    return t.assert_eq(val.bits(), 0xCAFEBABEU);
+    t.eq(val.bits(), 0xCAFEBABEU);
 }
 
 // =============================================================================
@@ -398,18 +391,15 @@ using CustomSpiTransport = SpiTransport<CustomCmdSpi,
                                         /*CmdMask=*/0x3F,
                                         /*WriteBit=*/0x00>;
 
-bool test_spi_custom_command_bits(TestContext& t) {
+void test_spi_custom_command_bits(TestContext& t) {
     CustomCmdSpi spi;
     const CustomSpiTransport transport(spi);
 
     transport.write(CustomSpiReg::value(0xDEAD'BEEFU));
     auto val = transport.read(CustomSpiReg{});
-
-    bool ok = true;
-    ok &= t.assert_eq(val.bits(), 0xDEAD'BEEFU);
+    t.eq(val.bits(), 0xDEAD'BEEFU);
     // Verify the read command byte had custom read bit (0x40) applied
-    ok &= t.assert_true((spi.last_cmd_byte & 0x40) != 0, "custom read bit applied");
-    return ok;
+    t.is_true((spi.last_cmd_byte & 0x40) != 0);
 }
 
 // =============================================================================
@@ -418,13 +408,13 @@ bool test_spi_custom_command_bits(TestContext& t) {
 
 using SpiBE = SpiTransport<MockSpi, std::true_type, AssertOnError, std::uint8_t, std::endian::big, std::endian::big>;
 
-bool test_spi_big_endian_data(TestContext& t) {
+void test_spi_big_endian_data(TestContext& t) {
     MockSpi spi;
     const SpiBE transport(spi);
 
     transport.write(SPIReg32::value(0x04030201U));
     auto val = transport.read(SPIReg32{});
-    return t.assert_eq(val.bits(), 0x04030201U);
+    t.eq(val.bits(), 0x04030201U);
 }
 
 // =============================================================================
@@ -434,13 +424,13 @@ bool test_spi_big_endian_data(TestContext& t) {
 struct SPIReg16 : Register<SPIDevice, 0x20, bits16, RW, 0> {};
 struct SPIField16High : Field<SPIReg16, 8, 8> {};
 
-bool test_spi_16bit_register(TestContext& t) {
+void test_spi_16bit_register(TestContext& t) {
     MockSpi spi;
     const SpiTransport<MockSpi> transport(spi);
 
     transport.write(SPIReg16::value(static_cast<uint16_t>(0xABCD)));
     auto val = transport.read(SPIReg16{});
-    return t.assert_eq(val.bits(), static_cast<uint16_t>(0xABCD));
+    t.eq(val.bits(), static_cast<uint16_t>(0xABCD));
 }
 
 // =============================================================================
@@ -450,15 +440,13 @@ bool test_spi_16bit_register(TestContext& t) {
 struct I2CReg8 : Register<EndianDevice, 0x40, bits8, RW, 0xAA> {};
 struct I2CField8Low : Field<I2CReg8, 0, 4, Numeric> {};
 
-bool test_i2c_8bit_register(TestContext& t) {
+void test_i2c_8bit_register(TestContext& t) {
     LocalMockI2C i2c;
     const I2cTransport<LocalMockI2C> transport(i2c, 0x50);
 
     transport.write(I2CReg8::value(static_cast<uint8_t>(0x5A)));
-    bool ok = true;
-    ok &= t.assert_eq(transport.read(I2CReg8{}).bits(), static_cast<uint8_t>(0x5A));
-    ok &= t.assert_eq(transport.read(I2CField8Low{}).bits(), static_cast<uint8_t>(0x0A));
-    return ok;
+    t.eq(transport.read(I2CReg8{}).bits(), static_cast<uint8_t>(0x5A));
+    t.eq(transport.read(I2CField8Low{}).bits(), static_cast<uint8_t>(0x0A));
 }
 
 // =============================================================================
@@ -500,49 +488,49 @@ struct I2C16Reg : Register<I2C16Device, 0x0100, bits32, RW, 0> {};
 using I2c16Transport =
     I2cTransport<MockI2C16Addr, std::true_type, AssertOnError, std::uint16_t, std::endian::big, std::endian::little>;
 
-bool test_i2c_16bit_address(TestContext& t) {
+void test_i2c_16bit_address(TestContext& t) {
     MockI2C16Addr i2c;
     const I2c16Transport transport(i2c, 0x50);
 
     transport.write(I2C16Reg::value(0xCAFE'BABEU));
     auto val = transport.read(I2C16Reg{});
-    return t.assert_eq(val.bits(), 0xCAFE'BABEU);
+    t.eq(val.bits(), 0xCAFE'BABEU);
 }
 
 // =============================================================================
 // SPI void-returning HAL
 // =============================================================================
 
-bool test_spi_void_hal_roundtrip(TestContext& t) {
+void test_spi_void_hal_roundtrip(TestContext& t) {
     MockSpi spi;
     const SpiTransport<MockSpi> transport(spi);
 
     transport.write(SPIReg32::value(0x12345678U));
     auto val = transport.read(SPIReg32{});
-    return t.assert_eq(val.bits(), 0x12345678U);
+    t.eq(val.bits(), 0x12345678U);
 }
 
 } // namespace
 
 void run_byte_transport_tests(umi::test::Suite& suite) {
-    umi::test::Suite::section("SPI transport (mock)");
+    suite.section("SPI transport (mock)");
     suite.run("write/read", test_spi_write_read);
     suite.run("field read", test_spi_field_read);
     suite.run("modify (RMW)", test_spi_modify_rmw);
     suite.run("high field read", test_spi_high_field_read);
 
-    umi::test::Suite::section("ByteAdapter endian");
+    suite.section("ByteAdapter endian");
     suite.run("little-endian wire format", test_i2c_endian_little_wire_format);
     suite.run("big-endian wire format", test_i2c_endian_big_wire_format);
     suite.run("big-endian roundtrip", test_i2c_endian_big_roundtrip);
 
-    umi::test::Suite::section("16-bit / 64-bit registers");
+    suite.section("16-bit / 64-bit registers");
     suite.run("16-bit register", test_i2c_16bit_register_roundtrip);
     suite.run("16-bit high-byte field", test_i2c_16bit_field_high_byte);
     suite.run("64-bit register", test_i2c_64bit_register_roundtrip);
     suite.run("64-bit low field", test_i2c_64bit_low_field);
 
-    umi::test::Suite::section("Transport error policy");
+    suite.section("Transport error policy");
     suite.run("IgnoreError policy", test_ignore_error_policy);
     suite.run("I2C transport error on write", test_i2c_transport_error_on_write);
     suite.run("I2C transport error on read", test_i2c_transport_error_on_read);
@@ -550,13 +538,13 @@ void run_byte_transport_tests(umi::test::Suite& suite) {
     suite.run("SPI transport error on read", test_spi_transport_error_on_read);
     suite.run("I2C void HAL roundtrip", test_i2c_void_hal_roundtrip);
 
-    umi::test::Suite::section("SPI extended");
+    suite.section("SPI extended");
     suite.run("custom command bits", test_spi_custom_command_bits);
     suite.run("big-endian data", test_spi_big_endian_data);
     suite.run("16-bit register", test_spi_16bit_register);
     suite.run("void HAL roundtrip", test_spi_void_hal_roundtrip);
 
-    umi::test::Suite::section("I2C extended");
+    suite.section("I2C extended");
     suite.run("8-bit register", test_i2c_8bit_register);
     suite.run("16-bit address width", test_i2c_16bit_address);
 }
