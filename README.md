@@ -1,6 +1,6 @@
 # umimmio
 
-[日本語](docs/ja/README.md)
+[日本語](docs/README.ja.md)
 
 > [!CAUTION]
 > **Experimental — Do not depend on this repository.**

@@ -1,6 +1,6 @@
 # umimmio ドキュメント
 
-[English](../INDEX.md)
+[English](INDEX.md)
 
 umimmio ライブラリのドキュメントエントリです。
 

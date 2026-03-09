@@ -1,6 +1,6 @@
 # umimmio 設計
 
-[English](../DESIGN.md)
+[English](DESIGN.md)
 
 ## 1. ビジョン
 
@@ -67,7 +67,6 @@ lib/umimmio/
 │   ├── INDEX.md
 │   ├── DESIGN.md
 │   ├── TESTING.md
-│   └── ja/
 ├── examples/
 │   ├── minimal.cc
 │   ├── register_map.cc

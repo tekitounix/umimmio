@@ -1,6 +1,6 @@
 # umimmio Design
 
-[日本語](ja/DESIGN.md)
+[日本語](DESIGN.ja.md)
 
 ## 1. Vision
 

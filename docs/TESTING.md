@@ -1,6 +1,6 @@
 # Testing
 
-[Docs Home](INDEX.md) | [日本語](ja/TESTING.md)
+[Docs Home](INDEX.md) | [日本語](TESTING.ja.md)
 
 ## Test Layout
 

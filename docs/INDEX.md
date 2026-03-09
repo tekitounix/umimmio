@@ -1,6 +1,6 @@
 # umimmio Documentation
 
-[日本語](ja/INDEX.md)
+[日本語](INDEX.ja.md)
 
 Documentation entry for the umimmio library.
 
