@@ -2,7 +2,7 @@
 
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
-/// @file detail.hh
+/// @file
 /// @brief Shared helpers for transport implementations.
 /// @author Shota Moriguchi @tekitounix
 

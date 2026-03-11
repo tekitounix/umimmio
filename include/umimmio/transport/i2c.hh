@@ -2,7 +2,7 @@
 
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
-/// @file i2c.hh
+/// @file
 /// @brief I2C transport with runtime driver reference.
 /// @author Shota Moriguchi @tekitounix
 

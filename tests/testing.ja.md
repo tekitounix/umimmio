@@ -1,6 +1,6 @@
 # テスト
 
-[ドキュメントホーム](INDEX.md) | [English](TESTING.md)
+[README](../README.md) | [English](testing.md)
 
 ## テストレイアウト
 

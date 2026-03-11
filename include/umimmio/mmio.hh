@@ -2,7 +2,7 @@
 
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
-/// @file mmio.hh
+/// @file
 /// @brief UMI Memory-mapped I/O library — unified header.
 /// @author Shota Moriguchi @tekitounix
 

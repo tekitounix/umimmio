@@ -1,0 +1,4 @@
+# Test headers define functions (register_*_tests pattern) and are included
+# from a single .cc TU — include-cleaner false positives are expected.
+InheritParentConfig: true
+Checks: '-misc-definitions-in-headers,-misc-include-cleaner,-misc-const-correctness'

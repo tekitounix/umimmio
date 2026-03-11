@@ -2,11 +2,10 @@
 
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
-/// @file region.hh
+/// @file
 /// @brief MMIO data model: Device, Register, Field, Value types with access concepts.
 /// @author Shota Moriguchi @tekitounix
 
-#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -32,20 +31,21 @@ namespace detail {
 /// @note Called in `if consteval` block to trigger compile error
 void mmio_compile_time_error_value_out_of_range();
 
-/// @brief Range-checked DynamicValue construction (compile-time + runtime).
+/// @brief Range-checked DynamicValue construction (compile-time only).
 ///
 /// Consolidates the identical range-check + construct pattern used by
 /// Register::value() and Field::value().
+/// Runtime range validation is intentionally deferred to the operation layer
+/// (write/modify/is), where CheckPolicy and ErrorPolicy provide configurable
+/// error handling.
 template <typename Region, std::unsigned_integral T>
 constexpr auto make_checked_dynamic_value(T val) {
     if constexpr (Region::bit_width < sizeof(T) * bits8) {
-        constexpr auto max_value = (1ULL << Region::bit_width) - 1;
         if consteval {
+            constexpr auto max_value = (1ULL << Region::bit_width) - 1;
             if (static_cast<std::uint64_t>(val) > max_value) {
                 mmio_compile_time_error_value_out_of_range();
             }
-        } else {
-            assert(static_cast<std::uint64_t>(val) <= max_value && "Value out of range for region");
         }
     }
     return DynamicValue<Region, T>{val};

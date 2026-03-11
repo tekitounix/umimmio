@@ -2,7 +2,7 @@
 
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
-/// @file ops.hh
+/// @file
 /// @brief RegOps and ByteAdapter — type-safe register operation layer.
 /// @author Shota Moriguchi @tekitounix
 

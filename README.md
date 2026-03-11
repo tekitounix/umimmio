@@ -1,6 +1,6 @@
 # umimmio
 
-[日本語](docs/README.ja.md)
+[日本語](docs/readme.ja.md)
 
 > [!CAUTION]
 > **Experimental — Do not depend on this repository.**
@@ -110,7 +110,7 @@ bool fast = cfg.is(CTRL::MODE::AltFunc{});
 ## Build and Test
 
 ```bash
-xmake test
+xmake test 'test_umimmio/*'
 ```
 
 ## Public API
@@ -130,8 +130,8 @@ xmake test
 
 ## Documentation
 
-- [Design & API](docs/DESIGN.md)
-- [Testing](docs/TESTING.md)
+- [Design & API](docs/design.md)
+- [Testing](tests/testing.md)
 
 ## License
 

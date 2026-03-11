@@ -121,8 +121,8 @@ xmake test
 
 ## ドキュメント
 
-- [設計 & API](DESIGN.md)
-- [テスト](TESTING.md)
+- [設計 & API](design.md)
+- [テスト](../tests/testing.md)
 
 ## ライセンス
 

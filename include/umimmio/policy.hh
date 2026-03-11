@@ -2,7 +2,7 @@
 
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
-/// @file policy.hh
+/// @file
 /// @brief Foundation vocabulary types for UMI MMIO: access policies, transport tags, error policies.
 /// @author Shota Moriguchi @tekitounix
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file
-/// @brief Shared test definitions for umimmio tests.
+/// @brief MockTransport and shared device/register definitions for umimmio tests.
 /// @author Shota Moriguchi @tekitounix
 /// @details Provides MockTransport and device/register definitions that simulate
 ///          a real hardware register map for host-based testing.
@@ -24,12 +24,11 @@ using namespace umi::mmio;
 
 /// @brief In-memory mock transport for testing.
 ///
-/// DirectTransport と同じインターフェース (reg_read/reg_write) を提供する。
-/// CRTP パラメータは不要 (deducing this で RegOps が自動解決)。
+/// Provides the same interface as DirectTransport (reg_read/reg_write).
+/// No CRTP parameter needed (deducing this resolves RegOps automatically).
 ///
-/// @note clear_memory() という名前を使う理由:
-/// RegOps が reset(Reg) メソッドを持つため、reset() では名前衝突する。
-/// clear_memory() はモック固有の「全メモリゼロクリア」を明示する。
+/// @note Named clear_memory() instead of reset() to avoid collision with
+/// RegOps::reset(Reg). clear_memory() explicitly means "zero all mock RAM".
 struct MockTransport : private RegOps<> {
   public:
     using RegOps<>::read;
@@ -173,14 +172,5 @@ using ModeNormal = Value<ConfigMode, static_cast<uint8_t>(ModeVal::NORMAL)>;
 using ModeFast = Value<ConfigMode, static_cast<uint8_t>(ModeVal::FAST)>;
 using ModeLowPower = Value<ConfigMode, static_cast<uint8_t>(ModeVal::LOW_POWER)>;
 using ModeTest = Value<ConfigMode, static_cast<uint8_t>(ModeVal::TEST)>;
-
-// =============================================================================
-// Test registration functions
-// =============================================================================
-
-void run_register_field_tests(umi::test::Suite& suite);
-void run_transport_tests(umi::test::Suite& suite);
-void run_access_policy_tests(umi::test::Suite& suite);
-void run_byte_transport_tests(umi::test::Suite& suite);
 
 } // namespace umimmio::test

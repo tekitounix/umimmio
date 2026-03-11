@@ -2,7 +2,7 @@
 
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
-/// @file direct.hh
+/// @file
 /// @brief DirectTransport — volatile pointer access for memory-mapped peripherals.
 /// @author Shota Moriguchi @tekitounix
 

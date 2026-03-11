@@ -1,6 +1,6 @@
 # umimmio Design
 
-[日本語](DESIGN.ja.md)
+[日本語](design.ja.md)
 
 ## 1. Vision
 
@@ -46,7 +46,7 @@ Transport is a template parameter, not a base-class pointer.
 Field values are range-checked at compile time when possible:
 
 1. `value()` with a literal exceeding field width triggers `detail::mmio_compile_time_error_value_out_of_range` via `if consteval`.
-2. Runtime `DynamicValue` is checked by `CheckPolicy` + `ErrorPolicy` at write/modify time.
+2. Runtime `DynamicValue` is not validated at `value()` creation time. Validation is performed by operations (`write()`/`modify()`/`is()`) according to `CheckPolicy` and `ErrorPolicy`.
 3. `value()` requires `std::unsigned_integral` — signed values are a compile error.
 4. `BitRegion` has 5 `static_assert`s validating offset, width, and register-width consistency.
 
@@ -64,10 +64,9 @@ lib/umimmio/
 ├── README.md
 ├── xmake.lua
 ├── docs/
-│   ├── INDEX.md
-│   ├── DESIGN.md
-│   ├── TESTING.md
-│   └── ja/
+│   ├── index.md
+│   ├── design.md
+│   ├── testing.md
 ├── examples/
 │   ├── minimal.cc
 │   ├── register_map.cc
@@ -323,7 +322,7 @@ Endianness is expressed with `std::endian` (no custom `Endian` enum).
 
 - `Value<RegionT, EnumValue>`: compile-time constant with shifted representation.
   Holds a `RegionType` alias for the parent Register or Field type.
-- `DynamicValue<RegionT, T>`: runtime value with deferred range check.
+- `DynamicValue<RegionT, T>`: runtime value. Not validated at `value()` creation time; validation is performed by operations (`write()`/`modify()`/`is()`) according to `CheckPolicy` and `ErrorPolicy`.
 
 ### 5.5 Field Trait System
 
@@ -435,7 +434,7 @@ return type is `void` or convertible to `bool`. If the HAL returns a falsy value
 
 ## 7. Test Strategy
 
-See [TESTING.md](TESTING.md) for test layout, run commands, and quality gates.
+See [testing.md](../tests/testing.md) for test layout, run commands, and quality gates.
 
 ---
 

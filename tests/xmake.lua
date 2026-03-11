@@ -1,5 +1,3 @@
--- umimmio tests
-
 target("test_umimmio")
     set_kind("binary")
     set_default(false)
@@ -7,8 +5,13 @@ target("test_umimmio")
     add_deps("umimmio", "umitest")
     add_tests("default")
 
+    for _, f in ipairs(os.files(path.join(os.scriptdir(), "smoke", "*.cc"))) do
+        local name = "smoke_" .. path.basename(f)
+        add_tests(name, {files = path.join("smoke", path.filename(f)), build_should_pass = true})
+    end
+
     for _, f in ipairs(os.files(path.join(os.scriptdir(), "compile_fail", "*.cc"))) do
-        add_tests("fail_" .. path.basename(f),
-            {files = path.join("compile_fail", path.filename(f)), build_should_fail = true})
+        local name = "fail_" .. path.basename(f)
+        add_tests(name, {files = path.join("compile_fail", path.filename(f)), build_should_fail = true})
     end
 target_end()

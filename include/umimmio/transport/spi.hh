@@ -2,7 +2,7 @@
 
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
-/// @file spi.hh
+/// @file
 /// @brief SPI transport with runtime driver reference.
 /// @author Shota Moriguchi @tekitounix
 
