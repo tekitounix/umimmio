@@ -1,6 +1,6 @@
 # umimmio
 
-[English](../../README.md)
+[English](../README.md) | 日本語
 
 C++23 向けの型安全、ゼロコストメモリマップド I/O ライブラリ。
 レジスタマップをコンパイル時に定義し、同一の API で Direct MMIO、I2C、SPI トランスポート経由でアクセスできる。

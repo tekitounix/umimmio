@@ -1,6 +1,6 @@
 # Testing
 
-[README](../README.md) | [日本語](testing.ja.md)
+[README](../README.md) | English | [日本語](testing.ja.md)
 
 ## Test Layout
 

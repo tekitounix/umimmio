@@ -1,6 +1,6 @@
 # umimmio 設計
 
-[English](design.md)
+[English](design.md) | 日本語
 
 ## 1. ビジョン
 

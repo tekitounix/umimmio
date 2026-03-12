@@ -1,6 +1,6 @@
 # umimmio
 
-[日本語](docs/readme.ja.md)
+English | [日本語](docs/readme.ja.md)
 
 A type-safe, zero-cost memory-mapped I/O library for C++23.
 Define register maps at compile time and access them through direct MMIO, I2C, or SPI transports with the same API.

@@ -1,6 +1,6 @@
 # テスト
 
-[README](../README.md) | [English](testing.md)
+[README](../README.md) | [English](testing.md) | 日本語
 
 ## テストレイアウト
 
