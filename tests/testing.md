@@ -53,7 +53,7 @@ Useful subsets:
 
 ```bash
 xmake test 'test_umimmio/*'
-xmake test 'test_umimmio_compile_fail/*'
+xmake test 'test_umimmio/fail_*'
 ```
 
 ## Test Strategy
@@ -95,15 +95,14 @@ Concurrency/locking is out of scope for umimmio and not tested here.
 
 ## CI Coverage
 
-- Required CI workflow: `.github/workflows/umimmio-ci.yml`
-- Required jobs:
-  - `host-tests` (host + compile-fail on ubuntu/macos)
-  - `arm-build` (cross-build verification)
-- `xmake test` is CI-safe because it is non-interactive.
+umimmio tests run as part of the project-wide CI pipeline (`.github/workflows/ci.yml`).
+`xmake test` is CI-safe because it is non-interactive.
 
 ## Adding New Tests
 
-1. Create `tests/test_<feature>.cc`
-2. Add to `tests/xmake.lua` via `add_files("test_*.cc")`
-3. For compile-fail tests, add under `tests/compile_fail/` and register in both `add_tests()` and `test_cases` table in xmake.lua
+1. Create `tests/test_<feature>.hh` — include from `test_main.cc` and add a call in `main()`
+2. compile-fail: add `.cc` under `tests/compile_fail/` — auto-discovered by glob
+3. smoke: add `.cc` under `tests/smoke/` — auto-discovered by glob
 4. Run `xmake test "test_umimmio/*"`
+
+No xmake.lua edit needed.

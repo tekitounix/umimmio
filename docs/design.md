@@ -63,6 +63,7 @@ Tests depend on `umitest` for assertions.
 ```text
 lib/umimmio/
 ├── README.md
+├── LICENSE
 ├── xmake.lua
 ├── docs/
 │   ├── design.md / design.ja.md
@@ -214,7 +215,7 @@ specialized for registers or fields.
 This enables fluent chained access:
 
 ```cpp
-auto cfg = hw.read(ConfigReg{});
+auto cfg = io.read(ConfigReg{});
 auto en  = cfg.get(ConfigEnable{});   // RegionValue<ConfigEnable>
 bool is_fast = cfg.is(ModeFast{});    // Match named value
 uint32_t raw = cfg.bits();           // Raw register value
@@ -291,7 +292,7 @@ named `Value<>` types, returning a `std::variant`. If no match is found,
 `UnknownValue<F>` is returned as the last alternative.
 
 ```cpp
-auto result = hw.read_variant<CTRL::MODE,
+auto result = io.read_variant<CTRL::MODE,
                               CTRL::MODE::Normal,
                               CTRL::MODE::Fast,
                               CTRL::MODE::LowPwr>();

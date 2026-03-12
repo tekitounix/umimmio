@@ -53,7 +53,7 @@ xmake test
 
 ```bash
 xmake test 'test_umimmio/*'
-xmake test 'test_umimmio_compile_fail/*'
+xmake test 'test_umimmio/fail_*'
 ```
 
 ## テスト戦略
@@ -95,15 +95,14 @@ umimmio は主にコンパイル時抽象化ライブラリであるため、テ
 
 ## CI カバレッジ
 
-- 必須 CI ワークフロー: `.github/workflows/umimmio-ci.yml`
-- 必須ジョブ:
-  - `host-tests` (ubuntu/macos でのホスト + compile-fail)
-  - `arm-build` (クロスビルド検証)
-- `xmake test` は非対話的であるため CI 安全。
+umimmio のテストはプロジェクト全体の CI パイプライン（`.github/workflows/ci.yml`）の一部として実行される。
+`xmake test` は非対話的であるため CI 安全。
 
 ## 新規テストの追加
 
-1. `tests/test_<feature>.cc` を作成
-2. `tests/xmake.lua` の `add_files("test_*.cc")` に追加
-3. compile-fail テストの場合、`tests/compile_fail/` 配下に追加し、xmake.lua の `add_tests()` と `test_cases` テーブルの両方に登録
+1. `tests/test_<feature>.hh` を作成 — `test_main.cc` から include し `main()` で呼び出し
+2. compile-fail: `tests/compile_fail/` に `.cc` ファイルを追加 — glob で自動検出
+3. smoke: `tests/smoke/` に `.cc` ファイルを追加 — glob で自動検出
 4. `xmake test "test_umimmio/*"` を実行
+
+xmake.lua の編集は不要。

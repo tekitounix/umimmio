@@ -5,7 +5,13 @@ English | [日本語](docs/readme.ja.md)
 A type-safe, zero-cost memory-mapped I/O library for C++23.
 Define register maps at compile time and access them through direct MMIO, I2C, or SPI transports with the same API.
 
-## The Problem
+## Why umimmio
+
+- **Safe by default** — fields only accept named `Value<>` types; raw numeric access requires opt-in via `Numeric`
+- **Zero-cost** — all dispatch resolved at compile time, no vtable, no heap
+- **Multiple transports** — same register map works across `DirectTransport`, `I2cTransport`, `SpiTransport`
+- **Policy-based error handling** — `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
+- **C++23** — deducing this (no CRTP), `if consteval`, `std::byteswap`
 
 Traditional C/C++ vendor headers (CMSIS, ESP-IDF, Pico SDK) expose registers as raw `uint32_t` pointers and bit-mask macros. This allows bugs that pass compilation silently:
 
@@ -26,6 +32,40 @@ umimmio eliminates these classes of bugs through compile-time type enforcement:
 | Field width range check | ❌ | ✅ `if consteval` + runtime policy |
 | Named value type safety | ❌ (macros) | ✅ NTTP `Value<F, V>` |
 | W1C (Write-1-to-Clear) safety | ❌ | ✅ Compile error on `modify()` |
+
+## Quick Start
+
+```cpp
+#include <umimmio/mmio.hh>
+using namespace umi::mmio;
+
+struct MyDevice : Device<> {
+    static constexpr Addr base_address = 0x4002'0000;
+    struct CTRL : Register<MyDevice, 0x00, 32> {
+        struct EN : Field<CTRL, 0, 1> {};
+    };
+};
+
+DirectTransport<> io;
+io.modify(MyDevice::CTRL::EN::Set{});       // type-safe field set
+bool on = io.is(MyDevice::CTRL::EN::Set{}); // type-safe read
+```
+
+## Installation
+
+External projects:
+
+```lua
+add_repositories("synthernet https://github.com/tekitounix/synthernet-xmake-repo.git main")
+add_requires("umimmio")
+add_packages("umimmio")
+```
+
+## Build and Test
+
+```bash
+xmake test 'test_umimmio/*'
+```
 
 ## Type Hierarchy
 
@@ -124,6 +164,7 @@ auto raw  = cfg.bits();                     // register-level: always available
 
 | Operation | Description |
 |-----------|-------------|
+| `is(Value{})` | Compare field/register against a named value (single bus read) |
 | `flip(Field{})` | Toggle 1-bit RW field (read-modify-write) |
 | `clear(Field{})` | Clear W1C field by writing 1 to its bit position |
 | `reset(Reg{})` | Write compile-time reset value to register |
@@ -459,24 +500,11 @@ For ISR-safe access, the caller must serialize access externally:
 umimmio is transport-level only and does not provide synchronization primitives.
 Callers are responsible for choosing the appropriate locking mechanism.
 
-## Features
+## Examples
 
-- **Safe by default** — fields only accept named `Value<>` types; raw numeric access requires opt-in via `Numeric`
-- **Zero-cost** — all dispatch resolved at compile time, no vtable, no heap
-- **Multiple transports** — same register map works across `DirectTransport`, `I2cTransport`, `SpiTransport`
-- **Policy-based error handling** — `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
-- **C++23** — deducing this (no CRTP), `if consteval`, `std::byteswap`
-
-## Build and Test
-
-```bash
-xmake test 'test_umimmio/*'
-```
-
-## Documentation
-
-- [Design](docs/design.md) — Architecture and design decisions
-- [Testing](tests/testing.md) — Test strategy and quality gates
+- [`examples/minimal.cc`](examples/minimal.cc) — register map definition and static_assert verification
+- [`examples/register_map.cc`](examples/register_map.cc) — SPI peripheral register map (STM32-style)
+- [`examples/transport_mock.cc`](examples/transport_mock.cc) — all public API operations with MockTransport
 
 ## License
 
