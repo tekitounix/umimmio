@@ -174,30 +174,15 @@ int main() {
 
     auto mode = io.read_variant<CTRL::MODE, CTRL::MODE::Normal, CTRL::MODE::Fast, CTRL::MODE::LowPwr>();
 
-    bool matched_fast = false;
-    std::visit(
-        [&](auto v) {
-            if constexpr (std::is_same_v<decltype(v), CTRL::MODE::Fast>) {
-                matched_fast = true;
-            }
-        },
-        mode);
-    check(matched_fast, "read_variant matches Fast");
+    check(std::holds_alternative<CTRL::MODE::Fast>(mode), "read_variant matches Fast");
 
     // read_variant with unknown value → UnknownValue
     io.modify(CTRL::MODE::LowPwr{});
     auto mode2 = io.read_variant<CTRL::MODE, CTRL::MODE::Normal,
                                  CTRL::MODE::Fast>(); // LowPwr not listed
 
-    bool is_unknown = false;
-    std::visit(
-        [&](auto v) {
-            if constexpr (std::is_same_v<decltype(v), UnknownValue<CTRL::MODE>>) {
-                is_unknown = true;
-            }
-        },
-        mode2);
-    check(is_unknown, "read_variant returns UnknownValue for unlisted value");
+    check(std::holds_alternative<UnknownValue<CTRL::MODE>>(mode2),
+          "read_variant returns UnknownValue for unlisted value");
 
     // -------------------------------------------------------------------------
     // Summary

@@ -35,7 +35,7 @@ concept CsrAccessor = requires(const T& accessor, std::uint32_t val) {
 // DefaultCsrAccessor — RISC-V inline asm (target-conditional)
 // ===========================================================================
 
-#if defined(__riscv)
+#ifdef __riscv
 
 /// @brief Default CSR accessor using RISC-V inline assembly.
 /// @note Only available on RISC-V targets. Uses `csrr`/`csrw` instructions.
@@ -122,7 +122,7 @@ class CsrTransport : private RegOps<CheckPolicy, ErrorPolicy> {
     using TransportTag = Csr;
 
     /// @brief Construct CsrTransport with an accessor instance.
-    constexpr explicit CsrTransport(Accessor accessor) noexcept : accessor_(accessor) {}
+    constexpr explicit CsrTransport(Accessor accessor) noexcept : accessor(accessor) {}
 
     /// @brief Default construct (for stateless accessors).
     constexpr CsrTransport() noexcept
@@ -133,17 +133,17 @@ class CsrTransport : private RegOps<CheckPolicy, ErrorPolicy> {
     template <typename Reg>
     [[nodiscard]] auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
         return static_cast<typename Reg::RegValueType>(
-            accessor_.template csr_read<static_cast<std::uint32_t>(Reg::address)>());
+            accessor.template csr_read<static_cast<std::uint32_t>(Reg::address)>());
     }
 
     /// @brief Write a CSR register.
     template <typename Reg>
     void reg_write(Reg /*reg*/, typename Reg::RegValueType value) const noexcept {
-        accessor_.template csr_write<static_cast<std::uint32_t>(Reg::address)>(static_cast<std::uint32_t>(value));
+        accessor.template csr_write<static_cast<std::uint32_t>(Reg::address)>(static_cast<std::uint32_t>(value));
     }
 
   private:
-    [[no_unique_address]] Accessor accessor_{};
+    [[no_unique_address]] Accessor accessor{};
 };
 
 } // namespace umi::mmio
