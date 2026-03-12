@@ -269,6 +269,30 @@ io.modify(SR::EN::Set{});        // safe: W1C bits auto-masked to 0
 
 The `W1cMask` ensures that `modify()` and `flip()` automatically zero W1C bit positions before write-back, preventing accidental flag clearing.
 
+## W1S / W1T (Write-1-to-Set / Write-1-to-Toggle) Fields
+
+W1S and W1T fields provide atomic bit manipulation without read-modify-write.
+They are defined as write-only (`WO`) — hardware provides separate set/toggle ports.
+
+```cpp
+// RP2040 SIO — separate WO registers for atomic GPIO operations
+struct SIO : Device<> {
+    static constexpr Addr base_address = 0xD000'0000;
+    struct GPIO_OUT     : Register<SIO, 0x010, 32, RW>  {};
+    struct GPIO_OUT_SET : Register<SIO, 0x014, 32, W1S> {};
+    struct GPIO_OUT_CLR : Register<SIO, 0x018, 32, W1C> {};
+    struct GPIO_OUT_XOR : Register<SIO, 0x01C, 32, W1T> {};
+};
+
+io.write(SIO::GPIO_OUT_SET::value(pin_mask));  // atomic set
+io.write(SIO::GPIO_OUT_XOR::value(pin_mask));  // atomic toggle
+```
+
+1-bit W1S fields get `Set`/`Reset` aliases (same as normal RW — "write 1 to set" matches).
+1-bit W1T fields get a `Toggle` alias instead.
+
+`modify()` and `flip()` are compile errors on W1S/W1T fields — read-modify-write is unsafe or meaningless for special write behaviors.
+
 ## Field Type Summary
 
 | Field kind | `value()` | `bits()` | Named `Value<>` | Auto aliases | `modify()` | `clear()` |
@@ -277,6 +301,147 @@ The `W1cMask` ensures that `modify()` and `flip()` automatically zero W1C bit po
 | `Numeric` | Yes (unsigned) | Yes | Optional | — | Yes | — |
 | 1-bit RW | — | Blocked | Optional (custom aliases) | `Set` / `Reset` | Yes | — |
 | 1-bit W1C | — | Blocked | — | `Clear` | Compile error | Yes |
+| 1-bit W1S | — | Blocked | — | `Set` / `Reset` | Compile error | — |
+| 1-bit W1T | — | Blocked | — | `Toggle` | Compile error | — |
+
+## Register Arrays and Runtime Dispatch
+
+umimmio provides three primitives for working with indexed register banks (NVIC ISER[0..7], DMA streams, etc.):
+
+### RegisterArray — compile-time array metadata
+
+```cpp
+// Template register bank: ISER<0>, ISER<1>, ..., ISER<7>
+template <std::size_t N>
+struct ISER : Register<NVIC, 0x100 + (N * 4), 32> {
+    static_assert(N < 8);
+};
+
+using ISERArray = RegisterArray<ISER, 8>;
+static_assert(ISERArray::size == 8);
+// ISERArray::Element<3> is ISER<3>
+```
+
+### dispatch / dispatch_r — runtime-to-compile-time bridge
+
+Converts a runtime index to a compile-time template parameter via fold expression:
+
+```cpp
+// void dispatch — no return value
+std::size_t stream = get_active_stream();  // runtime
+dispatch<8>(stream, [&]<std::size_t I>() {
+    io.modify(DMA::Stream<I>::CR::EN::Set{});
+});
+
+// dispatch_r — with return value
+auto count = dispatch_r<8, std::uint32_t>(stream, [&]<std::size_t I>() {
+    return io.read(DMA::Stream<I>::NDTR{}).bits();
+});
+```
+
+Out-of-range index invokes `ErrorPolicy::on_range_error()` (default: assert).
+
+### IndexedArray — sub-register granularity
+
+For register arrays where each entry is smaller than a register (e.g., 8-bit entries in a 32-bit register):
+
+```cpp
+// 32 bytes at offset 0x100 from device base, 8-bit entries, stride 1
+using LUT = IndexedArray<MyDevice, 0x100, 32>;
+
+// Compile-time access via Entry<N>
+io.write(LUT::Entry<5>::value(0x42));
+
+// Runtime access via write_entry/read_entry (Direct transport only)
+LUT::write_entry(idx, 0x42);
+auto val = LUT::read_entry(idx);
+
+// Custom entry width and stride
+using WideArray = IndexedArray<MyDevice, 0x200, 16, bits16, 4>;  // 16-bit entries, 4-byte stride
+```
+
+`write_entry`/`read_entry` require `Direct` in the device's `AllowedTransports` (compile-time enforced via `static_assert`).
+
+## Transport Selection
+
+Transport is selected by constructing the appropriate type:
+
+```cpp
+umi::mmio::DirectTransport<> direct;                    // Volatile pointer (Cortex-M, etc.)
+umi::mmio::I2cTransport<MyI2c> i2c(hal_i2c, 0x68);     // HAL I2C
+umi::mmio::SpiTransport<MySpi> spi(hal_spi);            // HAL SPI
+```
+
+All transports expose the same `write()`, `read()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()` API.
+The Device's `AllowedTransports...` parameter makes unauthorized transport usage a compile error.
+
+### CsrTransport — RISC-V CSR Access
+
+CSR (Control and Status Register) access uses the same type-safe API via a dedicated transport:
+
+```cpp
+#include <umimmio/transport/csr.hh>
+
+// Device definition — CSR numbers as register offsets (base_address = 0)
+struct RiscvMachine : Device<RW, Csr> {
+    static constexpr Addr base_address = 0;
+    struct MSTATUS : Register<RiscvMachine, 0x300, 32> {
+        struct MIE : Field<MSTATUS, 3, 1> {};
+        struct MPP : Field<MSTATUS, 11, 2> {
+            using MACHINE = Value<MPP, 3>;
+        };
+    };
+};
+
+// On RISC-V targets, use DefaultCsrAccessor (inline asm csrr/csrw)
+// For testing, inject a MockCsrAccessor that satisfies CsrAccessor concept
+CsrTransport<MockCsrAccessor> csr;
+csr.modify(RiscvMachine::MSTATUS::MIE::Set{});
+```
+
+`CsrAccessor` concept requires `csr_read<CsrNum>()` and `csr_write<CsrNum>(value)` — CSR number as compile-time template parameter (12-bit immediate constraint).
+
+## Error Handling
+
+### Compile-Time Errors
+
+Access policy violations, value range overflow, and type mismatches are all compile errors.
+The design minimizes the categories of bugs that can reach runtime.
+
+### Runtime Error Policies
+
+Select behavior via the `ErrorPolicy` template parameter:
+
+| Policy | Behavior |
+|--------|----------|
+| `AssertOnError` | `assert(false && msg)` (default) |
+| `TrapOnError` | `std::abort()` |
+| `IgnoreError` | Silent no-op |
+| `CustomErrorHandler<fn>` | User callback |
+
+Two entry points:
+
+| Entry Point | Triggered By |
+|---|---|
+| `on_range_error(msg)` | Value out-of-range for field width (programming error) |
+| `on_transport_error(msg)` | HAL driver reports failure (bus error, NACK, timeout) |
+
+I2cTransport and SpiTransport use `if constexpr` to check the HAL return type, invoking `on_transport_error()` when a falsy value is returned.
+
+## Concurrency
+
+`modify()` performs read-modify-write and is **never atomic**.
+For ISR-safe access, the caller must serialize access externally:
+
+```cpp
+{
+    auto lock = enter_critical_section();  // platform-specific
+    io.modify(ConfigEnable::Set{});        // ISR-safe RMW
+}   // lock released (RAII)
+```
+
+umimmio is transport-level only and does not provide synchronization primitives.
+Callers are responsible for choosing the appropriate locking mechanism.
 
 ## Features
 
@@ -294,8 +459,8 @@ xmake test 'test_umimmio/*'
 
 ## Documentation
 
-- [Design & API](docs/design.md)
-- [Testing](tests/testing.md)
+- [Design](docs/design.md) — Architecture and design decisions
+- [Testing](tests/testing.md) — Test strategy and quality gates
 
 ## License
 

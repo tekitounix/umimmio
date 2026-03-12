@@ -28,7 +28,8 @@ Enforcement uses C++20 `requires` clauses on `read()`, `write()`, `modify()`, et
 through `Readable`, `Writable`, `ReadWritable`, and `ReadableValue`/`WritableValue`/`ModifiableValue` concepts.
 
 W1C (Write-1-to-Clear) fields have `WriteBehavior::ONE_TO_CLEAR` and are only accepted by `clear()`.
-The `IsW1C` concept identifies them; `NotW1C` excludes them from `modify()` and `flip()`.
+W1S (Write-1-to-Set) and W1T (Write-1-to-Toggle) fields are defined as WO ports for atomic bit manipulation.
+`IsW1C`/`IsW1S`/`IsW1T` concepts identify them; `NormalWrite` excludes all non-NORMAL WriteBehaviors from `modify()` and `flip()`.
 
 ### 2.3 Transport Abstraction
 
@@ -65,42 +66,61 @@ lib/umimmio/
 ├── xmake.lua
 ├── docs/
 │   ├── index.md
-│   ├── design.md
-│   ├── testing.md
+│   ├── design.md / design.ja.md
+│   ├── readme.ja.md
+│   └── testing.md / testing.ja.md
 ├── examples/
 │   ├── minimal.cc
 │   ├── register_map.cc
 │   └── transport_mock.cc
 ├── include/umimmio/
-│   ├── mmio.hh              # Umbrella header
+│   ├── mmio.hh              # Umbrella header (excludes csr.hh)
 │   ├── policy.hh            # Foundation: AccessPolicy, transport tags, error policies
-│   ├── region.hh            # Data model: Device, Register, Field, Value, concepts
+│   ├── region.hh            # Data model: Device, Register, Field, Value, concepts,
+│   │                        #   RegisterArray, dispatch, IndexedArray
 │   ├── ops.hh               # Operations: RegOps, ByteAdapter
 │   └── transport/
+│       ├── csr.hh           # CsrTransport (RISC-V CSR, explicit include)
 │       ├── detail.hh        # Shared helpers for address encoding
 │       ├── direct.hh        # DirectTransport (volatile pointer)
 │       ├── i2c.hh           # I2cTransport (HAL-based)
 │       └── spi.hh           # SpiTransport (HAL-based)
 └── tests/
     ├── test_main.cc
-    ├── test_access_policy.cc
-    ├── test_register_field.cc
-    ├── test_transport.cc
-    ├── test_byte_transport.cc
-    ├── compile_fail/
+    ├── test_mock.hh             # MockTransport and shared device definitions
+    ├── test_access_policy.hh    # W1C/W1S/W1T access policy tests
+    ├── test_register_field.hh   # Field, RegisterArray, dispatch, IndexedArray tests
+    ├── test_transport.hh        # Transport tests (Direct, I2C, CSR)
+    ├── test_byte_transport.hh   # ByteAdapter tests
+    ├── smoke/
+    │   └── standalone.cc
+    ├── compile_fail/            # 28 negative compile tests (glob-collected)
+    │   ├── bits_non_numeric.cc
     │   ├── clear_non_w1c.cc
     │   ├── cross_register_write.cc
     │   ├── field_overflow.cc
+    │   ├── flip_multi_bit.cc
     │   ├── flip_ro.cc
     │   ├── flip_w1c.cc
+    │   ├── flip_w1s.cc          # W1S rejected by NormalWrite
+    │   ├── flip_w1t.cc          # W1T rejected by NormalWrite
     │   ├── flip_wo.cc
+    │   ├── get_wrong_field.cc
+    │   ├── indexed_array_oob.cc # IndexedArray::Entry out-of-range
+    │   ├── modify_cross_register.cc
     │   ├── modify_w1c.cc
+    │   ├── modify_w1s.cc        # W1S rejected by NormalWrite
+    │   ├── modify_w1t.cc        # W1T rejected by NormalWrite
     │   ├── modify_wo.cc
     │   ├── read_field_eq_int.cc
+    │   ├── read_w1s.cc          # W1S not Readable
+    │   ├── read_w1t.cc          # W1T not Readable
     │   ├── read_wo.cc
+    │   ├── transport_tag_mismatch.cc
     │   ├── value_signed.cc
     │   ├── value_typesafe.cc
     │   ├── write_ro.cc
+    │   ├── write_ro_csr.cc      # RO CSR write rejected via CsrTransport
     │   ├── write_ro_value.cc
     │   └── write_zero_args.cc
     └── xmake.lua
@@ -108,173 +128,10 @@ lib/umimmio/
 
 ---
 
-## 4. Programming Model
+## 4. Usage
 
-### 4.0 API Reference
-
-Public entrypoint: `include/umimmio/mmio.hh`
-
-Core types:
-
-| Type | Purpose |
-|------|---------|
-| `Device<Access, Transports...>` | Device root with access policy and allowed transports. MMIO devices override `base_address`. |
-| `Block<Parent, BaseAddr, Access>` | Address sub-region within a Device (inherits parent's transports). |
-| `Register<Device, Offset, Bits, Access, Reset, W1cMask>` | Register at an offset within a device. `W1cMask` specifies which bits are W1C. |
-| `Field<Reg, BitOffset, BitWidth, ...Traits>` | Bit field within a register (variadic traits) |
-| `Value<Field, val>` | Named constant for a Field |
-| `DynamicValue<Field, T>` | Runtime value for a Field |
-| `RegionValue<R>` | Unified return type of `read()` and `get()` — `bits()` always; register: `get()`, `is()`; field: typed `==` only |
-| `UnknownValue<Reg>` | Sentinel type for `read_variant()` when no named value matches |
-| `Numeric` | Trait: enables raw `value()` on a Field |
-| `Inherit` | Sentinel: Field inherits access policy from parent Register |
-| `WriteBehavior` | Enum: `NORMAL` or `ONE_TO_CLEAR` |
-
-Transport types:
-
-| Transport | Use Case |
-|-----------|----------|
-| `DirectTransport` | Memory-mapped I/O (volatile pointer access) |
-| `I2cTransport` | HAL-compatible I2C peripheral drivers |
-| `SpiTransport` | HAL-compatible SPI peripheral drivers |
-
-Access policies:
-
-| Policy | `read()` | `write()` | `modify()` | `clear()` | `WriteBehavior` |
-|--------|:--------:|:---------:|:----------:|:---------:|:---------------:|
-| `RW` | Yes | Yes | Yes | — | `NORMAL` |
-| `RO` | Yes | No | No | — | `NORMAL` |
-| `WO` | No | Yes | No | — | `NORMAL` |
-| `W1C` | Yes | — | No | Yes | `ONE_TO_CLEAR` |
-
-Operations:
-
-| Operation | Purpose | Constraint |
-|-----------|---------|------------|
-| `read(Reg{})` | Read register → `RegionValue<Reg>` | `Readable<Reg>` |
-| `read(Field{})` | Read field → `RegionValue<F>` (use `.bits()` for raw) | `Readable<Field>` |
-| `write(v1, v2, ...)` | Write values (from reset) | `WritableValue` |
-| `modify(v1, v2, ...)` | Read-modify-write | `ModifiableValue` (excludes W1C) |
-| `is(v)` | Compare field/register value | `ReadableValue` |
-| `flip(F{})` | Toggle 1-bit field (W1C mask applied) | `ReadWritable && NotW1C` |
-| `clear(F{})` | W1C field: write-1-to-clear (RMW for mixed registers) | `IsW1C<F>` |
-| `reset(Reg{})` | Write `Reg::reset_value()` | `Writable<Reg>` |
-| `read_variant(F{}, V1{}, ..., VN{})` | Pattern-match field value → `std::variant` | — |
-
-Static methods on Register/Field:
-
-| Method | Purpose | Availability |
-|--------|---------|-------------|
-| `<Register>::value(T)` | Create `DynamicValue` with range check | Register (always) |
-| `<Field>::value(T)` | Create `DynamicValue` with range check | Field with `Numeric` trait |
-| `mask()` | Compile-time bit mask | Register, Field |
-| `reset_value()` | Compile-time reset value | Register, Field (inherited) |
-
-Concurrency:
-
-`modify()` is not atomic (read-modify-write). For ISR-safe or multi-context
-access, the caller must serialize access externally (e.g. disable interrupts,
-use a scoped lock). See §9.4 for the pattern.
-
-### 4.1 Minimal Path
-
-Required minimal flow for direct MMIO:
-
-1. Define `Device` with base address and access policy.
-2. Define `Register` within the device.
-3. Define `Field` within the register.
-4. Construct `DirectTransport`.
-5. Call `transport.write(Field::Set{})` or `transport.read(Field{})`.
-
-### 4.2 Register Map Organization
-
-The recommended style is **hierarchical nesting**: Device contains Registers,
-Registers contain Fields, Fields contain named Values. This mirrors the
-physical device structure and avoids name collisions when multiple registers
-share common field names (e.g. `EN`, `MODE`).
-
-```cpp
-namespace mm = umi::mmio;
-
-struct MyDevice : mm::Device<mm::RW> {
-    static constexpr mm::Addr base_address = 0x4000'0000;
-
-    struct CTRL : mm::Register<MyDevice, 0x00, 32> {
-        // 1-bit field — Set/Reset auto-generated
-        struct EN : mm::Field<CTRL, 0, 1> {};
-
-        // 2-bit field with named values — safe by default (no raw value())
-        struct MODE : mm::Field<CTRL, 1, 2> {
-            using Output  = mm::Value<MODE, 0b01>;
-            using AltFunc = mm::Value<MODE, 0b10>;
-        };
-
-        // 9-bit numeric field — raw value() enabled
-        struct PLLN : mm::Field<CTRL, 6, 9, mm::Numeric> {};
-
-        // Read-only + numeric
-        struct DR : mm::Field<CTRL, 0, 16, mm::RO, mm::Numeric> {};
-    };
-
-    // W1C status register with W1cMask
-    struct SR : mm::Register<MyDevice, 0x04, 32, mm::RW, 0, 0x0003> {
-        // W1C field — Clear alias auto-generated (instead of Set/Reset)
-        struct OVR : mm::Field<SR, 0, 1, mm::W1C> {};
-        struct EOC : mm::Field<SR, 1, 1, mm::W1C> {};
-        struct READY : mm::Field<SR, 8, 1> {};  // Normal RW field
-    };
-};
-```
-
-> **Note:** Flat-style definitions (registers and fields as standalone structs outside
-> the device) are also valid C++ and compile correctly. However, the hierarchical
-> style is recommended because it naturally prevents name collisions and makes
-> the type path (`MyDevice::CTRL::MODE::Output`) self-documenting.
-
-### 4.2.1 Field Type Safety Model
-
-Fields are **safe by default**: only named `Value<>` types are accepted.
-The `Numeric` trait opts a field into raw `value()` access.
-Use `RegionValue::bits()` for raw value extraction on the read side.
-
-| Field kind | `value()` | `Value<>` types |
-|-----------|:---------:|:---------------:|
-| Default (safe) | Blocked | Yes |
-| With `Numeric` | Yes (unsigned only) | Yes |
-| 1-bit RW | — | `Set` / `Reset` auto |
-| 1-bit W1C | — | `Clear` auto |
-
-**`Field<Reg, BitOffset, BitWidth, ...Traits>`** — variadic traits pattern:
-- Traits can include access policy (`RW`, `RO`, `WO`, `W1C`) and/or `Numeric`, in any order.
-- Default access is `Inherit` (from parent register).
-- 1-bit RW fields automatically provide `Set` and `Reset` type aliases.
-- 1-bit W1C fields automatically provide `Clear` type alias.
-
-### 4.3 Transport Selection
-
-Transport is selected by constructing the appropriate type:
-
-```cpp
-umi::mmio::DirectTransport<> direct;                    // Volatile pointer
-umi::mmio::I2cTransport<MyI2c> i2c(hal_i2c, 0x68);     // HAL I2C
-umi::mmio::SpiTransport<MySpi> spi(hal_spi);            // HAL SPI
-```
-
-All transports expose the same `write()`, `read()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()` API.
-
-### 4.4 Advanced Path
-
-Advanced usage includes:
-
-1. multi-field write in a single bus transaction,
-2. read-modify-write via `modify()`,
-3. custom error policies (trap, ignore, callback),
-4. 16-bit address space for I2C/SPI devices,
-5. configurable address and data endianness via `std::endian`,
-6. W1C field handling via `clear()`,
-7. register reset via `reset()`,
-8. pattern-matched field reading via `read_variant()`,
-9. ISR-safe access by wrapping transport operations in a caller-provided critical section.
+For type hierarchy, operations, transport selection, error handling, and concurrency,
+see [README](../README.md) ([日本語](design.ja.md)).
 
 ---
 
@@ -306,10 +163,12 @@ Concept constraints:
 | `IsRegister<T>` | Register | `is_register == true` |
 | `IsField<T>` | Field | `is_register == false` |
 | `IsW1C<T>` | Field | `write_behavior == ONE_TO_CLEAR` |
-| `NotW1C<T>` | Field | Not W1C |
+| `IsW1S<T>` | Field | `write_behavior == ONE_TO_SET` |
+| `IsW1T<T>` | Field | `write_behavior == ONE_TO_TOGGLE` |
+| `NormalWrite<T>` | Register/Field | `write_behavior == NORMAL` (RMW-safe) |
 | `ReadableValue<V>` | Value/DynamicValue | Parent region is readable |
 | `WritableValue<V>` | Value/DynamicValue | Parent region is writable |
-| `ModifiableValue<V>` | Value/DynamicValue | Writable AND parent is not W1C |
+| `ModifiableValue<V>` | Value/DynamicValue | Writable AND NormalWrite |
 
 ### 5.3 ByteAdapter (deducing this)
 
@@ -366,7 +225,50 @@ auto en_raw = en.bits();             // Raw field value (escape hatch)
 - `is(ValueType{})` — match against a named value (register only)
 - `operator==` with `Value`/`DynamicValue` — typed comparison (field only)
 
-### 5.7 read_variant()
+### 5.7 Register Arrays and Runtime Dispatch
+
+#### RegisterArray
+
+`RegisterArray<Template, N>` captures compile-time metadata for template register banks (e.g., NVIC ISER[0..7]):
+
+- `size` — number of elements
+- `Element<I>` — access the I-th register type
+
+No data member, no runtime cost — pure type-level metadata.
+
+#### dispatch / dispatch_r
+
+Converts a runtime index to a compile-time template parameter. Uses a fold expression over `std::index_sequence`:
+
+```cpp
+dispatch<N>(idx, [&]<std::size_t I>() { ... });           // void
+auto val = dispatch_r<N, R>(idx, [&]<std::size_t I>() { return ...; });  // with return
+```
+
+Out-of-range index invokes `ErrorPolicy::on_range_error()`.
+
+#### IndexedArray
+
+`IndexedArray<Parent, BaseOffset, Count, EntryWidth, Stride>` models sub-register granularity arrays (e.g., lookup tables, FIFO arrays):
+
+- `Entry<N>` — compile-time access as a `Register` type. `static_assert` rejects N ≥ Count.
+- `write_entry(index, value)` / `read_entry(index)` — runtime access via volatile pointer. Requires `Direct` in `AllowedTransportsType` (`static_assert`). Out-of-range index invokes `ErrorPolicy::on_range_error()`.
+- `EntryWidth` — bit width per entry (default: `bits8`). Determines `EntryType` via `UintFit<EntryWidth>` (e.g., `bits8` → `uint8_t`, `bits16` → `uint16_t`).
+- `Stride` — byte spacing between consecutive entries (default: `EntryWidth / 8`, i.e., dense packing with no gaps). Override for hardware with alignment padding (e.g., 16-bit entries at 4-byte boundaries: `Stride = 4`). Address of entry N = `base_address + BaseOffset + N * Stride`.
+
+### 5.8 CsrTransport
+
+`CsrTransport<Accessor>` extends umimmio's transport model to RISC-V CSR registers.
+
+**Key design decisions**:
+
+- CSR numbers map to `Register::address` (Device `base_address = 0`).
+- `CsrAccessor` concept provides the customization point — `csr_read<CsrNum>()` / `csr_write<CsrNum>(value)` where `CsrNum` is a compile-time constant (required by RISC-V's 12-bit immediate encoding).
+- `DefaultCsrAccessor` (RISC-V only, `#if __riscv`) provides inline asm for Phase 1 CSRs (mstatus, misa, mie, mtvec, mscratch, mepc, mcause, mtval, mip).
+- For host testing, any type satisfying `CsrAccessor` (e.g., RAM-backed mock) can be injected.
+- Not included in the umbrella header (`mmio.hh`) — users explicitly include `<umimmio/transport/csr.hh>`.
+
+### 5.9 read_variant()
 
 `read_variant()` reads a field and pattern-matches its value against a set of
 named `Value<>` types, returning a `std::variant`. If no match is found,
@@ -405,30 +307,10 @@ wants exhaustive handling via `std::visit`.
 5. Transport not allowed for device → `static_assert` failure.
 6. `BitRegion` overflow (offset + width > register width) → `static_assert` failure.
 7. W1C field in `modify()` → `ModifiableValue` concept rejects W1C.
-8. W1C field in `flip()` → `NotW1C` concept rejects W1C.
+8. W1S/W1T field in `modify()`/`flip()` → `NormalWrite` concept rejects non-NORMAL WriteBehavior.
 9. `RegionValue == integer` → no matching `operator==` (use `.bits()` for raw access).
 
-### 6.2 Runtime Error Policies
-
-Policy-based via `ErrorPolicy` template parameter:
-
-| Policy | Behavior |
-|--------|----------|
-| `AssertOnError` | `assert(false && msg)` (default) |
-| `TrapOnError` | `std::abort()` |
-| `IgnoreError` | Silent no-op |
-| `CustomErrorHandler<fn>` | User callback |
-
-Each policy provides two entry points:
-
-| Entry Point | Triggered By |
-|---|---|
-| `on_range_error(msg)` | Value out-of-range for field width (programming error) |
-| `on_transport_error(msg)` | HAL driver reports failure (bus error, NACK, timeout) |
-
-I2cTransport and SpiTransport use `if constexpr` to check whether the HAL driver's
-return type is `void` or convertible to `bool`. If the HAL returns a falsy value,
-`on_transport_error()` is invoked. Void-returning HALs skip the check.
+For runtime error policies, see [README](../README.md).
 
 ---
 
@@ -448,60 +330,5 @@ See [testing.md](../tests/testing.md) for test layout, run commands, and quality
 
 ---
 
-## 9. write() / modify() Semantics Guide
-
-### 9.1 Semantic Difference
-
-| Operation | Base Value | Semantics | Safety |
-|-----------|-----------|-----------|:------:|
-| `write(v1, v2, ...)` | `reset_value()` | Initialize register from reset state | ✅ |
-| `modify(v1, v2, ...)` | Current value (RMW) | Change specific fields, preserving others | ✅ |
-| `write(single_v)` | `reset_value()` | Initialize register — other fields reset | ⚠️ |
-
-### 9.2 Usage Rules
-
-1. **Initialization**: Use `write()` with all relevant fields specified.
-2. **Runtime change**: Use `modify()` to change specific fields.
-3. **Single-field write**: `write(v)` resets other fields to `reset_value()`.
-   This is intentional for single-field registers or full reset.
-   Use `modify()` for runtime single-field changes.
-
-### 9.3 W1C Fields
-
-W1C fields must use `clear()`:
-
-```cpp
-hw.clear(MyDevice::SR::OVR{});             // ✅ Correct: clears OVR (RMW preserves non-W1C fields)
-hw.modify(MyDevice::SR::OVR::Clear{});     // ✗ Compile error: W1C not ModifiableValue
-hw.flip(MyDevice::SR::OVR{});              // ✗ Compile error: W1C not NotW1C
-```
-
-During `modify()` and `flip()`, W1C bits in the parent register are automatically masked to 0
-before write-back via `Register::w1c_mask`. This prevents accidental clearing
-of W1C status bits during read-modify-write operations on other fields.
-
-`clear()` on mixed registers (containing both W1C and non-W1C fields) uses
-read-modify-write to preserve non-W1C field values. For pure-W1C registers
-(where all bits are W1C), a direct write is used for efficiency.
-
-### 9.4 Atomicity
-
-`modify()` performs read-modify-write and is **never atomic**.
-For ISR-safe access, the caller must serialize access externally:
-
-```cpp
-// Example: wrap transport operations in a platform-specific critical section.
-// The exact mechanism (disable IRQ, mutex, etc.) is determined by the caller.
-{
-    auto lock = enter_critical_section();  // platform-specific
-    io.modify(ConfigEnable::Set{});        // ISR-safe RMW
-}   // lock released (RAII)
-```
-
-umimmio itself is transport-level only and does not provide synchronization primitives.
-Callers are responsible for choosing the appropriate locking mechanism for their platform.
-
-### 9.5 reset()
-
-`reset(Reg{})` writes the register's `reset_value()` directly. This is a pure write
-(not read-modify-write) and is suitable for returning hardware to its initial state.
+For write()/modify() semantics, W1C fields, and concurrency,
+see [README](../README.md).
