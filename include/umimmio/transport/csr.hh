@@ -6,8 +6,7 @@
 /// @brief CsrTransport — RISC-V CSR access transport.
 /// @author Shota Moriguchi @tekitounix
 /// @details CSR numbers are treated as Register::address (with base_address=0).
-///          CSR read/write uses inline asm on RISC-V targets. On other targets,
-///          a CsrAccessor concept allows injecting mock implementations for testing.
+///          CsrAccessor concept allows injecting any accessor implementation.
 
 #include <concepts>
 #include <cstdint>
@@ -30,71 +29,6 @@ concept CsrAccessor = requires(const T& accessor, std::uint32_t val) {
     { accessor.template csr_read<0x300>() } -> std::same_as<std::uint32_t>;
     { accessor.template csr_write<0x300>(val) };
 };
-
-// ===========================================================================
-// DefaultCsrAccessor — RISC-V inline asm (target-conditional)
-// ===========================================================================
-
-#ifdef __riscv
-
-/// @brief Default CSR accessor using RISC-V inline assembly.
-/// @note Only available on RISC-V targets. Uses `csrr`/`csrw` instructions.
-///       CSR number must be a compile-time constant (12-bit immediate).
-struct DefaultCsrAccessor {
-    /// @brief Read a CSR register.
-    /// @tparam CsrNum CSR number (compile-time constant).
-    template <std::uint32_t CsrNum>
-    [[nodiscard]] auto csr_read() const noexcept -> std::uint32_t {
-        std::uint32_t val;
-        // NOLINTBEGIN(hicpp-no-assembler) — CSR access requires inline asm
-        if constexpr (CsrNum == 0x300) {
-            asm volatile("csrr %0, mstatus" : "=r"(val));
-        } else if constexpr (CsrNum == 0x301) {
-            asm volatile("csrr %0, misa" : "=r"(val));
-        } else if constexpr (CsrNum == 0x304) {
-            asm volatile("csrr %0, mie" : "=r"(val));
-        } else if constexpr (CsrNum == 0x305) {
-            asm volatile("csrr %0, mtvec" : "=r"(val));
-        } else if constexpr (CsrNum == 0x340) {
-            asm volatile("csrr %0, mscratch" : "=r"(val));
-        } else if constexpr (CsrNum == 0x341) {
-            asm volatile("csrr %0, mepc" : "=r"(val));
-        } else if constexpr (CsrNum == 0x342) {
-            asm volatile("csrr %0, mcause" : "=r"(val));
-        } else if constexpr (CsrNum == 0x343) {
-            asm volatile("csrr %0, mtval" : "=r"(val));
-        } else if constexpr (CsrNum == 0x344) {
-            asm volatile("csrr %0, mip" : "=r"(val));
-        } else {
-            static_assert(false, "Unsupported CSR number — extend DefaultCsrAccessor");
-        }
-        // NOLINTEND(hicpp-no-assembler)
-        return val;
-    }
-
-    /// @brief Write a CSR register.
-    /// @tparam CsrNum CSR number (compile-time constant).
-    template <std::uint32_t CsrNum>
-    void csr_write(std::uint32_t value) const noexcept {
-        // NOLINTBEGIN(hicpp-no-assembler) — CSR access requires inline asm
-        if constexpr (CsrNum == 0x300) {
-            asm volatile("csrw mstatus, %0" ::"r"(value));
-        } else if constexpr (CsrNum == 0x304) {
-            asm volatile("csrw mie, %0" ::"r"(value));
-        } else if constexpr (CsrNum == 0x305) {
-            asm volatile("csrw mtvec, %0" ::"r"(value));
-        } else if constexpr (CsrNum == 0x340) {
-            asm volatile("csrw mscratch, %0" ::"r"(value));
-        } else if constexpr (CsrNum == 0x341) {
-            asm volatile("csrw mepc, %0" ::"r"(value));
-        } else {
-            static_assert(false, "Unsupported CSR number — extend DefaultCsrAccessor");
-        }
-        // NOLINTEND(hicpp-no-assembler)
-    }
-};
-
-#endif // __riscv
 
 // ===========================================================================
 // CsrTransport — type-safe CSR transport

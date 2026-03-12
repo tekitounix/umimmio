@@ -433,8 +433,8 @@ struct RiscvMachine : Device<RW, Csr> {
     };
 };
 
-// RISC-V ターゲットでは DefaultCsrAccessor (インライン asm csrr/csrw) を使用
-// テストでは CsrAccessor concept を満たす MockCsrAccessor を注入
+// CsrAccessor concept で任意のアクセサ実装を注入可能
+CsrTransport<MockCsrAccessor> csr;
 CsrTransport<MockCsrAccessor> csr;
 csr.modify(RiscvMachine::MSTATUS::MIE::Set{});
 ```
@@ -443,12 +443,11 @@ csr.modify(RiscvMachine::MSTATUS::MIE::Set{});
 
 ### AtomicDirectTransport — 書き込み専用エイリアスレジスタ
 
-アトミックレジスタエイリアスを持つ MCU（例：RP2040 SET/CLR/XOR）向けに、`AtomicDirectTransport` はすべての書き込みに固定オフセットを加算する：
+アトミックレジスタエイリアス（SET、CLR、XOR 等）を持つ MCU 向けに、`AtomicDirectTransport` はすべての書き込みに固定オフセットを加算する：
 
 ```cpp
 #include <umimmio/transport/atomic_direct.hh>
 
-// RP2040: SET エイリアス = +0x2000、CLR エイリアス = +0x3000、XOR エイリアス = +0x1000
 AtomicDirectTransport<0x2000> gpio_set;   // write() は reg + 0x2000 を対象
 AtomicDirectTransport<0x3000> gpio_clr;   // write() は reg + 0x3000 を対象
 

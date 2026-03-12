@@ -9,9 +9,9 @@
 ///          pointer. No reg_read() — Readable concept is false, so modify() and
 ///          flip() are naturally rejected at compile time.
 ///
-///          Primary use case: RP2040 atomic register aliases where SET (+0x2000),
-///          CLR (+0x3000), and XOR (+0x1000) are write-only aliases of base registers.
-///          The transport is generic — any MCU with write-aliased registers can use it.
+///          Primary use case: MCUs with atomic register aliases (e.g. SET, CLR, XOR)
+///          where write-only aliases at fixed offsets from base registers enable
+///          lock-free bit manipulation.
 
 #include <type_traits>
 

@@ -433,8 +433,7 @@ struct RiscvMachine : Device<RW, Csr> {
     };
 };
 
-// On RISC-V targets, use DefaultCsrAccessor (inline asm csrr/csrw)
-// For testing, inject a MockCsrAccessor that satisfies CsrAccessor concept
+// CsrAccessor concept allows injecting any accessor implementation
 CsrTransport<MockCsrAccessor> csr;
 csr.modify(RiscvMachine::MSTATUS::MIE::Set{});
 ```
@@ -443,12 +442,11 @@ csr.modify(RiscvMachine::MSTATUS::MIE::Set{});
 
 ### AtomicDirectTransport — Write-Only Alias Registers
 
-For MCUs with atomic register aliases (e.g., RP2040 SET/CLR/XOR), `AtomicDirectTransport` adds a fixed offset to all writes:
+For MCUs with atomic register aliases (e.g. SET, CLR, XOR), `AtomicDirectTransport` adds a fixed offset to all writes:
 
 ```cpp
 #include <umimmio/transport/atomic_direct.hh>
 
-// RP2040: SET alias at +0x2000, CLR alias at +0x3000, XOR alias at +0x1000
 AtomicDirectTransport<0x2000> gpio_set;   // write() targets reg + 0x2000
 AtomicDirectTransport<0x3000> gpio_clr;   // write() targets reg + 0x3000
 

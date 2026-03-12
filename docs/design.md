@@ -272,7 +272,6 @@ Out-of-range index invokes `ErrorPolicy::on_range_error()`.
 
 - CSR numbers map to `Register::address` (Device `base_address = 0`).
 - `CsrAccessor` concept provides the customization point — `csr_read<CsrNum>()` / `csr_write<CsrNum>(value)` where `CsrNum` is a compile-time constant (required by RISC-V's 12-bit immediate encoding).
-- `DefaultCsrAccessor` (RISC-V only, `#if __riscv`) provides inline asm for Phase 1 CSRs (mstatus, misa, mie, mtvec, mscratch, mepc, mcause, mtval, mip).
 - For host testing, any type satisfying `CsrAccessor` (e.g., RAM-backed mock) can be injected.
 - Not included in the umbrella header (`mmio.hh`) — users explicitly include `<umimmio/transport/csr.hh>`.
 
@@ -284,8 +283,8 @@ Out-of-range index invokes `ErrorPolicy::on_range_error()`.
 
 - Writes target `(Reg::address + AliasOffset)` via volatile pointer. No `reg_read()` — `read()`, `modify()`, `flip()`, and `is()` are compile errors because the `Readable` concept is not satisfied.
 - `write()` and `reset()` work normally (both are write-only operations).
-- Primary use case: RP2040 atomic register aliases where SET (+0x2000), CLR (+0x3000), and XOR (+0x1000) are write-only aliases of base registers.
-- The transport is generic — any MCU with write-aliased registers can use it.
+- Primary use case: MCUs with atomic register aliases (e.g. SET, CLR, XOR) where write-only aliases at fixed offsets from base registers enable lock-free bit manipulation.
+- The transport is generic — alias offsets are template parameters, not tied to any specific MCU.
 - Not included in the umbrella header (`mmio.hh`) — users explicitly include `<umimmio/transport/atomic_direct.hh>`.
 - 3 compile_fail tests verify that `read()`, `modify()`, and `flip()` are rejected.
 
