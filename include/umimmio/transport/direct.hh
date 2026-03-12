@@ -41,6 +41,8 @@ class DirectTransport : private RegOps<CheckPolicy, ErrorPolicy> {
         if constexpr (CheckPolicy::value) {
             static_assert((Reg::address % alignof(T)) == 0, "Misaligned register access");
         }
+        // NOLINTNEXTLINE(performance-no-int-to-ptr,clang-analyzer-core.FixedAddressDereference) — MMIO: no pointer
+        // origin; int-to-ptr unavoidable
         return *reinterpret_cast<volatile const T*>(Reg::address);
     }
 
@@ -51,6 +53,8 @@ class DirectTransport : private RegOps<CheckPolicy, ErrorPolicy> {
         if constexpr (CheckPolicy::value) {
             static_assert((Reg::address % alignof(T)) == 0, "Misaligned register access");
         }
+        // NOLINTNEXTLINE(performance-no-int-to-ptr,clang-analyzer-core.FixedAddressDereference) — MMIO: no pointer
+        // origin; int-to-ptr unavoidable
         *reinterpret_cast<volatile T*>(Reg::address) = value;
     }
 };
