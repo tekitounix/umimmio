@@ -63,7 +63,7 @@ Since umimmio is primarily a compile-time abstraction library, tests focus on:
 
 Concurrency/locking is out of scope for umimmio and not tested here.
 
-Hardware-level MMIO tests require actual hardware or emulation and are out of scope for host tests.
+**The umimmio test suite is complete at the host level.** Runtime verification of DirectTransport is outside umimmio's responsibility — it is naturally covered by upper-layer (umiport driver) tests that use umimmio in practice. Hosting ARM integration tests inside umimmio would violate the layer boundary.
 
 ## Quality Gates for Release
 
@@ -74,7 +74,7 @@ Hardware-level MMIO tests require actual hardware or emulation and are out of sc
 - W1C paths: all-W1C direct write, mixed RMW, selective clear
 - write() semantics: single field resets others to reset_value (not zero)
 - DynamicValue: boundary values, zero, out-of-range detection
-- Embedded cross-build passes in CI (gcc-arm)
+- ARM cross-build passes in CI (compile compatibility check)
 
 ## CI Coverage
 

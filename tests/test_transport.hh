@@ -565,8 +565,8 @@ void test_dynamic_value_zero(TestContext& t) {
     hw.modify(ConfigPrescaler::value(static_cast<uint8_t>(0)));
     t.eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0));
     // Other fields (enable, mode) should be preserved
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
-    t.eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(3));
+    t.is_true(hw.is(ConfigEnable::Set{}));
+    t.is_true(hw.is(ModeTest{}));
 }
 
 // =============================================================================
@@ -621,9 +621,9 @@ void test_modify_mixed_value_dynamic(TestContext& t) {
 
     // Modify: Set enable (Value) + prescaler 0x42 (DynamicValue) in one RMW
     hw.modify(ConfigEnable::Set{}, ConfigPrescaler::value(static_cast<uint8_t>(0x42)));
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    t.is_true(hw.is(ConfigEnable::Set{}));
     t.eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x42));
-    t.eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(0));
+    t.is_true(hw.is(ModeNormal{}));
 }
 
 // =============================================================================
@@ -781,7 +781,7 @@ void test_multi_transport_device(TestContext& t) {
 
 } // namespace
 
-void register_transport_tests(umi::test::Suite& suite) {
+inline void register_transport_tests(umi::test::Suite& suite) {
     suite.section("Type traits");
     suite.run("UintFit sizes", test_uint_fit_sizes);
     suite.run("access policy flags", test_access_policy_traits);

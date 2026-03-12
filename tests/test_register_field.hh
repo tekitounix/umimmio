@@ -59,8 +59,8 @@ void test_field_write_single(TestContext& t) {
     // Enable bit should be set (bit 0)
     auto reg_val = hw.read(ConfigReg{});
     t.is_true((reg_val.bits() & 1U) == 1U);
-    // Also verify via field read
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    // Also verify via is()
+    t.is_true(hw.is(ConfigEnable::Set{}));
 }
 
 void test_field_read_extraction(TestContext& t) {
@@ -75,8 +75,8 @@ void test_field_read_extraction(TestContext& t) {
     raw |= (2U << 1);    // mode = 2
     raw |= (0xABU << 8); // prescaler = 0xAB
     hw.poke<uint32_t>(0x04, raw);
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
-    t.eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(2));
+    t.is_true(hw.is(ConfigEnable::Set{}));
+    t.is_true(hw.is(ModeLowPower{}));
     t.eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0xAB));
 }
 
@@ -90,8 +90,8 @@ void test_field_read_ctrl_reg(TestContext& t) {
     raw |= (1U << 1);    // irq_en
     raw |= (0x0FU << 4); // channel = 15
     hw.poke<uint16_t>(0x0C, raw);
-    t.eq(hw.read(CtrlStart{}).bits(), static_cast<uint8_t>(1));
-    t.eq(hw.read(CtrlIrqEn{}).bits(), static_cast<uint8_t>(1));
+    t.is_true(hw.is(CtrlStart::Set{}));
+    t.is_true(hw.is(CtrlIrqEn::Set{}));
     t.eq(hw.read(CtrlChannel{}).bits(), static_cast<uint8_t>(0x0F));
 }
 
@@ -108,9 +108,9 @@ void test_modify_single_field(TestContext& t) {
 
     // Modify only enable — prescaler and mode should be preserved
     hw.modify(ConfigEnable::Set{});
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    t.is_true(hw.is(ConfigEnable::Set{}));
     t.eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x10));
-    t.eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(0));
+    t.is_true(hw.is(ModeNormal{}));
 }
 
 void test_modify_preserves_other_fields(TestContext& t) {
@@ -122,8 +122,8 @@ void test_modify_preserves_other_fields(TestContext& t) {
 
     // Modify just prescaler to 0x42
     hw.modify(ConfigPrescaler::value(static_cast<uint8_t>(0x42)));
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
-    t.eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(3));
+    t.is_true(hw.is(ConfigEnable::Set{}));
+    t.is_true(hw.is(ModeTest{}));
     t.eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x42));
 }
 
@@ -135,8 +135,8 @@ void test_modify_multiple_fields(TestContext& t) {
 
     // Modify both enable and mode in one RMW operation
     hw.modify(ConfigEnable::Set{}, ModeFast{});
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
-    t.eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(ModeVal::FAST));
+    t.is_true(hw.is(ConfigEnable::Set{}));
+    t.is_true(hw.is(ModeFast{}));
     t.eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0));
 }
 
@@ -149,8 +149,8 @@ void test_multi_field_write(TestContext& t) {
 
     // Write multiple fields at once — starts from reset value
     hw.write(ConfigEnable::Set{}, ModeTest{}, ConfigPrescaler::value(static_cast<uint8_t>(0x55)));
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
-    t.eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(ModeVal::TEST));
+    t.is_true(hw.is(ConfigEnable::Set{}));
+    t.is_true(hw.is(ModeTest{}));
     t.eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x55));
 }
 
@@ -184,15 +184,15 @@ void test_flip_1bit_field(TestContext& t) {
     MockTransport hw;
     hw.poke<uint32_t>(0x04, 0U);
     // Initially disabled
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(0));
+    t.is_true(hw.is(ConfigEnable::Reset{}));
 
     // Flip → should be 1
     hw.flip(ConfigEnable{});
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    t.is_true(hw.is(ConfigEnable::Set{}));
 
     // Flip again → should be 0
     hw.flip(ConfigEnable{});
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(0));
+    t.is_true(hw.is(ConfigEnable::Reset{}));
 }
 
 void test_flip_preserves_other_bits(TestContext& t) {
@@ -203,8 +203,8 @@ void test_flip_preserves_other_bits(TestContext& t) {
     hw.poke<uint32_t>(0x04, init);
 
     hw.flip(ConfigEnable{});
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
-    t.eq(hw.read(ConfigMode{}).bits(), static_cast<uint8_t>(2));
+    t.is_true(hw.is(ConfigEnable::Set{}));
+    t.is_true(hw.is(ModeLowPower{}));
     t.eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x42));
 }
 
@@ -217,26 +217,26 @@ void test_peripheral_init_sequence(TestContext& t) {
 
     // Step 1: Configure prescaler and mode (peripheral is disabled)
     hw.write(ConfigPrescaler::value(static_cast<uint8_t>(0x10)), ModeFast{});
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(0));
+    t.is_true(hw.is(ConfigEnable::Reset{}));
     t.eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x10));
     t.is_true(hw.is(ModeFast{}));
 
     // Step 2: Enable IRQ and select channel 3
     hw.write(CtrlIrqEn::Set{}, CtrlChannel::value(static_cast<uint8_t>(3)));
     t.eq(hw.read(CtrlChannel{}).bits(), static_cast<uint8_t>(3));
-    t.eq(hw.read(CtrlIrqEn{}).bits(), static_cast<uint8_t>(1));
+    t.is_true(hw.is(CtrlIrqEn::Set{}));
 
     // Step 3: Enable peripheral
     hw.modify(ConfigEnable::Set{});
-    t.eq(hw.read(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
+    t.is_true(hw.is(ConfigEnable::Set{}));
     // Prescaler and mode should be preserved
     t.eq(hw.read(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x10));
     t.is_true(hw.is(ModeFast{}));
 
     // Step 4: Start operation
     hw.modify(CtrlStart::Set{});
-    t.eq(hw.read(CtrlStart{}).bits(), static_cast<uint8_t>(1));
-    t.eq(hw.read(CtrlIrqEn{}).bits(), static_cast<uint8_t>(1));
+    t.is_true(hw.is(CtrlStart::Set{}));
+    t.is_true(hw.is(CtrlIrqEn::Set{}));
     t.eq(hw.read(CtrlChannel{}).bits(), static_cast<uint8_t>(3));
 }
 
@@ -253,8 +253,8 @@ void test_register_reader_get(TestContext& t) {
     // bits 8-15: prescaler = 0x12
     hw.poke<uint32_t>(0x04, 0x0000'1203U);
     auto cfg = hw.read(ConfigReg{});
-    t.eq(cfg.get(ConfigEnable{}).bits(), static_cast<uint8_t>(1));
-    t.eq(cfg.get(ConfigMode{}).bits(), static_cast<uint8_t>(1));
+    t.is_true(cfg.is(ConfigEnable::Set{}));
+    t.is_true(cfg.is(ModeFast{}));
     t.eq(cfg.get(ConfigPrescaler{}).bits(), static_cast<uint8_t>(0x12));
 }
 
@@ -269,9 +269,35 @@ void test_register_reader_is(TestContext& t) {
     t.is_true(!cfg.is(ModeNormal{}));
 }
 
+// =============================================================================
+// 1-bit field with custom Value aliases
+// =============================================================================
+
+void test_1bit_custom_value_write(TestContext& t) {
+    const MockTransport hw;
+
+    // Write using custom alias
+    hw.write(CtrlIrqEn::Enabled{}, CtrlChannel::value(static_cast<uint8_t>(5)));
+    t.is_true(hw.is(CtrlIrqEn::Enabled{}));
+    t.is_true(hw.is(CtrlIrqEn::Set{})); // auto-generated alias works too
+    t.eq(hw.read(CtrlChannel{}).bits(), static_cast<uint8_t>(5));
+}
+
+void test_1bit_custom_value_modify(TestContext& t) {
+    MockTransport hw;
+    hw.poke<uint16_t>(0x0C, 0U);
+
+    hw.modify(CtrlIrqEn::Enabled{});
+    t.is_true(hw.is(CtrlIrqEn::Enabled{}));
+
+    hw.modify(CtrlIrqEn::Disabled{});
+    t.is_true(hw.is(CtrlIrqEn::Disabled{}));
+    t.is_true(hw.is(CtrlIrqEn::Reset{})); // Disabled == Reset (both value 0)
+}
+
 } // namespace
 
-void register_register_field_tests(umi::test::Suite& suite) {
+inline void register_register_field_tests(umi::test::Suite& suite) {
     suite.section("Register read/write");
     suite.run("write and read back", test_register_write_and_read);
     suite.run("write zero", test_register_write_zero);
@@ -304,6 +330,10 @@ void register_register_field_tests(umi::test::Suite& suite) {
     suite.section("RegionValue");
     suite.run("get() field extraction", test_register_reader_get);
     suite.run("is() value matching", test_register_reader_is);
+
+    suite.section("1-bit custom aliases");
+    suite.run("write with custom alias", test_1bit_custom_value_write);
+    suite.run("modify with custom alias", test_1bit_custom_value_modify);
 }
 
 } // namespace umimmio::test

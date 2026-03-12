@@ -55,7 +55,7 @@ struct MockSpi {
 struct SPIDevice : Device<RW, Spi> {};
 struct SPIReg32 : Register<SPIDevice, 0x10, bits32, RW, 0> {};
 struct SPIField8 : Field<SPIReg32, 0, 8, Numeric> {};
-struct SPIFieldHigh : Field<SPIReg32, 24, 8> {};
+struct SPIFieldHigh : Field<SPIReg32, 24, 8, Numeric> {};
 
 // =============================================================================
 // SPI transport tests
@@ -185,7 +185,7 @@ void test_i2c_endian_big_roundtrip(TestContext& t) {
 // =============================================================================
 
 struct Reg16 : Register<EndianDevice, 0x20, bits16, RW, 0> {};
-struct Field16High : Field<Reg16, 8, 8> {};
+struct Field16High : Field<Reg16, 8, 8, Numeric> {};
 
 void test_i2c_16bit_register_roundtrip(TestContext& t) {
     LocalMockI2C i2c;
@@ -210,7 +210,7 @@ void test_i2c_16bit_field_high_byte(TestContext& t) {
 // =============================================================================
 
 struct Reg64 : Register<EndianDevice, 0x30, bits64, RW, 0> {};
-struct Field64Low : Field<Reg64, 0, 32> {};
+struct Field64Low : Field<Reg64, 0, 32, Numeric> {};
 
 void test_i2c_64bit_register_roundtrip(TestContext& t) {
     LocalMockI2C i2c;
@@ -423,7 +423,7 @@ void test_spi_big_endian_data(TestContext& t) {
 // =============================================================================
 
 struct SPIReg16 : Register<SPIDevice, 0x20, bits16, RW, 0> {};
-struct SPIField16High : Field<SPIReg16, 8, 8> {};
+struct SPIField16High : Field<SPIReg16, 8, 8, Numeric> {};
 
 void test_spi_16bit_register(TestContext& t) {
     MockSpi spi;
@@ -498,6 +498,61 @@ void test_i2c_16bit_address(TestContext& t) {
     t.eq(val.bits(), 0xCAFE'BABEU);
 }
 
+/// @brief I2C mock supporting 16-bit register addresses in little-endian order.
+struct MockI2C16AddrLE {
+    mutable std::array<std::uint8_t, 65536> memory{};
+
+    struct Result {
+        explicit operator bool() const { return success; }
+        bool success = true;
+    };
+
+    Result write(std::uint8_t /*dev_addr*/, std::span<const std::uint8_t> data) const {
+        if (data.size() < 3) {
+            return {false};
+        }
+        // 16-bit address (little-endian): low byte first
+        auto const reg_addr = static_cast<uint16_t>(data[0] | (data[1] << 8));
+        std::memcpy(&memory[reg_addr], data.data() + 2, data.size() - 2);
+        return {true};
+    }
+
+    Result write_read(std::uint8_t /*dev_addr*/, std::span<const std::uint8_t> tx, std::span<std::uint8_t> rx) const {
+        if (tx.size() < 2) {
+            return {false};
+        }
+        auto const reg_addr = static_cast<uint16_t>(tx[0] | (tx[1] << 8));
+        std::memcpy(rx.data(), &memory[reg_addr], rx.size());
+        return {true};
+    }
+};
+
+struct I2C16LEDevice : Device<RW, I2c> {};
+struct I2C16LEReg : Register<I2C16LEDevice, 0x0100, bits32, RW, 0> {};
+
+using I2c16LETransport = I2cTransport<MockI2C16AddrLE,
+                                      std::true_type,
+                                      AssertOnError,
+                                      std::uint16_t,
+                                      std::endian::little,
+                                      std::endian::little>;
+
+void test_i2c_16bit_address_little_endian(TestContext& t) {
+    MockI2C16AddrLE i2c;
+    const I2c16LETransport transport(i2c, 0x50);
+
+    transport.write(I2C16LEReg::value(0xDEAD'BEEFU));
+    auto val = transport.read(I2C16LEReg{});
+    t.eq(val.bits(), 0xDEAD'BEEFU);
+
+    // Verify address bytes are in little-endian order: low byte first
+    // Register address is 0x0100 → buf[0]=0x00 (low), buf[1]=0x01 (high)
+    t.eq(i2c.memory[0x0100], static_cast<uint8_t>(0xEF)); // byte[0] of 0xDEADBEEF LE
+    t.eq(i2c.memory[0x0101], static_cast<uint8_t>(0xBE)); // byte[1]
+    t.eq(i2c.memory[0x0102], static_cast<uint8_t>(0xAD)); // byte[2]
+    t.eq(i2c.memory[0x0103], static_cast<uint8_t>(0xDE)); // byte[3]
+}
+
 // =============================================================================
 // SPI void-returning HAL
 // =============================================================================
@@ -513,7 +568,7 @@ void test_spi_void_hal_roundtrip(TestContext& t) {
 
 } // namespace
 
-void register_byte_transport_tests(umi::test::Suite& suite) {
+inline void register_byte_transport_tests(umi::test::Suite& suite) {
     suite.section("SPI transport (mock)");
     suite.run("write/read", test_spi_write_read);
     suite.run("field read", test_spi_field_read);
@@ -548,6 +603,7 @@ void register_byte_transport_tests(umi::test::Suite& suite) {
     suite.section("I2C extended");
     suite.run("8-bit register", test_i2c_8bit_register);
     suite.run("16-bit address width", test_i2c_16bit_address);
+    suite.run("16-bit address width (little-endian)", test_i2c_16bit_address_little_endian);
 }
 
 } // namespace umimmio::test

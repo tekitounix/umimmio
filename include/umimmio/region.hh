@@ -24,6 +24,8 @@ template <class RegionT, typename T>
 struct DynamicValue;
 template <class FieldT, auto EnumValue>
 struct Value;
+template <typename R>
+class RegionValue;
 
 namespace detail {
 
@@ -239,7 +241,7 @@ struct NoOneBitAliases {};
 /// @brief Set/Reset aliases for 1-bit RW fields.
 /// @note Not CRTP — pure type-alias mixin. Direct construction is harmless.
 template <class FieldT>
-struct OneBitAliases {
+struct OneBitAliases { // NOLINT(bugprone-crtp-constructor-accessibility) — type-alias mixin, not CRTP
     using Set = Value<FieldT, 1>;
     using Reset = Value<FieldT, 0>;
 };
@@ -247,7 +249,7 @@ struct OneBitAliases {
 /// @brief Clear alias for 1-bit W1C fields.
 /// @note Not CRTP — pure type-alias mixin. Direct construction is harmless.
 template <class FieldT>
-struct OneBitW1CAliases {
+struct OneBitW1CAliases { // NOLINT(bugprone-crtp-constructor-accessibility) — type-alias mixin, not CRTP
     using Clear = Value<FieldT, 1>;
 };
 
@@ -268,7 +270,20 @@ using OneBitBase =
                        NoOneBitAliases,
                        std::conditional_t<is_w1c_access<Access>(), OneBitW1CAliases<FieldT>, OneBitAliases<FieldT>>>;
 
+/// @brief Raw value extractor for framework-internal use.
+/// @note Not a public API. Used by RegOps::read_variant() and internal comparisons.
+struct RegionValueAccess {
+    template <typename R>
+    static constexpr auto raw(const RegionValue<R>& rv) noexcept;
+};
+
 } // namespace detail
+
+/// @brief Type allows raw numeric access (Register or Numeric Field).
+/// Registers always allow bits() (data registers need it).
+/// Fields require explicit Numeric opt-in (symmetric with write-side value()).
+template <typename T>
+concept NumericAccessible = T::is_register || (requires { T::is_numeric; } && T::is_numeric);
 
 /// @brief Field — bit-range within a register.
 ///
@@ -294,10 +309,10 @@ template <class Reg, std::size_t BitOffset, std::size_t BitWidth, class... Trait
 struct Field
     : BitRegion<Reg, 0, Reg::reg_bits, BitOffset, BitWidth, detail::ExtractAccess_t<Traits...>, 0, false>,
       detail::OneBitBase<Field<Reg, BitOffset, BitWidth, Traits...>, BitWidth, detail::ExtractAccess_t<Traits...>> {
-  private:
+    /// @brief Whether this field accepts raw numeric values.
+    /// When true, Field::value() and RegionValue::bits() are enabled.
     static constexpr bool is_numeric = detail::contains_v<Numeric, Traits...>;
 
-  public:
     /// @brief Create a dynamic value. Only available for Numeric fields.
     template <std::unsigned_integral T>
         requires(is_numeric)
@@ -427,7 +442,8 @@ struct UnknownValue {
 ///
 /// Unified read-result type — replaces the former RegisterReader/FieldValue pair.
 /// For registers: provides `bits()`, `get(Field)`, `is(Value/DynamicValue)`.
-/// For fields: provides `bits()`, `operator==(Value/DynamicValue)`.
+/// For Numeric fields: provides `bits()`, `operator==(Value/DynamicValue)`.
+/// For non-Numeric fields: provides `operator==(Value/DynamicValue)` only.
 /// Raw integer comparison is always blocked — use `.bits()` for explicit escape.
 ///
 /// @tparam R  The register or field type this value was read from.
@@ -436,14 +452,24 @@ class RegionValue {
     using StoredType = std::conditional_t<R::is_register, typename R::RegValueType, typename R::ValueType>;
     StoredType val;
 
+    template <typename>
+    friend class RegionValue; // Inter-instantiation access for is()
+
+    friend struct detail::RegionValueAccess; // Framework-internal raw access
+
   public:
     using RegionType = R;
 
     explicit constexpr RegionValue(StoredType v) noexcept : val(v) {}
 
     /// @brief Get the raw bit value (escape hatch).
-    /// Symmetric with write-side `value()` — explicit opt-in for raw access.
-    [[nodiscard]] constexpr auto bits() const noexcept { return val; }
+    /// For fields: requires Numeric trait (symmetric with write-side value()).
+    /// For registers: always available.
+    [[nodiscard]] constexpr auto bits() const noexcept
+        requires NumericAccessible<R>
+    {
+        return val;
+    }
 
     /// @brief Compare two RegionValues of the same region.
     [[nodiscard]] friend constexpr bool operator==(RegionValue, RegionValue) noexcept = default;
@@ -478,7 +504,7 @@ class RegionValue {
             } else {
                 static_assert(std::is_same_v<typename RegionT::ParentRegType, R>,
                               "Value field must belong to this register");
-                return get(RegionT{}).bits() == static_cast<typename RegionT::ValueType>(VDecay::value);
+                return get(RegionT{}).val == static_cast<typename RegionT::ValueType>(VDecay::value);
             }
         } else {
             if constexpr (RegionT::is_register) {
@@ -487,7 +513,7 @@ class RegionValue {
             } else {
                 static_assert(std::is_same_v<typename RegionT::ParentRegType, R>,
                               "DynamicValue field must belong to this register");
-                return get(RegionT{}).bits() == static_cast<typename RegionT::ValueType>(v.assigned_value);
+                return get(RegionT{}).val == static_cast<typename RegionT::ValueType>(v.assigned_value);
             }
         }
     }
@@ -508,5 +534,13 @@ class RegionValue {
         return val == static_cast<typename R::ValueType>(dv.assigned_value);
     }
 };
+
+// --- Deferred definition of RegionValueAccess::raw() ---
+namespace detail {
+template <typename R>
+constexpr auto RegionValueAccess::raw(const RegionValue<R>& rv) noexcept {
+    return rv.val;
+}
+} // namespace detail
 
 } // namespace umi::mmio

@@ -123,6 +123,8 @@ class RegOps {
 
     /// @brief Toggle a 1-bit field via read-modify-write.
     /// @tparam F A 1-bit, read-write Field type.
+    /// @warning This operation is NOT atomic. Callers must serialize access
+    ///          externally (e.g. disable interrupts, use a scoped lock).
     /// @note W1C bits in the parent register are automatically masked to 0
     ///       before write-back to prevent accidental flag clearing.
     template <typename Self, typename F>
@@ -142,6 +144,9 @@ class RegOps {
     /// For registers containing only W1C fields, a direct write is used.
     /// For mixed registers (W1C + non-W1C fields), read-modify-write preserves
     /// non-W1C field values while clearing only the target W1C bit(s).
+    /// @warning Mixed-register clear uses read-modify-write, which is NOT atomic.
+    ///          Callers must serialize access externally when other fields may be
+    ///          concurrently modified.
     /// @tparam F A W1C field type.
     template <typename Self, typename F>
         requires IsW1C<F> && IsField<F>
@@ -182,10 +187,11 @@ class RegOps {
         requires Readable<F> && IsField<F>
     [[nodiscard]] auto read_variant(this const Self& self, F field = {}) -> std::variant<Variants..., UnknownValue<F>> {
         auto val = self.read(field);
-        std::variant<Variants..., UnknownValue<F>> result = UnknownValue<F>{val.bits()};
+        auto raw = detail::RegionValueAccess::raw(val);
+        std::variant<Variants..., UnknownValue<F>> result = UnknownValue<F>{raw};
 
         auto try_match = [&]<typename V>() -> bool {
-            if (val.bits() == static_cast<typename F::ValueType>(V::value)) {
+            if (raw == static_cast<typename F::ValueType>(V::value)) {
                 result = V{};
                 return true;
             }

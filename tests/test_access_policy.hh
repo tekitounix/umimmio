@@ -118,15 +118,15 @@ void test_uart_device_init(TestContext& t) {
     hw.write(UartBaud::value(115200U));
     hw.write(UartCtrlEn::Set{}, UartCtrlTxEn::Set{}, UartCtrlRxEn::Set{}, ParityNone{});
     t.eq(hw.read(UartBaud{}).bits(), 115200U);
-    t.eq(hw.read(UartCtrlEn{}).bits(), static_cast<uint8_t>(1));
-    t.eq(hw.read(UartCtrlTxEn{}).bits(), static_cast<uint8_t>(1));
-    t.eq(hw.read(UartCtrlRxEn{}).bits(), static_cast<uint8_t>(1));
+    t.is_true(hw.is(UartCtrlEn::Set{}));
+    t.is_true(hw.is(UartCtrlTxEn::Set{}));
+    t.is_true(hw.is(UartCtrlRxEn::Set{}));
     t.is_true(hw.is(ParityNone{}));
 
     // Change parity to EVEN via modify (preserve other bits)
     hw.modify(ParityEven{});
     t.is_true(hw.is(ParityEven{}));
-    t.eq(hw.read(UartCtrlEn{}).bits(), static_cast<uint8_t>(1));
+    t.is_true(hw.is(UartCtrlEn::Set{}));
 
     // Write data
     hw.write(UartData::value(0x41U)); // 'A'
@@ -135,7 +135,7 @@ void test_uart_device_init(TestContext& t) {
 
 } // namespace
 
-void register_access_policy_tests(umi::test::Suite& suite) {
+inline void register_access_policy_tests(umi::test::Suite& suite) {
     suite.section("Bit constants");
     suite.run("width values", test_bit_constants_width_values);
     suite.run("W1C policy", test_w1c_policy);

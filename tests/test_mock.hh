@@ -11,8 +11,8 @@
 #include <cstdint>
 #include <cstring>
 
-#include <umimmio/ops.hh>
-#include <umitest/test.hh>
+#include <umimmio/ops.hh>  // IWYU pragma: export
+#include <umitest/test.hh> // IWYU pragma: export
 
 namespace umimmio::test {
 
@@ -158,8 +158,11 @@ struct ConfigPrescaler : Field<ConfigReg, 8, 8, Numeric> {};
 /// @brief Start bit (bit 0, 1-bit)
 struct CtrlStart : Field<CtrlReg, 0, 1> {};
 
-/// @brief IRQ enable bit (bit 1, 1-bit)
-struct CtrlIrqEn : Field<CtrlReg, 1, 1> {};
+/// @brief IRQ enable bit (bit 1, 1-bit) — with domain-specific aliases
+struct CtrlIrqEn : Field<CtrlReg, 1, 1> {
+    using Enabled = Value<CtrlIrqEn, 1>;
+    using Disabled = Value<CtrlIrqEn, 0>;
+};
 
 /// @brief Channel select (bits 4-7, 4-bit, Numeric — raw value() enabled)
 struct CtrlChannel : Field<CtrlReg, 4, 4, Numeric> {};
