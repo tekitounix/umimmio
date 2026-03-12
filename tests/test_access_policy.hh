@@ -63,26 +63,26 @@ using ParityOdd = Value<UartCtrlParity, static_cast<std::uint8_t>(Parity::ODD)>;
 inline void run_access_policy_tests(umi::test::Suite& suite) {
     suite.section("Bit constants");
 
-    suite.run("width values", [](TestContext& t) {
+    suite.run("width values", [](auto& t) {
         t.eq(bits8, 8U);
         t.eq(bits16, 16U);
         t.eq(bits32, 32U);
         t.eq(bits64, 64U);
     });
 
-    suite.run("W1C policy", [](TestContext& t) {
+    suite.run("W1C policy", [](auto& t) {
         t.is_true(W1C::can_read && W1C::can_write);
         t.eq(static_cast<std::uint8_t>(W1C::write_behavior), static_cast<std::uint8_t>(WriteBehavior::ONE_TO_CLEAR));
         t.eq(static_cast<std::uint8_t>(RW::write_behavior), static_cast<std::uint8_t>(WriteBehavior::NORMAL));
     });
 
-    suite.run("W1S policy", [](TestContext& t) {
+    suite.run("W1S policy", [](auto& t) {
         t.is_true(!W1S::can_read);
         t.is_true(W1S::can_write);
         t.eq(static_cast<std::uint8_t>(W1S::write_behavior), static_cast<std::uint8_t>(WriteBehavior::ONE_TO_SET));
     });
 
-    suite.run("W1T policy", [](TestContext& t) {
+    suite.run("W1T policy", [](auto& t) {
         t.is_true(!W1T::can_read);
         t.is_true(W1T::can_write);
         t.eq(static_cast<std::uint8_t>(W1T::write_behavior), static_cast<std::uint8_t>(WriteBehavior::ONE_TO_TOGGLE));
@@ -90,7 +90,7 @@ inline void run_access_policy_tests(umi::test::Suite& suite) {
 
     suite.section("W1S/W1T concepts and aliases");
 
-    suite.run("IsW1S/IsW1T/NormalWrite concepts", [](TestContext& t) {
+    suite.run("IsW1S/IsW1T/NormalWrite concepts", [](auto& t) {
         t.is_true(IsW1S<W1sField>);
         t.is_true(!IsW1S<W1tField>);
         t.is_true(!IsW1S<NormalField>);
@@ -109,19 +109,19 @@ inline void run_access_policy_tests(umi::test::Suite& suite) {
         t.is_true(!IsW1C<W1tField>);
     });
 
-    suite.run("W1S 1-bit aliases", [](TestContext& t) {
+    suite.run("W1S 1-bit aliases", [](auto& t) {
         using SetVal = W1sField::Set;
         using ResetVal = W1sField::Reset;
         t.eq(static_cast<std::uint32_t>(SetVal::value), 1U);
         t.eq(static_cast<std::uint32_t>(ResetVal::value), 0U);
     });
 
-    suite.run("W1T 1-bit aliases", [](TestContext& t) {
+    suite.run("W1T 1-bit aliases", [](auto& t) {
         using ToggleVal = W1tField::Toggle;
         t.eq(static_cast<std::uint32_t>(ToggleVal::value), 1U);
     });
 
-    suite.run("W1S write", [](TestContext& t) {
+    suite.run("W1S write", [](auto& t) {
         MockTransport hw;
         hw.clear_memory();
         hw.write(W1sField::Set{});
@@ -129,7 +129,7 @@ inline void run_access_policy_tests(umi::test::Suite& suite) {
         t.eq(raw, 1U);
     });
 
-    suite.run("W1T write", [](TestContext& t) {
+    suite.run("W1T write", [](auto& t) {
         MockTransport hw;
         hw.clear_memory();
         hw.write(W1tField::Toggle{});
@@ -139,18 +139,18 @@ inline void run_access_policy_tests(umi::test::Suite& suite) {
 
     suite.section("Block hierarchy");
 
-    suite.run("address calculation", [](TestContext& t) {
+    suite.run("address calculation", [](auto& t) {
         t.eq(MyBlock::base_address, static_cast<Addr>(0x100));
         t.eq(MyReg::address, static_cast<Addr>(0x104));
         t.eq(MyField::address, static_cast<Addr>(0x104));
     });
 
-    suite.run("access inheritance", [](TestContext& t) {
+    suite.run("access inheritance", [](auto& t) {
         t.is_true(MyReg::AccessType::can_read);
         t.is_true(!MyReg::AccessType::can_write);
     });
 
-    suite.run("nested blocks", [](TestContext& t) {
+    suite.run("nested blocks", [](auto& t) {
         t.eq(DeepReg::address, static_cast<Addr>(0x1210));
         t.eq(DeepReg::bit_width, 16U);
         t.is_true(DeepReg::AccessType::can_read && DeepReg::AccessType::can_write);
@@ -158,7 +158,7 @@ inline void run_access_policy_tests(umi::test::Suite& suite) {
 
     suite.section("Register masks");
 
-    suite.run("full-width masks", [](TestContext& t) {
+    suite.run("full-width masks", [](auto& t) {
         t.eq(ConfigReg::mask(), static_cast<std::uint32_t>(0xFFFF'FFFF));
         t.eq(CtrlReg::mask(), static_cast<std::uint16_t>(0xFFFF));
         t.eq(StatusReg::mask(), static_cast<std::uint32_t>(0xFFFF'FFFF));
@@ -166,7 +166,7 @@ inline void run_access_policy_tests(umi::test::Suite& suite) {
 
     suite.section("Practical: UART device");
 
-    suite.run("full init and operation", [](TestContext& t) {
+    suite.run("full init and operation", [](auto& t) {
         const MockTransport hw;
 
         hw.write(UartBaud::value(115200U));
