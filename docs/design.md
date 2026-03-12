@@ -2,6 +2,10 @@
 
 English | [日本語](design.ja.md)
 
+Internal design decisions and architectural constraints.
+
+---
+
 ## 1. Vision
 
 `umimmio` is a type-safe, zero-cost memory-mapped I/O library for C++23:
