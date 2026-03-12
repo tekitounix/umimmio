@@ -217,39 +217,38 @@ struct AFR0 : Field<AFRL, 0, 4, Numeric> {};
 io.modify(AFR0::value(7U));  // 7 とは何か？不透明で誤りやすい
 ```
 
-### フィールドを持つレジスタでの Register::value() — アンチパターン
+### Register::value() — 正しい場合と間違いの場合
 
-フィールドが定義されたレジスタに対して `Register::value()` を使うと、フィールドレベルの型安全を全てバイパスする。全てのケースに型安全な代替がある:
+`Register::value()` はデータレジスタとビットマップレジスタでは**正規の API** である:
+
+- **データレジスタ** (SPI DR, USART DR, ADC DR) — レジスタ全体がフィールド構造を持たない単一数値。
+- **ビットマップレジスタ** (NVIC ISER, GPIO BSRR, EXTI IMR/PR) — 各ビットが独立した制御対象（IRQ、ピン、割り込みライン）に対応する。ビット単位の Named Value 定義はコスト不釣り合い。
+
+```cpp
+// データレジスタ — Register::value() が通常の API
+io.write(SPI::DR::value(tx_byte));
+
+// ビットマップレジスタ — Register::value() が実用的
+io.write(NVIC::ISER<irq_num / 32>::value(1U << (irq_num % 32)));
+
+// レジスタインデックスのコンパイル時ディスパッチ
+dispatch<8>(reg_idx, [&]<std::size_t I>() {
+    io.write(NVIC::ISER<I>::value(1U << bit_pos));
+});
+```
+
+**フィールドを持つレジスタ** (PLLCFGR, MODER, CR1) では `Register::value()` はフィールドレベルの型安全をバイパスするため避けるべき:
 
 | アンチパターン | 型安全な代替 |
 |---------------|------------|
-| `KEYR::value(0x4567'0123U)` | `Value<KEYR, 0x4567'0123U>` — 名前付き定数 |
 | `PLLCFGR::value((m<<0)\|(n<<6))` | 個別フィールドの `write()` / `modify()` |
-| `ISER::value(1U << irq_num)` | 型付き IRQ enum + テンプレート or switch |
 | `MODER::value(手動RMW)` | `modify()` でピンごとのフィールドを指定 |
 
-ランタイム→コンパイル時ディスパッチには明示的なパターンマッチを使う:
-
-```cpp
-// ❌ 型安全をバイパス
-io.write(NVIC::ISER<0>::value(1U << bit_pos));
-
-// ✅ 型安全なディスパッチ
-switch (bit_pos) {
-case 0:  io.write(NVIC::ISER<0>::IRQ0::Set{});  break;
-case 1:  io.write(NVIC::ISER<0>::IRQ1::Set{});  break;
-// ...
-}
-
-// ✅ 最善 — コンパイル時インデックス
-template <std::uint32_t IrqNum>
-void enable_irq() {
-    io.write(NVIC::ISER<IrqNum / 32>::IRQ<IrqNum % 32>::Set{});
-}
-```
-
 > **参考**: Rust の svd2rust は同等の `w.bits(n)` を `unsafe` として扱う。
-> umimmio の `Register::value()` は C++ の意味では `unsafe` ではないが、同等の注意を払うべき — 段階的移行のために存在するのであり、推奨 API ではない。
+> umimmio の `Register::value()` は C++ の意味では `unsafe` ではない。
+> データレジスタとビットマップレジスタでは正規 API である。
+> フィールドを持つレジスタでは、フィールドレベルの型安全をバイパスするため、
+> svd2rust の `unsafe` `.bits()` と同等の注意が必要。
 
 ## W1C (Write-1-to-Clear) フィールド
 
@@ -400,6 +399,23 @@ csr.modify(RiscvMachine::MSTATUS::MIE::Set{});
 ```
 
 `CsrAccessor` concept は `csr_read<CsrNum>()` と `csr_write<CsrNum>(value)` を要求する — CSR 番号はコンパイル時テンプレートパラメータ（12 ビット即値制約）。
+
+### AtomicDirectTransport — 書き込み専用エイリアスレジスタ
+
+アトミックレジスタエイリアスを持つ MCU（例：RP2040 SET/CLR/XOR）向けに、`AtomicDirectTransport` はすべての書き込みに固定オフセットを加算する：
+
+```cpp
+#include <umimmio/transport/atomic_direct.hh>
+
+// RP2040: SET エイリアス = +0x2000、CLR エイリアス = +0x3000、XOR エイリアス = +0x1000
+AtomicDirectTransport<0x2000> gpio_set;   // write() は reg + 0x2000 を対象
+AtomicDirectTransport<0x3000> gpio_clr;   // write() は reg + 0x3000 を対象
+
+gpio_set.write(GPIO::OUT::Pin5::Set{});   // エイリアス経由のアトミックビットセット
+gpio_clr.write(GPIO::OUT::Pin5::Set{});   // エイリアス経由のアトミックビットクリア
+```
+
+これは**書き込み専用**トランスポートである — `read()`、`modify()`、`flip()`、`is()` は `reg_read()` が提供されないためコンパイルエラーとなる。`write()` と `reset()` は通常通り動作する。
 
 ## エラーハンドリング
 

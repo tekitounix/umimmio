@@ -80,6 +80,7 @@ lib/umimmio/
 │   │                        #   RegisterArray, dispatch, IndexedArray
 │   ├── ops.hh               # Operations: RegOps, ByteAdapter
 │   └── transport/
+│       ├── atomic_direct.hh # AtomicDirectTransport (write-only alias, explicit include)
 │       ├── csr.hh           # CsrTransport (RISC-V CSR, explicit include)
 │       ├── detail.hh        # Shared helpers for address encoding
 │       ├── direct.hh        # DirectTransport (volatile pointer)
@@ -94,11 +95,12 @@ lib/umimmio/
     ├── test_byte_transport.hh   # ByteAdapter tests
     ├── smoke/
     │   └── standalone.cc
-    ├── compile_fail/            # 28 negative compile tests (glob-collected)
+    ├── compile_fail/            # 31 negative compile tests (glob-collected)
     │   ├── bits_non_numeric.cc
     │   ├── clear_non_w1c.cc
     │   ├── cross_register_write.cc
     │   ├── field_overflow.cc
+    │   ├── flip_atomic_direct.cc  # AtomicDirectTransport flip rejected (no reg_read)
     │   ├── flip_multi_bit.cc
     │   ├── flip_ro.cc
     │   ├── flip_w1c.cc
@@ -107,11 +109,13 @@ lib/umimmio/
     │   ├── flip_wo.cc
     │   ├── get_wrong_field.cc
     │   ├── indexed_array_oob.cc # IndexedArray::Entry out-of-range
+    │   ├── modify_atomic_direct.cc # AtomicDirectTransport modify rejected (no reg_read)
     │   ├── modify_cross_register.cc
     │   ├── modify_w1c.cc
     │   ├── modify_w1s.cc        # W1S rejected by NormalWrite
     │   ├── modify_w1t.cc        # W1T rejected by NormalWrite
     │   ├── modify_wo.cc
+    │   ├── read_atomic_direct.cc  # AtomicDirectTransport read rejected (no reg_read)
     │   ├── read_field_eq_int.cc
     │   ├── read_w1s.cc          # W1S not Readable
     │   ├── read_w1t.cc          # W1T not Readable
@@ -268,7 +272,20 @@ Out-of-range index invokes `ErrorPolicy::on_range_error()`.
 - For host testing, any type satisfying `CsrAccessor` (e.g., RAM-backed mock) can be injected.
 - Not included in the umbrella header (`mmio.hh`) — users explicitly include `<umimmio/transport/csr.hh>`.
 
-### 5.9 read_variant()
+### 5.9 AtomicDirectTransport
+
+`AtomicDirectTransport<AliasOffset>` is a write-only transport that adds a fixed byte offset to all register writes.
+
+**Key design decisions**:
+
+- Writes target `(Reg::address + AliasOffset)` via volatile pointer. No `reg_read()` — `read()`, `modify()`, `flip()`, and `is()` are compile errors because the `Readable` concept is not satisfied.
+- `write()` and `reset()` work normally (both are write-only operations).
+- Primary use case: RP2040 atomic register aliases where SET (+0x2000), CLR (+0x3000), and XOR (+0x1000) are write-only aliases of base registers.
+- The transport is generic — any MCU with write-aliased registers can use it.
+- Not included in the umbrella header (`mmio.hh`) — users explicitly include `<umimmio/transport/atomic_direct.hh>`.
+- 3 compile_fail tests verify that `read()`, `modify()`, and `flip()` are rejected.
+
+### 5.10 read_variant()
 
 `read_variant()` reads a field and pattern-matches its value against a set of
 named `Value<>` types, returning a `std::variant`. If no match is found,

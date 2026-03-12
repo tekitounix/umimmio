@@ -217,39 +217,38 @@ struct AFR0 : Field<AFRL, 0, 4, Numeric> {};
 io.modify(AFR0::value(7U));  // What is 7? Opaque, error-prone
 ```
 
-### Register::value() on registers with fields — antipatterns
+### Register::value() — when it's correct and when it's not
 
-When a register has defined fields, `Register::value()` bypasses all field-level type safety. Every such case has a type-safe alternative:
+`Register::value()` is **the intended API** for data registers and bitmap registers:
+
+- **Data registers** (SPI DR, USART DR, ADC DR) — the entire register is a single numeric value with no field structure.
+- **Bitmap registers** (NVIC ISER, GPIO BSRR, EXTI IMR/PR) — each bit is an independent control target (IRQ, pin, interrupt line). Per-bit Named Value definitions would be disproportionately expensive for the type safety gained.
+
+```cpp
+// Data register — Register::value() is the normal API
+io.write(SPI::DR::value(tx_byte));
+
+// Bitmap register — Register::value() is practical
+io.write(NVIC::ISER<irq_num / 32>::value(1U << (irq_num % 32)));
+
+// With compile-time dispatch for register index
+dispatch<8>(reg_idx, [&]<std::size_t I>() {
+    io.write(NVIC::ISER<I>::value(1U << bit_pos));
+});
+```
+
+For **registers with structured fields** (PLLCFGR, MODER, CR1), `Register::value()` bypasses field-level type safety and should be avoided:
 
 | Antipattern | Type-safe alternative |
 |-------------|----------------------|
-| `KEYR::value(0x4567'0123U)` | `Value<KEYR, 0x4567'0123U>` — named constant |
 | `PLLCFGR::value((m<<0)\|(n<<6))` | Individual fields via `write()` / `modify()` |
-| `ISER::value(1U << irq_num)` | Typed IRQ enum + template or switch dispatch |
-| `MODER::value(手動RMW)` | `modify()` with per-pin field |
-
-For runtime-to-compile-time dispatch, use explicit pattern matching:
-
-```cpp
-// ❌ Bypasses type safety
-io.write(NVIC::ISER<0>::value(1U << bit_pos));
-
-// ✅ Type-safe dispatch
-switch (bit_pos) {
-case 0:  io.write(NVIC::ISER<0>::IRQ0::Set{});  break;
-case 1:  io.write(NVIC::ISER<0>::IRQ1::Set{});  break;
-// ...
-}
-
-// ✅ Best — compile-time index
-template <std::uint32_t IrqNum>
-void enable_irq() {
-    io.write(NVIC::ISER<IrqNum / 32>::IRQ<IrqNum % 32>::Set{});
-}
-```
+| `MODER::value(manual_rmw)` | `modify()` with per-pin field |
 
 > **Note**: Rust's svd2rust marks the equivalent `w.bits(n)` as `unsafe`.
-> umimmio's `Register::value()` is not `unsafe` in C++ terms, but should be treated with equivalent caution — it exists for incremental migration, not as a recommended API.
+> umimmio's `Register::value()` is not `unsafe` in C++ terms.
+> For data registers and bitmap registers, it is the intended API.
+> For registers with structured fields, it bypasses field-level type safety
+> and should be treated with equivalent caution to svd2rust's `unsafe` `.bits()`.
 
 ## W1C (Write-1-to-Clear) Fields
 
@@ -400,6 +399,23 @@ csr.modify(RiscvMachine::MSTATUS::MIE::Set{});
 ```
 
 `CsrAccessor` concept requires `csr_read<CsrNum>()` and `csr_write<CsrNum>(value)` — CSR number as compile-time template parameter (12-bit immediate constraint).
+
+### AtomicDirectTransport — Write-Only Alias Registers
+
+For MCUs with atomic register aliases (e.g., RP2040 SET/CLR/XOR), `AtomicDirectTransport` adds a fixed offset to all writes:
+
+```cpp
+#include <umimmio/transport/atomic_direct.hh>
+
+// RP2040: SET alias at +0x2000, CLR alias at +0x3000, XOR alias at +0x1000
+AtomicDirectTransport<0x2000> gpio_set;   // write() targets reg + 0x2000
+AtomicDirectTransport<0x3000> gpio_clr;   // write() targets reg + 0x3000
+
+gpio_set.write(GPIO::OUT::Pin5::Set{});   // atomic bit set via alias
+gpio_clr.write(GPIO::OUT::Pin5::Set{});   // atomic bit clear via alias
+```
+
+This is a **write-only** transport — `read()`, `modify()`, `flip()`, and `is()` are compile errors because no `reg_read()` is provided. `write()` and `reset()` work normally.
 
 ## Error Handling
 
