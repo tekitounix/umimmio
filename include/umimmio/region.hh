@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 
 #include "policy.hh"
 
@@ -253,6 +254,13 @@ struct OneBitW1CAliases { // NOLINT(bugprone-crtp-constructor-accessibility) —
     using Clear = Value<FieldT, 1>;
 };
 
+/// @brief Toggle alias for 1-bit W1T fields.
+/// @note Not CRTP — pure type-alias mixin. Direct construction is harmless.
+template <class FieldT>
+struct OneBitW1TAliases { // NOLINT(bugprone-crtp-constructor-accessibility) — type-alias mixin, not CRTP
+    using Toggle = Value<FieldT, 1>;
+};
+
 /// @brief Check if an access policy is W1C.
 template <class Access>
 consteval bool is_w1c_access() {
@@ -263,12 +271,32 @@ consteval bool is_w1c_access() {
     }
 }
 
+/// @brief Check if an access policy is W1T.
+template <class Access>
+consteval bool is_w1t_access() {
+    if constexpr (requires { Access::write_behavior; }) {
+        return Access::write_behavior == WriteBehavior::ONE_TO_TOGGLE;
+    } else {
+        return false;
+    }
+}
+
 /// @brief Select the appropriate base class for 1-bit field aliases.
+/// W1C → Clear, W1T → Toggle, all others (NORMAL, W1S) → Set/Reset.
+/// W1S uses Set/Reset because Set = Value<F,1> means "write 1 to set" which matches W1S semantics.
 template <class FieldT, std::size_t BitWidth, class Access>
-using OneBitBase =
-    std::conditional_t<BitWidth != 1,
-                       NoOneBitAliases,
-                       std::conditional_t<is_w1c_access<Access>(), OneBitW1CAliases<FieldT>, OneBitAliases<FieldT>>>;
+using OneBitBase = std::conditional_t<
+    BitWidth != 1,
+    NoOneBitAliases,
+    std::conditional_t<is_w1c_access<Access>(),
+                       OneBitW1CAliases<FieldT>,
+                       std::conditional_t<is_w1t_access<Access>(), OneBitW1TAliases<FieldT>, OneBitAliases<FieldT>>>>;
+
+/// @brief Check if a transport tag is in an AllowedTransportsType tuple.
+template <typename Tag, typename Tuple>
+constexpr bool contains_transport_v = false;
+template <typename Tag, typename... Ts>
+constexpr bool contains_transport_v<Tag, std::tuple<Ts...>> = (std::is_same_v<Tag, Ts> || ...);
 
 /// @brief Raw value extractor for framework-internal use.
 /// @note Not a public API. Used by RegOps::read_variant() and internal comparisons.
@@ -376,9 +404,22 @@ template <typename T>
 concept IsW1C =
     requires { T::AccessType::write_behavior; } && T::AccessType::write_behavior == WriteBehavior::ONE_TO_CLEAR;
 
-/// @brief Type is not W1C (safe for modify() and flip()).
+/// @brief Type has W1S (Write-1-to-Set) access policy.
 template <typename T>
-concept NotW1C = !IsW1C<T>;
+concept IsW1S =
+    requires { T::AccessType::write_behavior; } && T::AccessType::write_behavior == WriteBehavior::ONE_TO_SET;
+
+/// @brief Type has W1T (Write-1-to-Toggle) access policy.
+template <typename T>
+concept IsW1T =
+    requires { T::AccessType::write_behavior; } && T::AccessType::write_behavior == WriteBehavior::ONE_TO_TOGGLE;
+
+/// @brief Type has normal write behavior (safe for read-modify-write).
+/// RMW is only safe when the written value directly replaces the stored value.
+/// W1C/W1S/W1T interpret written bits as commands, making RMW unsafe or meaningless.
+template <typename T>
+concept NormalWrite =
+    !requires { T::AccessType::write_behavior; } || T::AccessType::write_behavior == WriteBehavior::NORMAL;
 
 /// @brief Value/DynamicValue whose region is Readable.
 template <typename V>
@@ -390,10 +431,11 @@ template <typename V>
 concept WritableValue =
     requires { typename std::decay_t<V>::RegionType; } && Writable<typename std::decay_t<V>::RegionType>;
 
-/// @brief Value/DynamicValue whose region is not W1C.
+/// @brief Value/DynamicValue whose region supports read-modify-write.
+/// Requires readable, writable, and normal write behavior (not W1C/W1S/W1T).
 template <typename V>
-concept ModifiableValue =
-    WritableValue<V> && Readable<typename std::decay_t<V>::RegionType> && NotW1C<typename std::decay_t<V>::RegionType>;
+concept ModifiableValue = WritableValue<V> && Readable<typename std::decay_t<V>::RegionType> &&
+                          NormalWrite<typename std::decay_t<V>::RegionType>;
 
 /// @name Transport concepts
 /// @{
@@ -542,5 +584,150 @@ constexpr auto RegionValueAccess::raw(const RegionValue<R>& rv) noexcept {
     return rv.val;
 }
 } // namespace detail
+
+// ===========================================================================
+// RegisterArray — template register array metadata
+// ===========================================================================
+
+/// @brief Metadata type for a template register array.
+/// Represents Template<0>..Template<N-1> as a typed array.
+/// Used with dispatch() for runtime-to-compile-time index bridging.
+///
+/// @tparam Template Template register type (e.g., NVIC::ISER).
+/// @tparam N Number of elements.
+///
+/// @code
+///   using IserArray = mm::RegisterArray<NVIC::ISER, 8>;
+///   mm::dispatch<IserArray::size>(reg_idx, [&]<std::size_t I>() {
+///       io.write(IserArray::Element<I>::value(1U << bit_pos));
+///   });
+/// @endcode
+template <template <std::size_t> class Template, std::size_t N>
+struct RegisterArray {
+    static constexpr std::size_t size = N;
+
+    /// @brief Get the element type at compile-time index I.
+    template <std::size_t I>
+    using Element = Template<I>;
+};
+
+// ===========================================================================
+// dispatch — runtime-to-compile-time index bridge
+// ===========================================================================
+
+/// @brief Dispatch a runtime index to a compile-time template parameter.
+/// Generates a fold expression equivalent to a switch statement.
+/// idx >= N invokes ErrorPolicy::on_range_error().
+///
+/// @tparam N Dispatch range [0, N).
+/// @tparam ErrorPolicy Error handler for out-of-range (default: AssertOnError).
+/// @param idx Runtime index.
+/// @param fn Generic lambda with template <std::size_t I> void operator()().
+template <std::size_t N, typename ErrorPolicy = AssertOnError, typename Fn>
+constexpr void dispatch(std::size_t idx, Fn&& fn) {
+    if (idx >= N) {
+        ErrorPolicy::on_range_error("dispatch: index out of range");
+        return;
+    }
+    [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+        (void)((idx == Is ? (fn.template operator()<Is>(), true) : false) || ...);
+    }(std::make_index_sequence<N>{});
+}
+
+/// @brief Dispatch with return value.
+/// idx >= N invokes ErrorPolicy::on_range_error() and returns default_val.
+///
+/// @tparam N Dispatch range [0, N).
+/// @tparam R Return type.
+/// @tparam ErrorPolicy Error handler for out-of-range (default: AssertOnError).
+/// @param idx Runtime index.
+/// @param fn Generic lambda with template <std::size_t I> R operator()().
+/// @param default_val Value returned when idx is out of range.
+template <std::size_t N, typename R, typename ErrorPolicy = AssertOnError, typename Fn>
+constexpr R dispatch_r(std::size_t idx, Fn&& fn, R default_val = {}) {
+    if (idx >= N) {
+        ErrorPolicy::on_range_error("dispatch_r: index out of range");
+        return default_val;
+    }
+    R result = default_val;
+    [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+        (void)((idx == Is ? (result = fn.template operator()<Is>(), true) : false) || ...);
+    }(std::make_index_sequence<N>{});
+    return result;
+}
+
+// ===========================================================================
+// IndexedArray — sub-register granularity indexed access
+// ===========================================================================
+
+/// @brief Sub-register granularity indexed array for direct MMIO access.
+/// Encapsulates reinterpret_cast inside the framework, eliminating escape
+/// hatches in drivers. Only valid for Direct transport (volatile pointer).
+///
+/// @tparam Parent Parent device type (must have base_address).
+/// @tparam BaseOffset Byte offset of array start from parent base.
+/// @tparam Count Number of entries.
+/// @tparam EntryWidth Bit width per entry (8, 16, 32).
+/// @tparam Stride Byte spacing between entries (default: dense packing).
+///
+/// @code
+///   // NVIC IPR: 8-bit × 240, stride 1 byte
+///   using IprArray = mm::IndexedArray<NVIC, 0x0300, 240>;
+///   IprArray::write_entry(irq_num, priority);
+///
+///   // 16-bit entries with 4-byte stride
+///   using PrioArray = mm::IndexedArray<Dev, 0x100, 32, mm::bits16, 4>;
+/// @endcode
+template <class Parent,
+          Addr BaseOffset,
+          std::size_t Count,
+          std::size_t EntryWidth = bits8,
+          std::size_t Stride = EntryWidth / bits8>
+struct IndexedArray {
+    static constexpr std::size_t size = Count;
+    static constexpr std::size_t entry_width = EntryWidth;
+    static constexpr std::size_t stride = Stride;
+
+    /// @brief Entry access type (UintFit selects the appropriate unsigned int).
+    using EntryType = UintFit<EntryWidth>;
+
+    /// @brief Compile-time entry as a Register type. Use with dispatch<N>.
+    template <std::size_t N>
+    struct Entry : Register<Parent, BaseOffset + (N * Stride), EntryWidth, RW> {
+        static_assert(N < Count, "IndexedArray::Entry index out of range");
+    };
+
+    /// @brief Write an entry by runtime index (Direct transport only).
+    /// @tparam ErrorPolicy Error handler for out-of-range (default: AssertOnError).
+    template <typename ErrorPolicy = AssertOnError>
+    static void write_entry(std::size_t index, EntryType value) noexcept {
+        static_assert(detail::contains_transport_v<Direct, typename Parent::AllowedTransportsType>,
+                      "IndexedArray::write_entry requires Direct transport");
+        if (index >= Count) {
+            ErrorPolicy::on_range_error("IndexedArray: write index out of range");
+            return;
+        }
+        constexpr auto base = Parent::base_address + BaseOffset;
+        // NOLINTNEXTLINE(performance-no-int-to-ptr) — sub-register indexed MMIO array
+        auto* ptr = reinterpret_cast<volatile EntryType*>(base + (index * Stride));
+        *ptr = value;
+    }
+
+    /// @brief Read an entry by runtime index (Direct transport only).
+    /// @tparam ErrorPolicy Error handler for out-of-range (default: AssertOnError).
+    template <typename ErrorPolicy = AssertOnError>
+    static EntryType read_entry(std::size_t index) noexcept {
+        static_assert(detail::contains_transport_v<Direct, typename Parent::AllowedTransportsType>,
+                      "IndexedArray::read_entry requires Direct transport");
+        if (index >= Count) {
+            ErrorPolicy::on_range_error("IndexedArray: read index out of range");
+            return 0;
+        }
+        constexpr auto base = Parent::base_address + BaseOffset;
+        // NOLINTNEXTLINE(performance-no-int-to-ptr) — sub-register indexed MMIO array
+        auto const* ptr = reinterpret_cast<volatile EntryType const*>(base + (index * Stride));
+        return *ptr;
+    }
+};
 
 } // namespace umi::mmio

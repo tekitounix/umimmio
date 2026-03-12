@@ -11,12 +11,62 @@
 #include <span>
 #include <variant>
 
+#include <umimmio/transport/csr.hh>
 #include <umimmio/transport/i2c.hh>
 
 #include "test_mock.hh"
 
 namespace umimmio::test {
 namespace {
+
+// =============================================================================
+// MockCsrAccessor — RAM-backed CSR accessor for host testing
+// =============================================================================
+
+/// @brief Mock CSR accessor that stores CSR values in a flat array.
+struct MockCsrAccessor {
+    mutable std::array<std::uint32_t, 4096> csrs{};
+
+    template <std::uint32_t CsrNum>
+    [[nodiscard]] auto csr_read() const noexcept -> std::uint32_t {
+        return csrs[CsrNum];
+    }
+
+    template <std::uint32_t CsrNum>
+    void csr_write(std::uint32_t value) const noexcept {
+        csrs[CsrNum] = value;
+    }
+};
+
+static_assert(CsrAccessor<MockCsrAccessor>);
+
+// =============================================================================
+// CSR Device definitions for testing
+// =============================================================================
+
+struct RiscvMachine : Device<RW, Csr> {
+    static constexpr Addr base_address = 0;
+};
+
+struct Mstatus : Register<RiscvMachine, 0x300, bits32> {
+    struct MIE : Field<Mstatus, 3, 1> {};
+    struct MPIE : Field<Mstatus, 7, 1> {};
+    struct MPP : Field<Mstatus, 11, 2> {
+        using MACHINE = Value<MPP, 3>;
+        using SUPERVISOR = Value<MPP, 1>;
+        using USER = Value<MPP, 0>;
+    };
+};
+
+struct Mtvec : Register<RiscvMachine, 0x305, bits32> {
+    struct MODE : Field<Mtvec, 0, 2> {
+        using DIRECT = Value<MODE, 0>;
+        using VECTORED = Value<MODE, 1>;
+    };
+    struct BASE : Field<Mtvec, 2, 30, Numeric> {};
+};
+
+struct Mcause : Register<RiscvMachine, 0x342, bits32, RO> {};
 
 using umi::test::TestContext;
 
@@ -779,6 +829,67 @@ void test_multi_transport_device(TestContext& t) {
     t.is_true((std::tuple_size_v<Allowed> == 2));
 }
 
+// =============================================================================
+// CsrTransport tests (MockCsrAccessor)
+// =============================================================================
+
+void test_csr_write_read(TestContext& t) {
+    const CsrTransport<MockCsrAccessor> csr;
+    csr.write(Mstatus::MIE::Set{});
+    t.is_true(csr.is(Mstatus::MIE::Set{}));
+}
+
+void test_csr_field_modify(TestContext& t) {
+    const CsrTransport<MockCsrAccessor> csr;
+    // Set MPP to MACHINE (bits 12:11 = 0b11)
+    csr.modify(Mstatus::MPP::MACHINE{});
+    t.is_true(csr.is(Mstatus::MPP::MACHINE{}));
+
+    // Change to SUPERVISOR (bits 12:11 = 0b01)
+    csr.modify(Mstatus::MPP::SUPERVISOR{});
+    t.is_true(csr.is(Mstatus::MPP::SUPERVISOR{}));
+}
+
+void test_csr_multi_field(TestContext& t) {
+    const CsrTransport<MockCsrAccessor> csr;
+    csr.write(Mstatus::MIE::Set{}, Mstatus::MPP::MACHINE{});
+
+    auto cfg = csr.read(Mstatus{});
+    t.is_true(cfg.is(Mstatus::MIE::Set{}));
+    t.is_true(cfg.is(Mstatus::MPP::MACHINE{}));
+}
+
+void test_csr_mtvec(TestContext& t) {
+    const CsrTransport<MockCsrAccessor> csr;
+    csr.write(Mtvec::MODE::VECTORED{}, Mtvec::BASE::value(0x2000'0000U >> 2));
+
+    t.is_true(csr.is(Mtvec::MODE::VECTORED{}));
+    auto base_val = csr.read(Mtvec::BASE{});
+    t.eq(base_val.bits(), static_cast<std::uint32_t>(0x2000'0000U >> 2));
+}
+
+void test_csr_flip(TestContext& t) {
+    const CsrTransport<MockCsrAccessor> csr;
+    csr.write(Mstatus::MIE::Reset{});
+    t.is_true(csr.is(Mstatus::MIE::Reset{}));
+
+    csr.flip(Mstatus::MIE{});
+    t.is_true(csr.is(Mstatus::MIE::Set{}));
+
+    csr.flip(Mstatus::MIE{});
+    t.is_true(csr.is(Mstatus::MIE::Reset{}));
+}
+
+void test_csr_concept_satisfied(TestContext& t) {
+    t.is_true(CsrAccessor<MockCsrAccessor>);
+}
+
+void test_csr_device_transport_tag(TestContext& t) {
+    // Verify CsrTransport uses Csr tag
+    using Tag = CsrTransport<MockCsrAccessor>::TransportTag;
+    t.is_true((std::is_same_v<Tag, Csr>));
+}
+
 } // namespace
 
 inline void register_transport_tests(umi::test::Suite& suite) {
@@ -865,6 +976,15 @@ inline void register_transport_tests(umi::test::Suite& suite) {
 
     suite.section("Multi-transport device");
     suite.run("dual transport allowed", test_multi_transport_device);
+
+    suite.section("CsrTransport (mock)");
+    suite.run("write/read", test_csr_write_read);
+    suite.run("field modify", test_csr_field_modify);
+    suite.run("multi-field write", test_csr_multi_field);
+    suite.run("mtvec numeric field", test_csr_mtvec);
+    suite.run("flip", test_csr_flip);
+    suite.run("CsrAccessor concept", test_csr_concept_satisfied);
+    suite.run("transport tag", test_csr_device_transport_tag);
 }
 
 } // namespace umimmio::test

@@ -46,8 +46,10 @@ using UintFit =
 
 /// @brief Describes how a write operation affects the register/field.
 enum class WriteBehavior : std::uint8_t {
-    NORMAL,       ///< Standard write: written value replaces current value.
-    ONE_TO_CLEAR, ///< Write-1-to-clear: writing 1 clears the bit, writing 0 has no effect.
+    NORMAL,        ///< Standard write: written value replaces current value.
+    ONE_TO_CLEAR,  ///< Write-1-to-clear: writing 1 clears the bit, writing 0 has no effect.
+    ONE_TO_SET,    ///< Write-1-to-set: writing 1 sets the bit, writing 0 has no effect.
+    ONE_TO_TOGGLE, ///< Write-1-to-toggle: writing 1 toggles the bit, writing 0 has no effect.
 };
 
 /// @brief Parameterized access policy.
@@ -65,6 +67,8 @@ using RW = AccessPolicy<true, true>;
 using RO = AccessPolicy<true, false>;
 using WO = AccessPolicy<false, true>;
 using W1C = AccessPolicy<true, true, WriteBehavior::ONE_TO_CLEAR>;
+using W1S = AccessPolicy<false, true, WriteBehavior::ONE_TO_SET>;
+using W1T = AccessPolicy<false, true, WriteBehavior::ONE_TO_TOGGLE>;
 
 struct Inherit {};
 
@@ -73,6 +77,7 @@ struct Inherit {};
 struct Direct {};
 struct I2c {};
 struct Spi {};
+struct Csr {};
 /// @}
 
 /// @name Error policies

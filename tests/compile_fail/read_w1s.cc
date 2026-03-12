@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026, tekitounix
 /// @file
-/// @brief Negative compile test: flip() on W1C field must be rejected.
+/// @brief Negative compile test: read() on W1S field must be rejected.
 /// @author Shota Moriguchi @tekitounix
-/// @details NormalWrite constraint prevents flip on W1C fields.
+/// @details W1S fields are write-only — reading is not permitted.
 
 #include <umimmio/ops.hh>
 
@@ -12,12 +12,12 @@ namespace {
 using namespace umi::mmio;
 
 struct TestDevice : Device<> {};
-struct SR : Register<TestDevice, 0x00, bits32, RW, 0, /*W1cMask=*/0x01> {};
-struct OVR : Field<SR, 0, 1, W1C> {};
+struct SR : Register<TestDevice, 0x00, bits32, WO> {};
+struct FLAG : Field<SR, 0, 1, W1S> {};
 
 struct MockTransport : private RegOps<> {
   public:
-    using RegOps<>::flip;
+    using RegOps<>::read;
     using TransportTag = Direct;
 
     template <typename Reg>
@@ -33,6 +33,6 @@ struct MockTransport : private RegOps<> {
 
 int main() {
     MockTransport hw;
-    hw.flip(OVR{}); // ERROR: NormalWrite constraint
+    (void)hw.read(FLAG{}); // ERROR: W1S field is not Readable
     return 0;
 }

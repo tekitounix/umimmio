@@ -128,7 +128,7 @@ class RegOps {
     /// @note W1C bits in the parent register are automatically masked to 0
     ///       before write-back to prevent accidental flag clearing.
     template <typename Self, typename F>
-        requires ReadWritable<F> && IsField<F> && (F::bit_width == 1) && NotW1C<F>
+        requires ReadWritable<F> && IsField<F> && (F::bit_width == 1) && NormalWrite<F>
     void flip(this const Self& self, F /*field*/) noexcept {
         check_transport_allowed<Self, F>();
         using ParentRegType = typename F::ParentRegType;

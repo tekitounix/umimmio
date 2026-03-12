@@ -36,6 +36,95 @@ void test_w1c_policy(TestContext& t) {
 }
 
 // =============================================================================
+// W1S/W1T access policies
+// =============================================================================
+
+void test_w1s_policy(TestContext& t) {
+    t.is_true(!W1S::can_read);
+    t.is_true(W1S::can_write);
+    t.eq(static_cast<uint8_t>(W1S::write_behavior), static_cast<uint8_t>(WriteBehavior::ONE_TO_SET));
+}
+
+void test_w1t_policy(TestContext& t) {
+    t.is_true(!W1T::can_read);
+    t.is_true(W1T::can_write);
+    t.eq(static_cast<uint8_t>(W1T::write_behavior), static_cast<uint8_t>(WriteBehavior::ONE_TO_TOGGLE));
+}
+
+// =============================================================================
+// W1S/W1T concepts
+// =============================================================================
+
+struct W1sDevice : Device<> {};
+struct W1sReg : Register<W1sDevice, 0x00, bits32, WO> {};
+struct W1sField : Field<W1sReg, 0, 1, W1S> {};
+struct W1tField : Field<W1sReg, 1, 1, W1T> {};
+struct NormalField : Field<W1sReg, 2, 1> {};
+
+void test_w1s_w1t_concepts(TestContext& t) {
+    // IsW1S
+    t.is_true(IsW1S<W1sField>);
+    t.is_true(!IsW1S<W1tField>);
+    t.is_true(!IsW1S<NormalField>);
+
+    // IsW1T
+    t.is_true(IsW1T<W1tField>);
+    t.is_true(!IsW1T<W1sField>);
+    t.is_true(!IsW1T<NormalField>);
+
+    // NormalWrite
+    t.is_true(NormalWrite<NormalField>);
+    t.is_true(!NormalWrite<W1sField>);
+    t.is_true(!NormalWrite<W1tField>);
+    t.is_true(!NormalWrite<W1cOvr>); // W1C is also not NormalWrite
+
+    // IsW1C unchanged
+    t.is_true(IsW1C<W1cOvr>);
+    t.is_true(!IsW1C<W1sField>);
+    t.is_true(!IsW1C<W1tField>);
+}
+
+// =============================================================================
+// W1S/W1T 1-bit aliases
+// =============================================================================
+
+void test_w1s_one_bit_aliases(TestContext& t) {
+    // W1S 1-bit field gets Set/Reset (same as NORMAL)
+    using SetVal = W1sField::Set;
+    using ResetVal = W1sField::Reset;
+    t.eq(static_cast<uint32_t>(SetVal::value), 1U);
+    t.eq(static_cast<uint32_t>(ResetVal::value), 0U);
+}
+
+void test_w1t_one_bit_aliases(TestContext& t) {
+    // W1T 1-bit field gets Toggle (not Set/Reset)
+    using ToggleVal = W1tField::Toggle;
+    t.eq(static_cast<uint32_t>(ToggleVal::value), 1U);
+}
+
+// =============================================================================
+// W1S/W1T write operations
+// =============================================================================
+
+void test_w1s_write(TestContext& t) {
+    MockTransport hw;
+    hw.clear_memory();
+    // W1S field can be written via write()
+    hw.write(W1sField::Set{});
+    auto raw = hw.peek<uint32_t>(0x00);
+    t.eq(raw, 1U);
+}
+
+void test_w1t_write(TestContext& t) {
+    MockTransport hw;
+    hw.clear_memory();
+    // W1T field can be written via write()
+    hw.write(W1tField::Toggle{});
+    auto raw = hw.peek<uint32_t>(0x00);
+    t.eq(raw, 2U); // bit 1
+}
+
+// =============================================================================
 // Block hierarchy
 // =============================================================================
 
@@ -139,6 +228,15 @@ inline void register_access_policy_tests(umi::test::Suite& suite) {
     suite.section("Bit constants");
     suite.run("width values", test_bit_constants_width_values);
     suite.run("W1C policy", test_w1c_policy);
+    suite.run("W1S policy", test_w1s_policy);
+    suite.run("W1T policy", test_w1t_policy);
+
+    suite.section("W1S/W1T concepts and aliases");
+    suite.run("IsW1S/IsW1T/NormalWrite concepts", test_w1s_w1t_concepts);
+    suite.run("W1S 1-bit aliases", test_w1s_one_bit_aliases);
+    suite.run("W1T 1-bit aliases", test_w1t_one_bit_aliases);
+    suite.run("W1S write", test_w1s_write);
+    suite.run("W1T write", test_w1t_write);
 
     suite.section("Block hierarchy");
     suite.run("address calculation", test_block_address_calculation);
