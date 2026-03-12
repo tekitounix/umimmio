@@ -65,10 +65,8 @@ lib/umimmio/
 ├── README.md
 ├── xmake.lua
 ├── docs/
-│   ├── index.md
 │   ├── design.md / design.ja.md
-│   ├── readme.ja.md
-│   └── testing.md / testing.ja.md
+│   └── readme.ja.md
 ├── examples/
 │   ├── minimal.cc
 │   ├── register_map.cc
@@ -87,6 +85,7 @@ lib/umimmio/
 │       ├── i2c.hh           # I2cTransport (HAL-based)
 │       └── spi.hh           # SpiTransport (HAL-based)
 └── tests/
+    ├── testing.md / testing.ja.md   # Test documentation
     ├── test_main.cc
     ├── test_mock.hh             # MockTransport and shared device definitions
     ├── test_access_policy.hh    # W1C/W1S/W1T access policy tests
