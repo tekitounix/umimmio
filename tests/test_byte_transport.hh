@@ -568,7 +568,7 @@ void test_spi_void_hal_roundtrip(TestContext& t) {
 
 } // namespace
 
-inline void register_byte_transport_tests(umi::test::Suite& suite) {
+inline void run_byte_transport_tests(umi::test::Suite& suite) {
     suite.section("SPI transport (mock)");
     suite.run("write/read", test_spi_write_read);
     suite.run("field read", test_spi_field_read);

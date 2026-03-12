@@ -35,7 +35,7 @@ class MockTransport : private RegOps<> {
     using RegOps<>::read_variant;
     using TransportTag = Direct;
 
-    MockTransport() { std::memset(ram.data(), 0, ram.size()); }
+    MockTransport() = default;
 
     template <typename Reg>
     auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
@@ -102,7 +102,7 @@ int main() {
     // 1. write() — single and multi-field
     // -------------------------------------------------------------------------
     io.write(CTRL::EN::Set{});
-    check(io.read(CTRL{}).bits() == 0x01, "write single field");
+    check(io.is(CTRL::EN::Set{}), "write single field");
 
     io.write(CTRL::EN::Set{}, CTRL::MODE::Fast{}, CTRL::PRESCALER::value(10U));
     check(io.read(CTRL{}).bits() == (1U | (1U << 1) | (10U << 8)), "write multi-field");
@@ -110,22 +110,20 @@ int main() {
     // -------------------------------------------------------------------------
     // 2. read() — register and field level
     // -------------------------------------------------------------------------
-    auto ctrl_val = io.read(CTRL{});   // RegionValue<CTRL>
-    auto en_val = io.read(CTRL::EN{}); // RegionValue<EN>
-    check(en_val.bits() == 1, "read field");
+    auto ctrl_val = io.read(CTRL{}); // RegionValue<CTRL>
+    check(io.is(CTRL::EN::Set{}), "read field");
 
     // -------------------------------------------------------------------------
     // 3. RegionValue — get(), bits(), is()
     // -------------------------------------------------------------------------
-    auto en_from_reg = ctrl_val.get(CTRL::EN{}); // extract field from register read
-    check(en_from_reg.bits() == 1, "RegionValue.get()");
+    check(ctrl_val.is(CTRL::EN::Set{}), "RegionValue.get() via is()");
     check(ctrl_val.is(CTRL::MODE::Fast{}), "RegionValue.is()");
 
     // -------------------------------------------------------------------------
     // 4. modify() — read-modify-write preserving other fields
     // -------------------------------------------------------------------------
     io.modify(CTRL::MODE::LowPwr{});
-    check(io.read(CTRL::EN{}).bits() == 1, "modify preserves EN");
+    check(io.is(CTRL::EN::Set{}), "modify preserves EN");
     check(io.is(CTRL::MODE::LowPwr{}), "modify changes MODE");
 
     // -------------------------------------------------------------------------
@@ -137,11 +135,11 @@ int main() {
     // -------------------------------------------------------------------------
     // 6. flip() — toggle 1-bit field
     // -------------------------------------------------------------------------
-    check(io.read(CTRL::EN{}).bits() == 1, "EN is 1 before flip");
+    check(io.is(CTRL::EN::Set{}), "EN is Set before flip");
     io.flip(CTRL::EN{});
-    check(io.read(CTRL::EN{}).bits() == 0, "flip toggles EN to 0");
+    check(io.is(CTRL::EN::Reset{}), "flip toggles EN to Reset");
     io.flip(CTRL::EN{});
-    check(io.read(CTRL::EN{}).bits() == 1, "flip toggles EN back to 1");
+    check(io.is(CTRL::EN::Set{}), "flip toggles EN back to Set");
 
     // -------------------------------------------------------------------------
     // 7. DynamicValue — runtime numeric value via value()
@@ -167,7 +165,7 @@ int main() {
     //     preserve non-W1C field values.
     io.write(SR::READY::Set{}); // set non-W1C field
     io.clear(SR::OVR{});        // clear W1C bit (RMW preserves READY)
-    check(io.read(SR::READY{}).bits() == 1, "clear() preserves non-W1C fields");
+    check(io.is(SR::READY::Set{}), "clear() preserves non-W1C fields");
 
     // -------------------------------------------------------------------------
     // 10. read_variant() — pattern match field value to std::variant

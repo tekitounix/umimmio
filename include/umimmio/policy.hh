@@ -83,8 +83,14 @@ struct Csr {};
 /// @name Error policies
 /// @{
 struct AssertOnError {
-    static void on_range_error([[maybe_unused]] const char* msg) noexcept { assert(false && msg); }
-    static void on_transport_error([[maybe_unused]] const char* msg) noexcept { assert(false && msg); }
+    static void on_range_error([[maybe_unused]] const char* msg) noexcept {
+        assert(false && msg);
+        __builtin_trap(); // Unreachable with asserts enabled; provides defined trap under NDEBUG.
+    }
+    static void on_transport_error([[maybe_unused]] const char* msg) noexcept {
+        assert(false && msg);
+        __builtin_trap();
+    }
 };
 
 struct TrapOnError {

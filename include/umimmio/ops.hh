@@ -41,6 +41,9 @@ class RegOps {
     ~RegOps() = default;
 
   public:
+    // Move is deleted because RegOps is a non-owning mixin base; derived transports
+    // hold hardware resources (pointers, handles) that must not silently relocate.
+    // Copy is allowed (protected) for derived classes that need value semantics.
     RegOps(RegOps&&) = delete;
     RegOps& operator=(RegOps&&) = delete;
 
@@ -78,14 +81,7 @@ class RegOps {
 
         // DynamicValue range check (Value has compile-time guarantee, skip)
         if constexpr (!requires { VDecay::value; }) {
-            if constexpr (CheckPolicy::value) {
-                if constexpr (RegionT::bit_width < sizeof(decltype(value.assigned_value)) * bits8) {
-                    auto const max_value = (1ULL << RegionT::bit_width) - 1;
-                    if (static_cast<std::uint64_t>(value.assigned_value) > max_value) {
-                        ErrorPolicy::on_range_error("Comparison value out of range");
-                    }
-                }
-            }
+            check_dynamic_range<RegionT>(value.assigned_value);
         }
 
         // Delegate to RegionValue::is() which handles both Value/DynamicValue
@@ -203,6 +199,19 @@ class RegOps {
     }
 
   private:
+    /// @brief Runtime range check for DynamicValue (shared by is() and apply_field_value()).
+    template <typename RegionType, typename T>
+    static void check_dynamic_range([[maybe_unused]] T value) {
+        if constexpr (CheckPolicy::value) {
+            if constexpr (RegionType::bit_width < sizeof(T) * bits8) {
+                auto const max_value = (1ULL << RegionType::bit_width) - 1;
+                if (static_cast<std::uint64_t>(value) > max_value) {
+                    ErrorPolicy::on_range_error("Value out of range");
+                }
+            }
+        }
+    }
+
     /// @brief Transport constraint check.
     /// @note Self is deduced via deducing this, not a class template parameter.
     template <typename Self, typename RegOrField>
@@ -219,60 +228,66 @@ class RegOps {
     }
 
     /// @brief Write single value — called from write().
-    template <typename Self, typename Value>
-    static void write_single(const Self& self, Value&& value) noexcept {
-        using V = std::decay_t<Value>;
-        using RegionType = typename V::RegionType;
+    template <typename Self, typename Val>
+    static void write_single(const Self& self, Val&& value) noexcept {
+        using VDecay = std::decay_t<Val>;
+        using RegionType = typename VDecay::RegionType;
         check_transport_allowed<Self, RegionType>();
         static_assert(RegionType::AccessType::can_write, "Cannot write to read-only register");
 
         if constexpr (RegionType::is_register) {
-            write_register_value(self, std::forward<Value>(value));
+            write_register_value(self, std::forward<Val>(value));
         } else {
-            write_field_value(self, std::forward<Value>(value));
+            write_field_value(self, std::forward<Val>(value));
         }
     }
 
-    /// @brief Write a Value to a register-type region.
-    template <typename Self, typename Value>
-    static void write_register_value(const Self& self, Value&& value) noexcept {
-        using V = std::decay_t<Value>;
-        using RegionType = typename V::RegionType;
+    /// @brief Write a value to a register-type region.
+    template <typename Self, typename Val>
+    static void write_register_value(const Self& self, Val&& value) noexcept {
+        using VDecay = std::decay_t<Val>;
+        using RegionType = typename VDecay::RegionType;
 
-        if constexpr (requires { V::value; }) {
-            self.reg_write(RegionType{}, static_cast<typename RegionType::RegValueType>(V::value));
+        if constexpr (requires { VDecay::value; }) {
+            self.reg_write(RegionType{}, static_cast<typename RegionType::RegValueType>(VDecay::value));
         } else {
             self.reg_write(RegionType{}, static_cast<typename RegionType::RegValueType>(value.assigned_value));
         }
     }
 
-    /// @brief Write a Value to a field-type region.
-    template <typename Self, typename Value>
-    static void write_field_value(const Self& self, Value&& value) noexcept {
-        using V = std::decay_t<Value>;
-        using RegionType = typename V::RegionType;
+    /// @brief Write a value to a field-type region.
+    template <typename Self, typename Val>
+    static void write_field_value(const Self& self, Val&& value) noexcept {
+        using VDecay = std::decay_t<Val>;
+        using RegionType = typename VDecay::RegionType;
         using ParentRegType = typename RegionType::ParentRegType;
 
         auto reg_val = ParentRegType::reset_value();
-        reg_val = apply_field_value(reg_val, std::forward<Value>(value));
+        reg_val = apply_field_value(reg_val, std::forward<Val>(value));
         self.reg_write(ParentRegType{}, reg_val);
     }
 
-    /// @brief Write multiple values — called from write().
-    template <typename Self, typename... Values>
-    static void write_multiple(const Self& self, Values&&... values) noexcept {
+    /// @brief Resolve the parent register type from a value pack.
+    /// All values must target the same register; a static_assert verifies this.
+    template <typename... Values>
+    struct ResolveParentReg {
         using FirstValueType = std::decay_t<std::tuple_element_t<0, std::tuple<Values...>>>;
         using FirstRegionType = typename FirstValueType::RegionType;
-        using ParentRegType =
+        using type =
             std::conditional_t<FirstRegionType::is_register, FirstRegionType, typename FirstRegionType::ParentRegType>;
 
         static_assert((std::is_same_v<std::conditional_t<std::decay_t<Values>::RegionType::is_register,
                                                          typename std::decay_t<Values>::RegionType,
                                                          typename std::decay_t<Values>::RegionType::ParentRegType>,
-                                      ParentRegType> &&
+                                      type> &&
                        ...),
                       "All values must target the same register");
+    };
 
+    /// @brief Write multiple values — called from write().
+    template <typename Self, typename... Values>
+    static void write_multiple(const Self& self, Values&&... values) noexcept {
+        using ParentRegType = typename ResolveParentReg<Values...>::type;
         check_transport_allowed<Self, ParentRegType>();
 
         auto reg_val = ParentRegType::reset_value();
@@ -283,18 +298,7 @@ class RegOps {
     /// @brief Read-modify-write implementation with W1C mask safety.
     template <typename Self, typename... Values>
     static void modify_impl(const Self& self, Values&&... values) noexcept {
-        using FirstValueType = std::decay_t<std::tuple_element_t<0, std::tuple<Values...>>>;
-        using FirstRegionType = typename FirstValueType::RegionType;
-        using ParentRegType =
-            std::conditional_t<FirstRegionType::is_register, FirstRegionType, typename FirstRegionType::ParentRegType>;
-
-        static_assert((std::is_same_v<std::conditional_t<std::decay_t<Values>::RegionType::is_register,
-                                                         typename std::decay_t<Values>::RegionType,
-                                                         typename std::decay_t<Values>::RegionType::ParentRegType>,
-                                      ParentRegType> &&
-                       ...),
-                      "All values must target the same register");
-
+        using ParentRegType = typename ResolveParentReg<Values...>::type;
         check_transport_allowed<Self, ParentRegType>();
 
         auto current = self.reg_read(ParentRegType{});
@@ -312,24 +316,17 @@ class RegOps {
     }
 
     /// @brief Apply a field value to a register value (pure function, no self).
-    template <typename T, typename Value>
-    static auto apply_field_value(T reg_val, const Value& v) {
-        using V = std::decay_t<Value>;
-        using RegionType = typename V::RegionType;
+    template <typename T, typename Val>
+    static auto apply_field_value(T reg_val, const Val& v) {
+        using VDecay = std::decay_t<Val>;
+        using RegionType = typename VDecay::RegionType;
         static_assert(RegionType::AccessType::can_write, "Cannot write to read-only register");
 
-        if constexpr (requires { V::value; }) {
+        if constexpr (requires { VDecay::value; }) {
             return (reg_val & ~RegionType::mask()) |
-                   ((static_cast<T>(V::value) << RegionType::shift) & RegionType::mask());
+                   ((static_cast<T>(VDecay::value) << RegionType::shift) & RegionType::mask());
         } else {
-            if constexpr (CheckPolicy::value) {
-                if constexpr (RegionType::bit_width < sizeof(T) * bits8) {
-                    auto const max_value = (1ULL << RegionType::bit_width) - 1;
-                    if (static_cast<std::uint64_t>(v.assigned_value) > max_value) {
-                        ErrorPolicy::on_range_error("Value out of range");
-                    }
-                }
-            }
+            check_dynamic_range<RegionType>(v.assigned_value);
             return (reg_val & ~RegionType::mask()) |
                    ((static_cast<T>(v.assigned_value) << RegionType::shift) & RegionType::mask());
         }

@@ -14,10 +14,10 @@
 int main() {
     umi::test::Suite suite("umimmio");
 
-    umimmio::test::register_register_field_tests(suite);
-    umimmio::test::register_transport_tests(suite);
-    umimmio::test::register_access_policy_tests(suite);
-    umimmio::test::register_byte_transport_tests(suite);
+    umimmio::test::run_register_field_tests(suite);
+    umimmio::test::run_transport_tests(suite);
+    umimmio::test::run_access_policy_tests(suite);
+    umimmio::test::run_byte_transport_tests(suite);
 
     return suite.summary();
 }

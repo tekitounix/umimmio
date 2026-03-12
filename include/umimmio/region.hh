@@ -622,7 +622,8 @@ struct RegisterArray {
 /// @tparam N Dispatch range [0, N).
 /// @tparam ErrorPolicy Error handler for out-of-range (default: AssertOnError).
 /// @param idx Runtime index.
-/// @param fn Generic lambda with template <std::size_t I> void operator()().
+/// @tparam Fn Generic lambda with template <std::size_t I> void operator()().
+/// @param fn Callable invoked with the matched compile-time index.
 template <std::size_t N, typename ErrorPolicy = AssertOnError, typename Fn>
 constexpr void dispatch(std::size_t idx, Fn&& fn) {
     if (idx >= N) {
@@ -641,7 +642,8 @@ constexpr void dispatch(std::size_t idx, Fn&& fn) {
 /// @tparam R Return type.
 /// @tparam ErrorPolicy Error handler for out-of-range (default: AssertOnError).
 /// @param idx Runtime index.
-/// @param fn Generic lambda with template <std::size_t I> R operator()().
+/// @tparam Fn Generic lambda with template <std::size_t I> R operator()().
+/// @param fn Callable invoked with the matched compile-time index.
 /// @param default_val Value returned when idx is out of range.
 template <std::size_t N, typename R, typename ErrorPolicy = AssertOnError, typename Fn>
 constexpr R dispatch_r(std::size_t idx, Fn&& fn, R default_val = {}) {

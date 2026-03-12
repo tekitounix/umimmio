@@ -66,7 +66,7 @@ struct DefaultCsrAccessor {
         } else if constexpr (CsrNum == 0x344) {
             asm volatile("csrr %0, mip" : "=r"(val));
         } else {
-            static_assert(CsrNum != CsrNum, "Unsupported CSR number — extend DefaultCsrAccessor");
+            static_assert(false, "Unsupported CSR number — extend DefaultCsrAccessor");
         }
         // NOLINTEND(hicpp-no-assembler)
         return val;
@@ -88,7 +88,7 @@ struct DefaultCsrAccessor {
         } else if constexpr (CsrNum == 0x341) {
             asm volatile("csrw mepc, %0" ::"r"(value));
         } else {
-            static_assert(CsrNum != CsrNum, "Unsupported CSR number — extend DefaultCsrAccessor");
+            static_assert(false, "Unsupported CSR number — extend DefaultCsrAccessor");
         }
         // NOLINTEND(hicpp-no-assembler)
     }

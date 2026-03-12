@@ -42,7 +42,7 @@ struct MockTransport : private RegOps<> {
 
     using TransportTag = Direct;
 
-    std::array<std::uint8_t, 256> mutable memory{};
+    mutable std::array<std::uint8_t, 256> memory{};
 
     /// @brief Clear all mock memory to zero.
     void clear_memory() noexcept { memory.fill(0); }
@@ -169,11 +169,11 @@ struct CtrlChannel : Field<CtrlReg, 4, 4, Numeric> {};
 
 // --- Enum values for Mode ---
 
-enum class ModeVal : uint8_t { NORMAL = 0, FAST = 1, LOW_POWER = 2, TEST = 3 };
+enum class ModeVal : std::uint8_t { NORMAL = 0, FAST = 1, LOW_POWER = 2, TEST = 3 };
 
-using ModeNormal = Value<ConfigMode, static_cast<uint8_t>(ModeVal::NORMAL)>;
-using ModeFast = Value<ConfigMode, static_cast<uint8_t>(ModeVal::FAST)>;
-using ModeLowPower = Value<ConfigMode, static_cast<uint8_t>(ModeVal::LOW_POWER)>;
-using ModeTest = Value<ConfigMode, static_cast<uint8_t>(ModeVal::TEST)>;
+using ModeNormal = Value<ConfigMode, static_cast<std::uint8_t>(ModeVal::NORMAL)>;
+using ModeFast = Value<ConfigMode, static_cast<std::uint8_t>(ModeVal::FAST)>;
+using ModeLowPower = Value<ConfigMode, static_cast<std::uint8_t>(ModeVal::LOW_POWER)>;
+using ModeTest = Value<ConfigMode, static_cast<std::uint8_t>(ModeVal::TEST)>;
 
 } // namespace umimmio::test
