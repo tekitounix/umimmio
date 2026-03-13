@@ -3,32 +3,32 @@
 English | [日本語](docs/readme.ja.md)
 
 A type-safe, zero-cost memory-mapped I/O library for C++23.
-Define register maps at compile time and access them through direct MMIO, I2C, or SPI transports with the same API.
+Define register maps at compile time and access them through direct MMIO, I2C, or SPI transports with the same API for register-addressed devices.
 
 ## Why umimmio
 
 - **Safe by default** — fields only accept named `Value<>` types; raw numeric access requires opt-in via `Numeric`
 - **Zero-cost** — all dispatch resolved at compile time, no vtable, no heap
-- **Multiple transports** — same register map works across `DirectTransport`, `I2cTransport`, `SpiTransport`
+- **Multiple transports** — same register map works across `DirectTransport`, `I2cTransport`, `SpiTransport` for register-addressed devices
 - **Policy-based error handling** — `AssertOnError`, `TrapOnError`, `IgnoreError`, `CustomErrorHandler`
 - **C++23** — deducing this (no CRTP), `if consteval`, `std::byteswap`
 
-Traditional C/C++ vendor headers (CMSIS, ESP-IDF, Pico SDK) expose registers as raw `uint32_t` pointers and bit-mask macros. This allows bugs that pass compilation silently:
+Traditional C/C++ vendor headers (CMSIS, ESP-IDF, Pico SDK) define peripheral registers as typed struct members with access qualifiers (`__IM`, `__OM`, `__IOM` in CMSIS) and provide bit-mask macros for field manipulation. This offers register-level read/write control, but field-level type safety is limited — bit-mask constants are unscoped integers that can be applied to any register:
 
 ```c
 USART1->SR |= USART_CR1_UE;        // Wrong register — compiles fine
 GPIOA->ODR |= USART_CR1_UE;        // Wrong peripheral — compiles fine
-USART1->SR = 0;                     // Write to RO bits — compiles fine
+USART1->SR = 0;                     // Write to RO bits in mixed register — compiles fine
 ```
 
 umimmio eliminates these classes of bugs through compile-time type enforcement:
 
-| Safety check | Vendor CMSIS | umimmio |
+| Safety check | Vendor headers (CMSIS) | umimmio |
 |-------------|:----------:|:-------:|
 | Cross-register bit-mask misuse | ❌ | ✅ Compile error |
 | Cross-peripheral bit-mask misuse | ❌ | ✅ Compile error |
-| Write to read-only register | ❌ | ✅ Compile error |
-| Read from write-only register | ❌ | ✅ Compile error |
+| Write to read-only register | ⚠️ Register-level `__IM` only | ✅ Field-level compile error |
+| Read from write-only register | ⚠️ Register-level `__OM` only | ✅ Field-level compile error |
 | Field width range check | ❌ | ✅ `if consteval` + runtime policy |
 | Named value type safety | ❌ (macros) | ✅ NTTP `Value<F, V>` |
 | W1C (Write-1-to-Clear) safety | ❌ | ✅ Compile error on `modify()` |
@@ -117,7 +117,7 @@ struct MyDevice : Device<RW> {
 
 **Device**`<Access = RW, AllowedTransports... = Direct>` — top-level peripheral. Requires `static constexpr Addr base_address`.
 
-**Register**`<Parent, Offset, Bits, Access = RW, Reset = 0, W1cMask = 0>` — bit region at byte offset from parent.
+**Register**`<Parent, Offset, Bits, Access = RW, Reset = 0, W1cMask = 0>` — bit region at byte offset from parent. `Bits` determines both the logical register width and the physical access width used by `DirectTransport` (via `UintFit<Bits>`). Always specify the access width from the datasheet — this may differ from the number of defined data bits.
 
 **Field**`<Reg, BitOffset, BitWidth, Traits...>` — bit range within a register. Traits: access policy (`RO`, `WO`, `W1C`) and/or `Numeric`, in any order. `Numeric` enables raw `value()`/`bits()` — appropriate only for counters, divisors, addresses, and similar data-valued fields. Mode selectors, configuration bits, and other finite identifiers must use named `Value<>` instead.
 
@@ -260,16 +260,16 @@ io.modify(AFR0::value(7U));  // What is 7? Opaque, error-prone
 
 ### Register::value() — when it's correct and when it's not
 
-`Register::value()` is **the intended API** for data registers and bitmap registers:
+`Register::value()` is **the intended API** for data registers and simple RW bitmap registers:
 
 - **Data registers** (SPI DR, USART DR, ADC DR) — the entire register is a single numeric value with no field structure.
-- **Bitmap registers** (NVIC ISER, GPIO BSRR, EXTI IMR/PR) — each bit is an independent control target (IRQ, pin, interrupt line). Per-bit Named Value definitions would be disproportionately expensive for the type safety gained.
+- **Simple RW bitmap registers** (EXTI IMR, NVIC ISER) — each bit is an independent control target. Per-bit Named Value definitions would be disproportionately expensive for the type safety gained. **Note**: registers with special write semantics (W1C, W1S, W1T — e.g. EXTI PR, GPIO BSRR) should use the corresponding access policy and dedicated API (`clear()`, `write()` with typed values) instead of raw `Register::value()`.
 
 ```cpp
 // Data register — Register::value() is the normal API
 io.write(SPI::DR::value(tx_byte));
 
-// Bitmap register — Register::value() is practical
+// Simple RW bitmap register — Register::value() is practical
 io.write(NVIC::ISER<irq_num / 32>::value(1U << (irq_num % 32)));
 
 // With compile-time dispatch for register index
@@ -287,24 +287,28 @@ For **registers with structured fields** (PLLCFGR, MODER, CR1), `Register::value
 
 > **Note**: Rust's svd2rust marks the equivalent `w.bits(n)` as `unsafe`.
 > umimmio's `Register::value()` is not `unsafe` in C++ terms.
-> For data registers and bitmap registers, it is the intended API.
-> For registers with structured fields, it bypasses field-level type safety
-> and should be treated with equivalent caution to svd2rust's `unsafe` `.bits()`.
+> For data registers and simple RW bitmap registers, it is the intended API.
+> For registers with structured fields or special write semantics (W1C/W1S/W1T),
+> it bypasses type safety and should be treated with equivalent caution
+> to svd2rust's `unsafe` `.bits()`.
 
 ## W1C (Write-1-to-Clear) Fields
 
 W1C fields are common in status/interrupt registers. Define with three steps:
 
 ```cpp
+// Example: hypothetical status register with W1C flags.
+// Whether a hardware flag uses W1C (rc_w1), rc_w0, or another clear
+// mechanism is register-specific — always consult the datasheet.
 struct SR : Register<MyDevice, 0x08, 32, RW, 0, /*W1cMask=*/0x03> {
-    struct OVR : Field<SR, 0, 1, W1C> {};    // Clear auto-generated
-    struct EOC : Field<SR, 1, 1, W1C> {};    // Clear auto-generated
-    struct EN  : Field<SR, 8, 1> {};          // normal RW
+    struct FLAG0 : Field<SR, 0, 1, W1C> {};   // Clear auto-generated
+    struct FLAG1 : Field<SR, 1, 1, W1C> {};   // Clear auto-generated
+    struct EN    : Field<SR, 8, 1> {};         // normal RW
 };
 
-io.clear(SR::OVR{});             // clears OVR without touching EOC or EN
-io.modify(SR::EN::Set{});        // safe: W1C bits auto-masked to 0
-// io.modify(SR::OVR::Clear{});  // compile error — use clear() for W1C
+io.clear(SR::FLAG0{});            // clears FLAG0 without touching FLAG1 or EN
+io.modify(SR::EN::Set{});         // safe: W1C bits auto-masked to 0
+// io.modify(SR::FLAG0::Clear{}); // compile error — use clear() for W1C
 ```
 
 The `W1cMask` ensures that `modify()` and `flip()` automatically zero W1C bit positions before write-back, preventing accidental flag clearing.
@@ -328,7 +332,7 @@ io.write(SIO::GPIO_OUT_SET::value(pin_mask));  // atomic set
 io.write(SIO::GPIO_OUT_XOR::value(pin_mask));  // atomic toggle
 ```
 
-1-bit W1S fields get `Set`/`Reset` aliases (same as normal RW — "write 1 to set" matches).
+1-bit W1S fields get `Set`/`Reset` aliases (same as normal RW — `Set` = `Value<F, 1>` means "write 1 to set" which matches W1S semantics; `Reset` = `Value<F, 0>` writes 0, which is a **no-op** on W1S hardware).
 1-bit W1T fields get a `Toggle` alias instead.
 
 `modify()` and `flip()` are compile errors on W1S/W1T fields — read-modify-write is unsafe or meaningless for special write behaviors.
@@ -414,6 +418,10 @@ umi::mmio::SpiTransport<MySpi> spi(hal_spi);            // HAL SPI
 
 All transports expose the same `write()`, `read()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()` API.
 The Device's `AllowedTransports...` parameter makes unauthorized transport usage a compile error.
+
+> **Note**: `I2cTransport` and `SpiTransport` assume a register-addressed protocol
+> (address byte(s) followed by data). Devices requiring dummy bytes, multi-step
+> command sequences, or non-standard CS/burst control need a custom transport.
 
 ### CsrTransport — RISC-V CSR Access
 

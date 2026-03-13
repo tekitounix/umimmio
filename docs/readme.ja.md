@@ -3,32 +3,32 @@
 [English](../README.md) | 日本語
 
 C++23 向けの型安全、ゼロコストメモリマップド I/O ライブラリ。
-レジスタマップをコンパイル時に定義し、同一の API で Direct MMIO、I2C、SPI トランスポート経由でアクセスできる。
+レジスタマップをコンパイル時に定義し、同一の API で Direct MMIO、I2C、SPI トランスポート経由でレジスタアドレス型デバイスにアクセスできる。
 
 ## 特徴
 
 - **デフォルトで安全** — フィールドは名前付き `Value<>` 型のみ受け付け、raw 数値アクセスは `Numeric` でオプトイン
 - **ゼロコスト** — 全ディスパッチはコンパイル時に解決、vtable なし、ヒープなし
-- **複数トランスポート** — 同一レジスタマップを `DirectTransport`、`I2cTransport`、`SpiTransport` で共有
+- **複数トランスポート** — 同一レジスタマップを `DirectTransport`、`I2cTransport`、`SpiTransport` でレジスタアドレス型デバイスに対して共有
 - **ポリシーベースエラーハンドリング** — `AssertOnError`、`TrapOnError`、`IgnoreError`、`CustomErrorHandler`
 - **C++23** — deducing this (CRTP 不要)、`if consteval`、`std::byteswap`
 
-従来の C/C++ ベンダーヘッダー（CMSIS、ESP-IDF、Pico SDK 等）はレジスタを `uint32_t` ポインタとビットマスクマクロで公開している。以下のようなバグがコンパイルを通過する:
+従来の C/C++ ベンダーヘッダー（CMSIS、ESP-IDF、Pico SDK 等）はペリフェラルレジスタをアクセス修飾子付き構造体メンバ（CMSIS では `__IM`、`__OM`、`__IOM`）とビットマスクマクロで定義している。レジスタレベルの読み書き制御は提供されるが、フィールドレベルの型安全性は限られる — ビットマスク定数はスコープのない整数であり、任意のレジスタに適用できてしまう:
 
 ```c
 USART1->SR |= USART_CR1_UE;        // 間違ったレジスタ — コンパイル通過
 GPIOA->ODR |= USART_CR1_UE;        // 間違ったペリフェラル — コンパイル通過
-USART1->SR = 0;                     // RO ビットへの書き込み — コンパイル通過
+USART1->SR = 0;                     // 混在レジスタ内の RO ビットへの書き込み — コンパイル通過
 ```
 
 umimmio はこれらのバグをコンパイル時の型検査で排除する:
 
-| 安全チェック | ベンダー CMSIS | umimmio |
+| 安全チェック | ベンダーヘッダー (CMSIS) | umimmio |
 |-------------|:----------:|:-------:|
 | クロスレジスタのビットマスク誤用 | ❌ | ✅ コンパイルエラー |
 | クロスペリフェラルのビットマスク誤用 | ❌ | ✅ コンパイルエラー |
-| 読み出し専用レジスタへの書き込み | ❌ | ✅ コンパイルエラー |
-| 書き込み専用レジスタからの読み出し | ❌ | ✅ コンパイルエラー |
+| 読み出し専用レジスタへの書き込み | ⚠️ レジスタレベル `__IM` のみ | ✅ フィールドレベルのコンパイルエラー |
+| 書き込み専用レジスタからの読み出し | ⚠️ レジスタレベル `__OM` のみ | ✅ フィールドレベルのコンパイルエラー |
 | フィールド幅のレンジチェック | ❌ | ✅ `if consteval` + ランタイムポリシー |
 | 名前付き値の型安全性 | ❌ (マクロ) | ✅ NTTP `Value<F, V>` |
 | W1C (Write-1-to-Clear) 安全性 | ❌ | ✅ `modify()` でコンパイルエラー |
@@ -117,7 +117,7 @@ struct MyDevice : Device<RW> {
 
 **Device**`<Access = RW, AllowedTransports... = Direct>` — トップレベルのペリフェラル。`static constexpr Addr base_address` が必要。
 
-**Register**`<Parent, Offset, Bits, Access = RW, Reset = 0, W1cMask = 0>` — 親からのバイトオフセットに位置するビット領域。
+**Register**`<Parent, Offset, Bits, Access = RW, Reset = 0, W1cMask = 0>` — 親からのバイトオフセットに位置するビット領域。`Bits` は論理的なレジスタ幅と `DirectTransport` が使用する物理アクセス幅の両方を決定する（`UintFit<Bits>` 経由）。データシートに記載のアクセス幅を指定すること — 定義済みデータビット数とは異なる場合がある。
 
 **Field**`<Reg, BitOffset, BitWidth, Traits...>` — レジスタ内のビット範囲。Traits: アクセスポリシー (`RO`, `WO`, `W1C`) および/または `Numeric`、順序不問。`Numeric` は raw `value()`/`bits()` を有効にする — カウンタ、分周器、アドレス等のデータ値フィールドにのみ適切。モードセレクタ、設定ビット等の有限な識別子には名前付き `Value<>` を使うこと。
 
@@ -260,16 +260,16 @@ io.modify(AFR0::value(7U));  // 7 とは何か？不透明で誤りやすい
 
 ### Register::value() — 正しい場合と間違いの場合
 
-`Register::value()` はデータレジスタとビットマップレジスタでは**正規の API** である:
+`Register::value()` はデータレジスタと単純な RW ビットマップレジスタでは**正規の API** である:
 
 - **データレジスタ** (SPI DR, USART DR, ADC DR) — レジスタ全体がフィールド構造を持たない単一数値。
-- **ビットマップレジスタ** (NVIC ISER, GPIO BSRR, EXTI IMR/PR) — 各ビットが独立した制御対象（IRQ、ピン、割り込みライン）に対応する。ビット単位の Named Value 定義はコスト不釣り合い。
+- **単純な RW ビットマップレジスタ** (EXTI IMR, NVIC ISER) — 各ビットが独立した制御対象に対応する。ビット単位の Named Value 定義はコスト不釣り合い。**注意**: 特殊な書き込みセマンティクスを持つレジスタ（W1C、W1S、W1T — 例: EXTI PR、GPIO BSRR）は対応するアクセスポリシーと専用 API（`clear()`、型付き値での `write()`）を使用し、raw `Register::value()` は避けること。
 
 ```cpp
 // データレジスタ — Register::value() が通常の API
 io.write(SPI::DR::value(tx_byte));
 
-// ビットマップレジスタ — Register::value() が実用的
+// 単純な RW ビットマップレジスタ — Register::value() が実用的
 io.write(NVIC::ISER<irq_num / 32>::value(1U << (irq_num % 32)));
 
 // レジスタインデックスのコンパイル時ディスパッチ
@@ -287,24 +287,27 @@ dispatch<8>(reg_idx, [&]<std::size_t I>() {
 
 > **参考**: Rust の svd2rust は同等の `w.bits(n)` を `unsafe` として扱う。
 > umimmio の `Register::value()` は C++ の意味では `unsafe` ではない。
-> データレジスタとビットマップレジスタでは正規 API である。
-> フィールドを持つレジスタでは、フィールドレベルの型安全をバイパスするため、
-> svd2rust の `unsafe` `.bits()` と同等の注意が必要。
+> データレジスタと単純な RW ビットマップレジスタでは正規 API である。
+> フィールドを持つレジスタや特殊な書き込みセマンティクス（W1C/W1S/W1T）を持つレジスタでは、
+> 型安全をバイパスするため、svd2rust の `unsafe` `.bits()` と同等の注意が必要。
 
 ## W1C (Write-1-to-Clear) フィールド
 
 W1C フィールドはステータス/割り込みレジスタで一般的。3ステップで定義する:
 
 ```cpp
+// 例: W1C フラグを持つ架空のステータスレジスタ。
+// ハードウェアフラグが W1C (rc_w1)、rc_w0、または他のクリア機構を
+// 使用するかはレジスタ固有 — 必ずデータシートを参照すること。
 struct SR : Register<MyDevice, 0x08, 32, RW, 0, /*W1cMask=*/0x03> {
-    struct OVR : Field<SR, 0, 1, W1C> {};    // Clear 自動生成
-    struct EOC : Field<SR, 1, 1, W1C> {};    // Clear 自動生成
-    struct EN  : Field<SR, 8, 1> {};          // 通常の RW
+    struct FLAG0 : Field<SR, 0, 1, W1C> {};   // Clear 自動生成
+    struct FLAG1 : Field<SR, 1, 1, W1C> {};   // Clear 自動生成
+    struct EN    : Field<SR, 8, 1> {};         // 通常の RW
 };
 
-io.clear(SR::OVR{});             // EOC や EN に影響せず OVR をクリア
-io.modify(SR::EN::Set{});        // 安全: W1C ビットは自動的に 0 にマスク
-// io.modify(SR::OVR::Clear{});  // コンパイルエラー — W1C には clear() を使う
+io.clear(SR::FLAG0{});            // FLAG1 や EN に影響せず FLAG0 をクリア
+io.modify(SR::EN::Set{});         // 安全: W1C ビットは自動的に 0 にマスク
+// io.modify(SR::FLAG0::Clear{}); // コンパイルエラー — W1C には clear() を使う
 ```
 
 `W1cMask` により、`modify()` と `flip()` 時に W1C ビット位置が自動的にゼロにされ、フラグの意図しないクリアを防止する。
@@ -328,7 +331,7 @@ io.write(SIO::GPIO_OUT_SET::value(pin_mask));  // アトミックセット
 io.write(SIO::GPIO_OUT_XOR::value(pin_mask));  // アトミックトグル
 ```
 
-1 ビット W1S フィールドは `Set`/`Reset` エイリアスを得る（通常の RW と同じ — 「1 を書いてセット」が一致）。
+1 ビット W1S フィールドは `Set`/`Reset` エイリアスを得る（通常の RW と同じ — `Set` = `Value<F, 1>` は「1 を書いてセット」で W1S セマンティクスに一致。`Reset` = `Value<F, 0>` は 0 を書くが、W1S ハードウェアでは **no-op**）。
 1 ビット W1T フィールドは代わりに `Toggle` エイリアスを得る。
 
 `modify()` と `flip()` は W1S/W1T フィールドではコンパイルエラー — 特殊な書き込みセマンティクスに対して read-modify-write は安全でないか意味がない。
@@ -415,6 +418,10 @@ umi::mmio::SpiTransport<MySpi> spi(hal_spi);            // HAL SPI
 全トランスポートが同一の `write()`, `read()`, `modify()`, `is()`, `flip()`, `clear()`, `reset()` API を提供する。
 Device の `AllowedTransports...` パラメータにより、許可されないトランスポートの使用はコンパイルエラーになる。
 
+> **注意**: `I2cTransport` と `SpiTransport` はレジスタアドレス型プロトコル
+> （アドレスバイトに続いてデータ）を前提としている。ダミーバイト、マルチステップ
+> コマンドシーケンス、非標準の CS/バースト制御が必要なデバイスにはカスタムトランスポートが必要。
+
 ### CsrTransport — RISC-V CSR アクセス
 
 CSR (Control and Status Register) アクセスは専用トランスポートにより同一の型安全 API で提供される:
@@ -434,7 +441,6 @@ struct RiscvMachine : Device<RW, Csr> {
 };
 
 // CsrAccessor concept で任意のアクセサ実装を注入可能
-CsrTransport<MockCsrAccessor> csr;
 CsrTransport<MockCsrAccessor> csr;
 csr.modify(RiscvMachine::MSTATUS::MIE::Set{});
 ```
