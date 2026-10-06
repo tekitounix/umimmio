@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
+/// @file
+/// @brief Negative compile test: writing to a read-only register must fail.
+/// @author Shota Moriguchi @tekitounix
+/// @details Triggers WritableValue concept failure on RO register.
+
+#include <umimmio/ops.hh>
+
+namespace {
+
+using namespace umi::mmio;
+
+struct TestDevice : Device<> {};
+struct StatusReg : Register<TestDevice, 0x00, bits32, RO, 0> {};
+
+/// @brief Mock transport for compile-time test.
+struct MockTransport : private RegOps<> {
+  public:
+    using RegOps<>::write;
+    using RegOps<>::read;
+    using TransportTag = Direct;
+
+    template <typename Reg>
+    auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
+        return 0;
+    }
+
+    template <typename Reg>
+    void reg_write(Reg /*reg*/, typename Reg::RegValueType /*val*/) noexcept {}
+};
+
+} // namespace
+
+/// @brief Compile-fail test entrypoint.
+int main() {
+    MockTransport hw;
+    hw.write(StatusReg::value(42U)); // ERROR: Cannot write to read-only register
+    return 0;
+}

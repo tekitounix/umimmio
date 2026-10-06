@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026, tekitounix
+/// @file
+/// @brief Negative compile test: raw value() on safe (non-Numeric) field must fail.
+/// @author Shota Moriguchi @tekitounix
+/// @details Fields without mm::Numeric trait do not expose value().
+///          Only named Value<> types are allowed.
+
+#include <umimmio/ops.hh>
+
+namespace {
+
+using namespace umi::mmio;
+
+struct TestDevice : Device<> {};
+struct CtrlReg : Register<TestDevice, 0x00, bits32, RW, 0> {};
+
+// Field without Numeric — safe by default, raw value() must be rejected
+struct MODE : Field<CtrlReg, 4, 2> {};
+
+/// @brief Mock transport for compile-time test.
+struct MockTransport : private RegOps<> {
+  public:
+    using RegOps<>::write;
+    using RegOps<>::modify;
+    using TransportTag = Direct;
+
+    template <typename Reg>
+    auto reg_read(Reg /*reg*/) const noexcept -> typename Reg::RegValueType {
+        return 0;
+    }
+
+    template <typename Reg>
+    void reg_write(Reg /*reg*/, typename Reg::RegValueType /*val*/) noexcept {}
+};
+
+} // namespace
+
+/// @brief Compile-fail test entrypoint.
+int main() {
+    MockTransport hw;
+    hw.modify(MODE::value(1)); // ERROR: value() unavailable on non-Numeric field
+    return 0;
+}
